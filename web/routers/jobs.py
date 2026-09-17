@@ -50,7 +50,7 @@ def _validate_args(params: dict) -> list[str]:
         argv += ["--league", str(league)]
     source = params.get("data_source")
     if source is not None:
-        if source not in _VALUE_ARGS["--data-source"]:
+        if source not in _DATASOURCE_VALUES:
             raise errors.ApiError("invalid_params", f"未知数据源: {source}")
         if source:
             argv += ["--data-source", str(source)]

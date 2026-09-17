@@ -602,9 +602,9 @@ def main() -> int:
         _lh.parent.mkdir(parents=True, exist_ok=True)
         sys.stdout = open(_lh, "a", encoding="utf-8")
         sys.stderr = open(_lh, "a", encoding="utf-8")
-    # 单例锁：--push-batch 定时任务主路径专用；probe/collect 不锁（可并行诊断）
+    # 单例锁：--push / --push-batch 定时任务主路径专用；probe/collect 不锁（可并行诊断）
     _locked = False
-    if args.push_batch:
+    if args.push or args.push_batch:
         if not _acquire_singleton_lock():
             print(f"[singleton] 已有活跃批次在跑，本次 no-op")
             return 0
@@ -617,7 +617,7 @@ def main() -> int:
         if args.collect_all:
             return collect_all()
         if args.push:
-            return push()
+            return push_batch(list(CONFIG["topics"]))
         if args.push_batch:
             return push_batch(args.push_batch)
         ap.print_help()
