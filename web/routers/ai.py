@@ -8,7 +8,9 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from datetime import date
+
+from fastapi import APIRouter, Depends, Query, Request
 
 from web.auth import require_auth
 from web.services import ai
@@ -26,3 +28,25 @@ def ai_get_status(request: Request, _: None = Depends(require_auth)) -> dict:
 def ai_get_details(request: Request, _: None = Depends(require_auth)) -> dict:
     """AI 富化明细（最多 50 条，按 ai_score 降序）。"""
     return ai.ai_details()
+
+
+def _parse_day(value: str | None) -> date:
+    if value is None:
+        return ai.store.bjt_today()
+    return date.fromisoformat(value)
+
+
+@router.get("/ai/daily")
+def ai_daily(request: Request, date_str: str | None = Query(None, alias="date"), _: None = Depends(require_auth)) -> dict:
+    try:
+        return ai.ai_daily_report(_parse_day(date_str))
+    except ValueError:
+        return {"available": False, "reason": "invalid_date", "items": [], "summary": {}}
+
+
+@router.get("/ai/ranking")
+def ai_ranking(request: Request, date_str: str | None = Query(None, alias="date"), limit: int = Query(10, ge=1, le=50), _: None = Depends(require_auth)) -> dict:
+    try:
+        return ai.ai_ranking(_parse_day(date_str), limit)
+    except ValueError:
+        return {"available": False, "reason": "invalid_date", "hot": [], "cold": [], "matched_count": 0}

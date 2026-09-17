@@ -140,6 +140,8 @@ GET /api/v1/calibration
 GET /api/v1/history
 GET /api/v1/backtest
 GET /api/v1/prediction-metadata
+GET /api/v1/ai/daily
+GET /api/v1/ai/ranking
 GET /api/v1/sources/status
 ```
 
@@ -247,6 +249,12 @@ scripts/
 | bundesliga | Bundesliga | football-data | 78 | 0.19 | 3.2 |
 | seriea | Serie A | football-data | 135 | 0.28 | 2.5 |
 | ligue1 | Ligue 1 | football-data | 61 | 0.21 | 2.7 |
+
+## Dashboard AI 日报与分数榜
+
+Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合生成，只复用已有预测字段、`ai_summary` 和 `ai_notes`，不生成新闻、赛果或收益结论。AI 分数榜仅按有限数值 `ai_score` 排序，明确标注“非投注热度”；预测与 AI 记录必须通过比赛名称和联赛 exact match 关联，未关联项不补分。
+
+新增鉴权接口：`GET /api/v1/ai/daily`、`GET /api/v1/ai/ranking`。缺少或损坏 AI 文件时返回降级状态，不影响预测主流程。
 
 ## Dashboard 推荐详情与数据边界
 

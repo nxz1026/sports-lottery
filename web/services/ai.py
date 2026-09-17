@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+from datetime import date
 from pathlib import Path
 
 from web import config
+from web.services import store
 
 logger = logging.getLogger("web.ai")
 
@@ -76,3 +79,58 @@ def ai_details() -> dict:
         })
     items.sort(key=lambda row: row["ai_score"] or 0, reverse=True)
     return {"available": True, "matches": len(items), "items": items[:50]}
+
+
+def _day_items(day: date) -> tuple[list[dict], dict[str, int]]:
+    items, counts = [], {}
+    for league, doc in store.latest_by_league().items():
+        data = doc.get("data", {})
+        if not store.covers_date(data, day):
+            continue
+        predictions = data.get("predictions", [])
+        if not isinstance(predictions, list):
+            continue
+        counts[league] = 0
+        for prediction in predictions:
+            if isinstance(prediction, dict):
+                row = dict(prediction)
+                row.update(league=league, generated_at=data.get("generated_at"))
+                items.append(row)
+                counts[league] += 1
+    return items, counts
+
+
+def _joined_item(prediction: dict, scores: dict) -> dict:
+    match = prediction.get("match", "")
+    value = scores.get(match)
+    joined = isinstance(value, dict) and value.get("league", "") == prediction.get("league")
+    item = {key: prediction.get(key) for key in ("match", "home", "away", "league", "kickoff_utc", "direction", "stars", "confidence_score", "predicted_score")}
+    item["ai_matched"] = joined
+    item.update({key: value.get(key) if joined else (None if key == "ai_score" else "") for key in ("ai_score", "ai_summary", "ai_notes", "source")})
+    return item
+
+
+def ai_daily_report(day: date) -> dict:
+    try:
+        scores = _load_ai_scores()
+        predictions, counts = _day_items(day)
+        items = [_joined_item(prediction, scores) for prediction in predictions]
+        matched_by_league = {}
+        for item in items:
+            matched_by_league[item["league"]] = matched_by_league.get(item["league"], 0) + int(item["ai_matched"])
+        matched = sum(int(item["ai_matched"]) for item in items)
+        leagues = {league: {"prediction_count": count, "ai_matched_count": matched_by_league.get(league, 0)} for league, count in sorted(counts.items())}
+        return {"available": True, "date": day.isoformat(), "summary": {"prediction_count": len(items), "ai_matched_count": matched, "unmatched_count": len(items) - matched, "leagues": leagues}, "items": items}
+    except Exception as exc:
+        logger.exception("AI 日报加载异常: %s", exc)
+        return {"available": False, "date": day.isoformat(), "reason": f"load_failed: {exc.__class__.__name__}", "summary": {"prediction_count": 0, "ai_matched_count": 0, "unmatched_count": 0, "leagues": {}}, "items": []}
+
+
+def ai_ranking(day: date, limit: int = 10) -> dict:
+    report = ai_daily_report(day)
+    definition = "仅 ai_scores.ai_score 数值排序，不代表投注热度"
+    if not report.get("available"):
+        return {**report, "metric": "ai_score", "definition": definition, "matched_count": 0, "hot": [], "cold": []}
+    ranked = [item for item in report["items"] if item["ai_matched"] and isinstance(item.get("ai_score"), (int, float)) and not isinstance(item.get("ai_score"), bool) and math.isfinite(float(item["ai_score"]))]
+    key = lambda item: (float(item["ai_score"]), str(item.get("league", "")), str(item.get("match", "")))
+    return {"available": True, "date": report["date"], "metric": "ai_score", "definition": definition, "matched_count": len(ranked), "hot": sorted(ranked, key=key, reverse=True)[:limit], "cold": sorted(ranked, key=key)[:limit]}
