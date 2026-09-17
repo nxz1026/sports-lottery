@@ -1,15 +1,39 @@
 """契约 v1.1 官方 payload → 规范行：lottery_draw 开奖与 jclq 篮彩（纯函数：零 DB、零网络、零副作用，只用 stdlib）。
 parse_lottery_draw 一行 = 一个彩种的一期 → fact.lottery_draw（号码串原样；解析结果另存新列 numbers，不重排不去重）。
-jclq 两 topic 的裁决行为原样保留：§5.5 未冻结 ⇒ parse_jclq_offer raise；§5.6 已冻结但无落点表 ⇒ parse_jclq_result raise。
+jclq 两 topic 裁决：§5.5 未冻结 ⇒ parse_jclq_offer raise；§5.6 已冻结且落点表已建 ⇒ parse_jclq_result 真解析。
 """
 
 from __future__ import annotations
 
-from .parse_values import build, need, out, split_numbers
+from .parse_values import build, dec, need, out, split_numbers
 
 LOTTERY = ("lotteryGameNum>game_num lotteryDrawNum>issue_no lotteryGameName>game_name lotteryDrawTime:c>draw_date "
            "lotteryDrawStatus>status lotteryDrawResult>numbers_raw drawFlowFund>pool "
            "lotteryEquipmentCount>equipment_count")
+
+_RAW_BLOCK_KEYS = (
+    "leagueId", "leagueName", "leagueNameAbbr", "leagueBackColor", "matchNum", "matchNumStr",
+    "matchDate", "matchTime", "allHomeTeam", "allAwayTeam", "homeTeam", "awayTeam", "homeTeamId", "awayTeamId",
+)
+
+def _parse_ft(status: int, final_score: str) -> tuple[int | None, int | None]:
+    """status=2 且比分合法 → (ft_h, ft_a)；否则 → (None, None)；非法比分 raise。"""
+    if status != 2 or final_score in ("-", ""):
+        return None, None
+    parts = final_score.split("-")
+    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        raise ValueError(f"status=2 但 finalScore 无法解析为主-客整数：{final_score!r}")
+    return int(parts[0]), int(parts[1])
+
+def _odds(block: dict) -> object:
+    """winOdds 空串 → None，非空 → Decimal。"""
+    v = block.get("winOdds", "")
+    return None if v == "" else dec(v)
+
+def _line(block: dict) -> object:
+    """goalLine 空串或 '-' → None；数字串 → Decimal。"""
+    v = block.get("goalLine", "")
+    return None if v in ("", "-") else dec(v)
 
 
 def parse_lottery_draw(payload: dict) -> dict:
@@ -29,5 +53,48 @@ def parse_jclq_offer(payload: dict) -> dict:
 
 
 def parse_jclq_result(payload: dict) -> dict:
-    """§5.6 已冻结 jclq_result 形态，但 P0-STORE2 的 DDL 只有足球 8 表、无篮彩落点 ⇒ 不产行（点名等定）。"""
-    raise ValueError("fact 层无篮彩落点表（P0-STORE2 DDL 未建）：形态已冻结但无可落之表")
+    """§5.6 已冻结 jclq_result → fact.jbq_result（篮彩盘口+战果；不按联赛过滤，闸门在下一单）。"""
+    need(payload, "matchId", int)
+    status = payload["status"]
+    final_score = payload.get("finalScore", "-") or "-"
+    ft_h, ft_a = _parse_ft(status, final_score)
+    mnl = payload["mnl"]
+    hdc = payload["hdc"]
+    hilo = payload["hilo"]
+    wnm = payload["wnm"]
+    singles = {k: payload[k]["single"] for k in ("mnl", "hdc", "hilo", "wnm")}
+    notes: list[str] = []
+    if len(set(singles.values())) > 1:
+        notes.append(
+            f"betting_single 四块不一致: mnl={singles['mnl']} hdc={singles['hdc']}"
+            f" hilo={singles['hilo']} wnm={singles['wnm']}"
+        )
+    row = {
+        "match_id":           payload["matchId"],
+        "final_score":        final_score,
+        "ft_h":               ft_h,
+        "ft_a":               ft_a,
+        "status":             status,
+        "pool_status":        payload.get("poolStatus"),
+        "betting_single":     mnl["single"],
+        "mnl_combination":    mnl.get("combination"),
+        "mnl_desc":           mnl.get("combinationDesc"),
+        "mnl_result_status":  mnl.get("resultStatus"),
+        "mnl_odds":           _odds(mnl),
+        "hdc_line":           _line(hdc),
+        "hdc_combination":    hdc.get("combination"),
+        "hdc_desc":           hdc.get("combinationDesc"),
+        "hdc_result_status":  hdc.get("resultStatus"),
+        "hdc_odds":           _odds(hdc),
+        "hilo_line":          _line(hilo),
+        "hilo_combination":   hilo.get("combination"),
+        "hilo_desc":          hilo.get("combinationDesc"),
+        "hilo_result_status": hilo.get("resultStatus"),
+        "hilo_odds":          _odds(hilo),
+        "wnm_combination":    wnm.get("combination"),
+        "wnm_desc":           wnm.get("combinationDesc"),
+        "wnm_result_status":  wnm.get("resultStatus"),
+        "wnm_odds":           _odds(wnm),
+        "raw_blocks":         {k: payload[k] for k in _RAW_BLOCK_KEYS},
+    }
+    return out("fact.jbq_result", {"match_id": row["match_id"]}, row, notes)

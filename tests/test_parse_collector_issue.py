@@ -79,7 +79,8 @@ def test_error_lines_produce_no_fact_row():
 
 def test_negative_shapes_raise_and_keep_raw_values():
     """⑨ 抹掉 matchId ⇒ ValueError 点名 matchId；sectionsNo999 改成 "3:3:3" ⇒ 解析列 None、原值照抄。
-    锚点行 1:4（真包周二003 卡塔尔亚vs韩国亚：半场 0:3、SP 18.00/7.20/1.07、winFlag A、poolStatus Payout）。"""
+    锚点行 1:4（真包周二003 卡塔尔亚vs韩国亚：半场 0:3、SP 18.00/7.20/1.07、winFlag A、poolStatus Payout）。
+    jclq_result 已接通真解析（P0-COLLECT2lqP §5.6）：parse_line 正常返回 fact.jbq_result 行。"""
     good = next(p for p in payloads("jczq_result") if p["sectionsNo999"] == "1:4")
     with pytest.raises(ValueError, match="matchId"):
         pc.parse_jczq_result({key: value for key, value in good.items() if key != "matchId"})
@@ -90,5 +91,8 @@ def test_negative_shapes_raise_and_keep_raw_values():
                                if key != "lotteryGameNum"})
     with pytest.raises(ValueError, match="契约"):
         pc.parse_jclq_offer(payloads("jclq_result")[0])  # §5.5 未冻结：不猜字段名
-    with pytest.raises(ValueError, match="落点"):
-        pc.parse_line({"kind": "line", "topic": "jclq_result", "payload": payloads("jclq_result")[0]})
+    # §5.6 已冻结且落点表已建：jclq_result 现在真解析，parse_line 正常返回 dict
+    result = pc.parse_line({"kind": "line", "topic": "jclq_result",
+                            "payload": payloads("jclq_result")[0]})
+    assert result is not None and result["table"] == "fact.jbq_result"
+    assert "match_id" in result["pk"]
