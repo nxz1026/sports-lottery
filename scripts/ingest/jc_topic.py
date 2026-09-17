@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from core.log import logger
+from ingest import jbq_result_write
 from ingest import jc_issue_write, jc_odds_write, jc_write
 from ingest.jc_read import read_lines
 from psycopg.types.json import Json
@@ -9,6 +10,7 @@ from store.parse_collector import parse_line
 
 WRITE = ("jczq_offer", "jczq_result")
 ISSUE = ("jc_issue", "jc_issue_result", "lottery_draw")
+BASKETBALL_RESULTS = ("jclq_result",)
 
 
 def _ops(cur, topic: str, rel: str, size: int | None, n: int, ups: int,
@@ -20,6 +22,26 @@ def _ops(cur, topic: str, rel: str, size: int | None, n: int, ups: int,
     cur.execute("insert into ops.ingest_log (topic,src_file,rows_in,rows_ups,rejected,ok) "
                 "values (%s,%s,%s,%s,%s,%s)",
                 (topic, rel, n, ups, Json(rej) if rej else None, not rej or gap))
+
+
+def _load_basketball_results(cur, topic: str, rel: str, lines: list, rej: list) -> int:
+    """jclq_result 分支原样搬出 load_topic（P0-COLLECT2lqP-wire-style），零行为变化。"""
+    ups = 0
+    for i, env in enumerate(lines, 1):
+        ins = parse_line(env)
+        if ins is None:
+            rej.append({"line": i, "reason": "parse_none"})
+            continue
+        try:
+            cur.execute("savepoint jbq")
+            ups += jbq_result_write.upsert_jbq_result_instruction(cur, ins, env["src_hash"], rel)
+            cur.execute("release savepoint jbq")
+        except ValueError as e:
+            cur.execute("rollback to savepoint jbq")
+            rej.append({"line": i, "reason": str(e)})
+            logger.warning("jbq-reject topic=%s 文件=%s pk=%s err=%s",
+                           topic, rel, (ins or {}).get("pk"), str(e)[:80])
+    return ups
 
 
 def load_topic(cur, root: Path, marker: Path, topic: str, path: Path | None, state: str) -> dict:
@@ -43,6 +65,8 @@ def load_topic(cur, root: Path, marker: Path, topic: str, path: Path | None, sta
                 ups += jc_write.upsert_jc_offer(cur, p["row"], snap, src)
             else:
                 ups += jc_write.upsert_jc_result(cur, p["row"], snap, src)
+    elif topic in BASKETBALL_RESULTS:
+        ups += _load_basketball_results(cur, topic, rel, lines, rej)
     elif topic in ISSUE:
         for i, env in enumerate(lines, 1):
             ins = parse_line(env)
