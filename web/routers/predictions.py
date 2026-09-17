@@ -239,6 +239,41 @@ def accuracy(request: Request,
     return {"leagues": out}
 
 
+@router.get("/accuracy/breakdown")
+def accuracy_breakdown(request: Request,
+                       _: None = Depends(require_auth)) -> dict:
+    """Source-backed accuracy metrics, without deriving confidence intervals.
+
+    This additive view deliberately projects only the metric fields currently
+    emitted in ``accuracy_summary``.  It does not calculate estimates or add a
+    sample count unless the producer explicitly supplied ``sample_count``.
+    """
+    metric_keys = (
+        "direction_accuracy", "score_accuracy", "over_under_accuracy",
+        "reconciled", "sample_count",
+    )
+    out: dict = {}
+    for league, doc in store.latest_by_league().items():
+        data = doc.get("data", {})
+        summary = data.get("accuracy_summary")
+        if not isinstance(summary, dict):
+            continue
+        windows: dict = {}
+        for window, values in summary.items():
+            if not isinstance(values, dict):
+                continue
+            projected = {key: values[key] for key in metric_keys if key in values}
+            if projected:
+                windows[window] = projected
+        if windows:
+            out[league] = {
+                "generated_at": data.get("generated_at"),
+                "data_window": data.get("data_window"),
+                **windows,
+            }
+    return {"leagues": out}
+
+
 @router.get("/history")
 def history(request: Request,
             _: None = Depends(require_auth)) -> dict:

@@ -120,6 +120,7 @@ def test_unauth_401_matrix(client):
         "/api/v1/predictions/2026-07-26",
         "/api/v1/championship",
         "/api/v1/accuracy",
+        "/api/v1/accuracy/breakdown",
         "/api/v1/history",
     ]
     for ep in endpoints:
@@ -202,7 +203,7 @@ def test_bad_json_200_empty(client, tmp_path):
     (pdir / "prediction_bad.json").write_text("{oops", encoding="utf-8")
     _login(client)
     for ep in ("/api/v1/predictions/today", "/api/v1/championship",
-               "/api/v1/accuracy", "/api/v1/history"):
+               "/api/v1/accuracy", "/api/v1/accuracy/breakdown", "/api/v1/history"):
         res = client.get(ep)
         assert res.status_code == 200, ep
         assert "leagues" in res.json()
@@ -221,7 +222,7 @@ def test_no_secrets_in_responses(client, tmp_path):
         api_key_leak="super-secret-token"))
     _login(client)
     endpoints = ["/api/v1/predictions/today", "/api/v1/championship",
-                 "/api/v1/accuracy", "/api/v1/history", "/api/v1/sources/status"]
+                 "/api/v1/accuracy", "/api/v1/accuracy/breakdown", "/api/v1/history", "/api/v1/sources/status"]
     for ep in endpoints:
         res = client.get(ep)
         assert res.status_code == 200
@@ -272,6 +273,34 @@ def test_accuracy_merges_summary(client, tmp_path):
     epl = body["leagues"]["epl"]
     assert epl["7d"]["direction_accuracy"] == 0.6
     assert epl["30d"]["score_accuracy"] == 0.28
+
+
+def test_accuracy_breakdown_projects_source_metrics_without_ci(client, tmp_path):
+    _seed_fixture_data(tmp_path)
+    _login(client)
+    res = client.get("/api/v1/accuracy/breakdown")
+    assert res.status_code == 200
+    epl = res.json()["leagues"]["epl"]
+    assert epl["7d"] == {
+        "direction_accuracy": 0.6,
+        "score_accuracy": 0.3,
+        "over_under_accuracy": 0.5,
+        "reconciled": 10,
+    }
+    assert epl["30d"]["reconciled"] == 40
+    assert "confidence_interval" not in str(epl)
+    assert "sample_count" not in epl["7d"]
+
+
+def test_accuracy_breakdown_includes_explicit_sample_count_only(client, tmp_path):
+    _seed_fixture_data(tmp_path)
+    p = tmp_path / "scripts" / "predictions" / "prediction_test1.json"
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["accuracy_summary"]["7d"]["sample_count"] = 10
+    _write_json(p, data)
+    _login(client)
+    body = client.get("/api/v1/accuracy/breakdown").json()
+    assert body["leagues"]["epl"]["7d"]["sample_count"] == 10
 
 
 def test_history_lists_files(client, tmp_path):
