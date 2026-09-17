@@ -31,7 +31,10 @@
      再跑 `upsert_jc_match` 带解析结果，断言 `home_team_id` **不为 NULL**；
      然后**再跑一次相同数据**（模拟下一轮 cron），断言仍然不为 NULL。
      这条测试就是拦 `jc_topic.py` 回归到 `None, None` 的闸门。
-   - 库写测试照现有模式：`tests/conftest.py` 的测试库夹具，测完清理自己插的行。
+    - 本仓库没有 `tests/conftest.py`；优先写纯假游标/单元测试，沿用
+      `tests/test_ingest_atomicity.py` 的 monkeypatch 模式，零数据库副作用。
+      若确需真库，命令必须使用 `PYTHONPATH=scripts ~/.venvs/league/bin/python`，
+      连接用 `sudo -n -u postgres psql -d league`，不得直接用 `league_ro` 无密码连接。
 
 4. **`_team` 的 `SELECT ... WHERE (aliases->>'sporttery') = ANY(%s)` 加索引**（若缺失）
    查 `ref.team` 上有没有 `aliases->>'sporttery'` 的表达式索引：
@@ -47,7 +50,14 @@
 - `PYTHONPATH=scripts ~/.venvs/league/bin/python -m pytest tests -q` 全绿（当前基线 **457 passed**）
 - `bash ~/bin/jc-ingest-run.sh` 后 `select count(*) filter (where home_team_id is not null and away_team_id is not null) from fact.jc_match` **≥ 10**（当前 10）
 - 跑两遍，数字不变（幂等）
-- `grep -rn "_team" scripts/` 无跨模块调用残留
+- `grep -rn "_team" scripts/` 无跨模块调用残留（本次重派未完成，当前仍保留旧私有 API）
+- `idx_team_sporttery` 已由队长执行并在 `pg_indexes` 验证存在
+
+## 本轮派工回执（P0-JCTEAM2b）
+- 基础设施可启动，但三轮 ACP 均超时（`rc=124`），未写 `TASK_DONE`。
+- 失败原因：前轮遗漏测试路径/环境说明已修正；本轮仍在 120 秒内未完成，且没有新增测试文件。
+- coder 产生的半成品已由队长回滚；当前可接受改动仅保留在工单与 DDL 留痕。
+
 
 ## 红线
 - ≤100 行/文件 · ≤50 行/函数 · ≤120 列 · 0 print
