@@ -83,6 +83,19 @@ JOBS_DIR: Path = Path(os.getenv("JOBS_DIR", str(DATA_DIR / "jobs")))
 JOBS_LOCK_FILE: Path = Path(os.getenv("JOBS_LOCK_FILE", str(DATA_DIR / "jobs.lock")))
 QUOTA_FILE: Path = Path(os.getenv("QUOTA_FILE", str(DATA_DIR / "quota.json")))
 
+# --- API-Football（默认关闭；只读、缓存且受配额保护）----------------------
+# Enrichment is explicitly opt-in; a missing key or this flag keeps all calls off.
+API_FOOTBALL_ENRICH_ENABLED: bool = os.getenv("API_FOOTBALL_ENRICH_ENABLED", "false") in ("1", "true", "True")
+# Backwards-compatible low-level switch; enrichment still requires ENRICH_ENABLED.
+API_FOOTBALL_ENABLED: bool = os.getenv("API_FOOTBALL_ENABLED", "0") in ("1", "true", "True")
+API_FOOTBALL_KEY: str = os.getenv("API_FOOTBALL_KEY", "")
+API_FOOTBALL_BASE_URL: str = os.getenv("API_FOOTBALL_BASE_URL", "https://v3.football.api-sports.io")
+API_FOOTBALL_CACHE_DIR: Path = Path(os.getenv("API_FOOTBALL_CACHE_DIR", str(DATA_DIR / "api-football-cache")))
+API_FOOTBALL_CACHE_TTL_SECONDS: int = _env_int("API_FOOTBALL_CACHE_TTL_SECONDS", 900)
+API_FOOTBALL_DAILY_LIMIT: int = _env_int("API_FOOTBALL_DAILY_LIMIT", 100)
+API_FOOTBALL_MINUTE_LIMIT: int = _env_int("API_FOOTBALL_MINUTE_LIMIT", 10)
+API_FOOTBALL_TIMEOUT_SECONDS: int = _env_int("API_FOOTBALL_TIMEOUT_SECONDS", 10)
+
 
 def env_summary() -> dict:
     """暴露给 /health 的无敏感摘要（不含账号/密码）。"""

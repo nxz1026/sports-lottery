@@ -35,6 +35,17 @@
 6. 付费或配额型源默认关闭，配置和授权确认前不发请求、不写入 raw/fact；
 7. 中国公开网页只作为人工核验入口，未经授权不做爬虫或再分发。
 
+## 当前 EPL 接入状态
+
+仓库已加入 API-Football EPL（league id `39`）的只读客户端，但默认关闭：
+
+```text
+API_FOOTBALL_ENABLED=1
+API_FOOTBALL_KEY=（不入库）
+```
+
+客户端支持 `injuries`、`lineups`、`fixtures/headtohead`，缓存位于 `web/.data/api-football-cache`，默认每日最多 100 次、滚动每分钟最多 10 次。缓存命中不消耗额度，缺 key、关闭、超额或上游失败均不阻断主预测流程。当前预测摘要没有可靠 API-Football fixture/team ID，因此尚未自动把外部数据拼进比赛详情；禁止根据队名或已有字符串猜测 fixture ID。下一步接入必须先在采集/预测链路保留 fixture/team IDs，再做唯一匹配和详情展示。
+
 ## 推荐路线
 
 先用 API-Football 做小范围、只读、缓存验证；若目标是固定联赛且阵容/伤停是核心，再评估 Sportmonks；若需要生产 SLA、实时推送和更高可靠性，再进入 Sportradar 商务评估。任何 provider 接入必须单独设计契约、限速、缓存、回退和测试，不直接把外部字段塞进当前预测摘要。
