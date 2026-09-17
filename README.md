@@ -293,3 +293,5 @@ scripts/
 - 落港：`ssh oracle`（`ubuntu@140.83.62.161`）→ `/srv/league-staging/incoming/cn-collector/`（topic 子目录 + `.done` 清单）
 - `.done` 行格式：`topic/<file>.jsonl\t<rowcount>\t<sha256>`（相对路径必带 `topic/` 前缀）
 - 契约版本：v1.3（2026-09-16 升级：`topic/` 前缀修复 + `jc_odds_history` topic + 8-topic daily 批）
+- 服务端篮彩赛果链路已接通（2026-09-17）：`jclq_result` → `parse_jclq_result` → `fact.jbq_result`；`jclq_offer` 仍因契约未冻结而保持不解析。
+- 最近验收基线：全量测试 **476 passed**；篮彩真批次幂等复跑保持 `fact.jbq_result=25`。
