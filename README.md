@@ -295,3 +295,4 @@ scripts/
 - 契约版本：v1.3（2026-09-16 升级：`topic/` 前缀修复 + `jc_odds_history` topic + 8-topic daily 批）
 - 服务端篮彩赛果链路已接通（2026-09-17）：`jclq_result` → `parse_jclq_result` → `fact.jbq_result`；`jclq_offer` 仍因契约未冻结而保持不解析。
 - 最近验收基线：全量测试 **476 passed**；篮彩真批次幂等复跑保持 `fact.jbq_result=25`。
+- 代码质量审核（2026-09-17）：硬门禁 0 违规；已按审核修复 savepoint 分支重复、错误边界、`pk` 白名单校验与动态 SQL 标识符安全。

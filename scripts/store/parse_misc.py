@@ -26,14 +26,12 @@ def _parse_ft(status: int, final_score: str) -> tuple[int | None, int | None]:
     return int(parts[0]), int(parts[1])
 
 def _odds(block: dict) -> object:
-    """winOdds 空串 → None，非空 → Decimal。"""
-    v = block.get("winOdds", "")
-    return None if v == "" else dec(v)
+    """winOdds 空串/非数字 → None，数字串 → Decimal（dec 自带空串→None）。"""
+    return dec(block.get("winOdds"))
 
 def _line(block: dict) -> object:
-    """goalLine 空串或 '-' → None；数字串 → Decimal。"""
-    v = block.get("goalLine", "")
-    return None if v in ("", "-") else dec(v)
+    """goalLine 空串/'-'/非数字 → None，数字串 → Decimal。"""
+    return dec(block.get("goalLine"))
 
 
 def parse_lottery_draw(payload: dict) -> dict:
@@ -53,16 +51,17 @@ def parse_jclq_offer(payload: dict) -> dict:
 
 
 def parse_jclq_result(payload: dict) -> dict:
-    """§5.6 已冻结 jclq_result → fact.jbq_result（篮彩盘口+战果；不按联赛过滤，闸门在下一单）。"""
+    """§5.6 已冻结 jclq_result → fact.jbq_result（篮彩盘口+战果；不按联赛过滤，闸门在下一单）。
+    缺 matchId/status 或四大盘口块（mnl/hdc/hilo/wnm）非 dict ⇒ 点名 ValueError，不让 KeyError 穿透。"""
     need(payload, "matchId", int)
-    status = payload["status"]
+    status = payload.get("status")
+    if not isinstance(status, int):
+        raise ValueError(f"字段 status 缺失或类型不对：{status!r}，期望 int")
     final_score = payload.get("finalScore", "-") or "-"
     ft_h, ft_a = _parse_ft(status, final_score)
-    mnl = payload["mnl"]
-    hdc = payload["hdc"]
-    hilo = payload["hilo"]
-    wnm = payload["wnm"]
-    singles = {k: payload[k]["single"] for k in ("mnl", "hdc", "hilo", "wnm")}
+    blocks = {k: need(payload, k, dict) for k in ("mnl", "hdc", "hilo", "wnm")}
+    mnl, hdc, hilo, wnm = blocks["mnl"], blocks["hdc"], blocks["hilo"], blocks["wnm"]
+    singles = {k: blk.get("single") for k, blk in blocks.items()}
     notes: list[str] = []
     if len(set(singles.values())) > 1:
         notes.append(
@@ -76,7 +75,7 @@ def parse_jclq_result(payload: dict) -> dict:
         "ft_a":               ft_a,
         "status":             status,
         "pool_status":        payload.get("poolStatus"),
-        "betting_single":     mnl["single"],
+        "betting_single":     singles["mnl"],
         "mnl_combination":    mnl.get("combination"),
         "mnl_desc":           mnl.get("combinationDesc"),
         "mnl_result_status":  mnl.get("resultStatus"),
@@ -95,6 +94,6 @@ def parse_jclq_result(payload: dict) -> dict:
         "wnm_desc":           wnm.get("combinationDesc"),
         "wnm_result_status":  wnm.get("resultStatus"),
         "wnm_odds":           _odds(wnm),
-        "raw_blocks":         {k: payload[k] for k in _RAW_BLOCK_KEYS},
+        "raw_blocks":         {k: payload.get(k) for k in _RAW_BLOCK_KEYS},
     }
     return out("fact.jbq_result", {"match_id": row["match_id"]}, row, notes)

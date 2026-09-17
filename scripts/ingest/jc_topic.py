@@ -1,9 +1,9 @@
-"""P0-JCSPLIT 纯搬家：jc_load.py 的"每 topic 怎么落库"（_ops/load_topic）原样移入；零行为变化。"""
+"""契约 v1.1 topic → 落库分派：WRITE（竞彩足球双表）走 jc_write；jclq_result 与 ISSUE 三个写指令 topic
+共用 _load_saved（逐条 savepoint，坏行只回滚自己）；jc_odds_history 逐行 upsert；其余 skip。"""
 from pathlib import Path
 
 from core.log import logger
-from ingest import jbq_result_write
-from ingest import jc_issue_write, jc_odds_write, jc_write
+from ingest import jbq_result_write, jc_issue_write, jc_odds_write, jc_write
 from ingest.jc_read import read_lines
 from psycopg.types.json import Json
 from store.parse_collector import parse_line
@@ -11,6 +11,8 @@ from store.parse_collector import parse_line
 WRITE = ("jczq_offer", "jczq_result")
 ISSUE = ("jc_issue", "jc_issue_result", "lottery_draw")
 BASKETBALL_RESULTS = ("jclq_result",)
+_BBALL_LANE = ("jbq", "jbq-reject", "pk")   # 篮球结果通道：保存点名 / 拒绝日志前缀 / 主键标签
+_ISSUE_LANE = ("iw", "issue-reject", "期")  # 三个写指令 topic 通道：同上
 
 
 def _ops(cur, topic: str, rel: str, size: int | None, n: int, ups: int,
@@ -24,8 +26,9 @@ def _ops(cur, topic: str, rel: str, size: int | None, n: int, ups: int,
                 (topic, rel, n, ups, Json(rej) if rej else None, not rej or gap))
 
 
-def _load_basketball_results(cur, topic: str, rel: str, lines: list, rej: list) -> int:
-    """jclq_result 分支原样搬出 load_topic（P0-COLLECT2lqP-wire-style），零行为变化。"""
+def _load_saved(cur, topic: str, rel: str, lines: list, rej: list, writer) -> int:
+    """逐条写指令：savepoint 隔离；parse_line None 与 writer ValueError 都记 rej，不静默丢行。"""
+    sp, kind, label = _BBALL_LANE if topic in BASKETBALL_RESULTS else _ISSUE_LANE
     ups = 0
     for i, env in enumerate(lines, 1):
         ins = parse_line(env)
@@ -33,14 +36,14 @@ def _load_basketball_results(cur, topic: str, rel: str, lines: list, rej: list) 
             rej.append({"line": i, "reason": "parse_none"})
             continue
         try:
-            cur.execute("savepoint jbq")
-            ups += jbq_result_write.upsert_jbq_result_instruction(cur, ins, env["src_hash"], rel)
-            cur.execute("release savepoint jbq")
+            cur.execute(f"savepoint {sp}")
+            ups += writer(cur, ins, env.get("src_hash") or "", rel)
+            cur.execute(f"release savepoint {sp}")
         except ValueError as e:
-            cur.execute("rollback to savepoint jbq")
+            cur.execute(f"rollback to savepoint {sp}")
             rej.append({"line": i, "reason": str(e)})
-            logger.warning("jbq-reject topic=%s 文件=%s pk=%s err=%s",
-                           topic, rel, (ins or {}).get("pk"), str(e)[:80])
+            logger.warning("%s topic=%s 文件=%s %s=%s err=%s",
+                           kind, topic, rel, label, ins.get("pk"), str(e)[:80])
     return ups
 
 
@@ -66,25 +69,12 @@ def load_topic(cur, root: Path, marker: Path, topic: str, path: Path | None, sta
             else:
                 ups += jc_write.upsert_jc_result(cur, p["row"], snap, src)
     elif topic in BASKETBALL_RESULTS:
-        ups += _load_basketball_results(cur, topic, rel, lines, rej)
+        ups += _load_saved(cur, topic, rel, lines, rej, jbq_result_write.upsert_jbq_result_instruction)
     elif topic in ISSUE:
-        for i, env in enumerate(lines, 1):
-            ins = parse_line(env)
-            if ins is None:
-                continue
-            try:
-                cur.execute("savepoint iw")
-                ups += jc_issue_write.upsert_issue_instruction(cur, ins, env.get("src_hash") or "", rel)
-                cur.execute("release savepoint iw")
-            except ValueError as e:
-                cur.execute("rollback to savepoint iw")
-                rej.append({"line": i, "reason": str(e)})
-                logger.warning("issue-reject topic=%s 文件=%s 期=%s err=%s",
-                               topic, rel, (ins or {}).get("pk"), str(e)[:80])
+        ups += _load_saved(cur, topic, rel, lines, rej, jc_issue_write.upsert_issue_instruction)
     elif topic == "jc_odds_history":
         for env in lines:
-            env["src_file"] = rel
-            ups += jc_odds_write.upsert_from_env(cur, env)
+            ups += jc_odds_write.upsert_from_env(cur, {**env, "src_file": rel})
     else:
         logger.info("skip %s n=%d (2e 范围)", topic, n)
     gap, done = state == "missing", state != "missing" and state != "orphan"
