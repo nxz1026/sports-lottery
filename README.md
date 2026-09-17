@@ -145,6 +145,20 @@ GET /api/v1/ai/ranking
 GET /api/v1/sources/status
 ```
 
+竞彩盘口与彩票开奖（同一 session，`/api/jc/*` 直连 PostgreSQL）：
+
+```text
+GET /api/jc/fixtures        每场 5 行（had/hhad/crs/ttg/haf），盘口取该 (场,玩法) 最新一版
+GET /api/jc/issues          传统足彩期次 + 开奖（胜负游戏 90 / 任选9场 900129 / 4场进球 94 / 6场半全场 98）
+GET /api/jc/backtest        各玩法 Brier / log-loss / argmax 命中率
+GET /api/jc/ops             联赛对齐度、采集主题到达情况、配额与拒收
+GET /api/jc/lottery         各彩种最近 N 期开奖（超级大乐透 85 / 排列3 35 / 排列5 350133 / 7星彩 04）
+```
+
+`/api/jc/lottery` 的彩种清单来自采集端 `lottery_draw` 主题，解析层无白名单——采集端补采新彩种后自动带出，无需改代码。`per_type` 钳制 1..100，越界返回 400。
+
+时区约定（重要）：`fixtures.kickoff_bj`、`issues.sale_begin/sale_end/draw_at` 是 `timestamp without time zone`，存的是**北京时间墙钟**，原样显示，**不得**再做 `at time zone` 或 +8 小时转换；对比 `fixtures.snap_ts`、`ops.topics.latest_arrival` 是真正的 UTC（带 `Z`）。`lottery.draw_date` 是 `date` 类型，不涉及时区。
+
 数据限制：当前预测摘要本身不携带稳定的 API-Football fixture/team ID，因此 Dashboard 不把外部伤停、首发或 H2H 猜测拼接到比赛上。API-Football EPL enrichment 客户端已完成真实接口验证，但默认由 `API_FOOTBALL_ENRICH_ENABLED=0` 关闭；启用后仍须先完成 fixture/team ID 保留与唯一映射。预测概率校准分桶当前不可用；校准摘要是实际赛果分布/修正信息，不等同于可靠性曲线或 ECE。
 
 部署与验证详情见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
@@ -167,9 +181,12 @@ GET /api/v1/sources/status
 4. 核验：`GET https://api.fastapicloud.com/api/v1/apps/<id>` → `latest_deployment.status == success`。
 
 **运行时预测/富化**（在 Web 界面触发，或 API）：
-- `POST /api/v1/jobs/predict`（选联赛/数据源/蒙特卡洛）跑 `scripts/predict.py`。
+- `POST /api/v1/jobs/predict`（选联赛/数据源/蒙特卡洛）跑 `scripts/predict.py`。**不传参数时只跑英超**（`--league` 默认值 `epl`）；要跑全部 5 个足球联赛须显式传 `{"all": true}`，或传 `{"league": "laliga"}` 等指定单个联赛。
+- `POST /api/v1/jobs/predict-bball` 跑 `scripts/bball/run.py`（NBA，独立入口）。参数白名单 `ahead_days`(1..180)/`backtest`(1..60)。需要 `ODDS_API_KEY` **和** `NBA_API_KEY` 同时设置成同一个值——两个名字并存是历史遗留：config 层 `SourcePolicy` 的守卫变量是 `NBA_API_KEY`，而 v1 冻结代码 `scripts/bball/run.py` 实际读的是 `ODDS_API_KEY`，只设一个会出现「守卫说可用、脚本说没 key」的不一致。另需 `LEAGUE_SOURCE_ODDS_API=on`（收费源默认关闭，见 D9）。NBA 休赛期默认 `ahead_days=1` 会得 0 场，需放宽窗口。
 - `POST /api/v1/jobs/ai-enrich` 跑 `python -m web.enrich` 生成中文 AI 摘要（LLM 走 agnes-ai，OpenAI 兼容）。
-- 每日配额共享计数；容器 scale-to-zero，结果 JSON 不跨冷启持久（冷启回退 git 种子）。本机实测：预测任务可完成；AI enrich 任务可完成但当前 LLM token 对 Agnes API 返回 HTTP 401，AI 按降级语义继续，不阻断预测。
+- 每日配额共享计数：`predict` / `predict-bball` / `ai-enrich` 共用同一计数器与并发守卫，同时只允许一个预测类任务运行（并发 409）。容器 scale-to-zero，结果 JSON 不跨冷启持久（冷启回退 git 种子）。
+
+**落盘文件名（2026-09-18 修复）**：预测文件为 `prediction_<YYYY-MM-DD_HH>_<league>.json`，联赛后缀不可省。时间戳只有小时精度，而 `--all` 会在同一次运行里依次跑完全部联赛、篮球与足球又共用同一 `PREDICTIONS_DIR`——不带后缀时同小时的多次运行会写同一个文件、互相覆盖，只剩最后一个联赛（实测 5 个联赛 22 场被静默覆盖）。归并侧 `store.latest_by_league()` 读 JSON 里的 `league` 字段、不解析文件名。
 - API-Football EPL（league id `39`）实测：2024 赛季返回 380 场，伤停接口返回数据，`/fixtures/lineups` 返回 2 队阵容；免费档不支持 2025 赛季和 H2H 的 `last` 参数，客户端需省略该参数。免费额度为每日 100 次、每分钟 10 次，客户端有缓存与配额保护。
 
 > 关键约束（实测）：平台部署链会**静默丢弃 dotfile `.env`**，故凭据经 `config.env` 上传并在 `web/__init__.py` 用 `load_dotenv(override=True)` 注入；runtime 日志/环境变量接口需 user token（deploy token 只够发布 + 读构建日志）。
@@ -344,7 +361,7 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 - `.done` 行格式：`topic/<file>.jsonl\t<rowcount>\t<sha256>`（相对路径必带 `topic/` 前缀）
 - 契约版本：v1.3（2026-09-16 升级：`topic/` 前缀修复 + `jc_odds_history` topic + 8-topic daily 批）
 - 服务端篮彩赛果链路已接通（2026-09-17）：`jclq_result` → `parse_jclq_result` → `fact.jbq_result`；`jclq_offer` 仍因契约未冻结而保持不解析。
-- 最近验收基线：全量测试 **502 passed**（2026-09-17 完整验收，详见 `docs/acceptance-2026-09-17.md`）。
+- 最近验收基线：全量测试 **515 passed**（2026-09-18 追加 NBA 链路与彩票端点后；2026-09-17 完整验收为 502 passed，详见 `docs/acceptance-2026-09-17.md`）。
 - 代码质量审核（2026-09-17）：硬门禁 0 违规；已按审核修复 savepoint 分支重复、错误边界、`pk` 白名单校验与动态 SQL 标识符安全。
 - 项目整理：运行时日志目录 `logs/` 已加入忽略规则；预测/结果/output 等生成物继续不入库，保留已有历史样本与文档记录。
 
@@ -368,5 +385,6 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 **不是数据源配额**；后者（API-Football 100/天 UTC 日界、football-data 30/天）目前无 API 出口。
 `_spawn` 采用"先检查后扣减"两段式，被 409 拒绝的请求不扣配额。
 
-**已知未修**：`LLM_API_KEY` 当前无效（Agnes 返回 `401 无效的令牌`）；
-`static/jc.html`（竞彩看板）在生产 nginx 上**无路由**，其数据 `/api/jc/*` 可达但无页面消费。
+**已修复（2026-09-18）**：`LLM_API_KEY` 已更新并实测可用（`HTTP 200`，模型 `agnes-3.0-flash` 正常回话）；真实富化 46 条 → 41 条落盘，`ai_scores.json` 92 → 133 条，`/api/v1/ai/daily` 的 `ai_matched_count` 由**结构性永久 0** 变为真实计数（此前 league 字段丢失导致永不匹配）。
+
+**已知未修**：`static/jc.html`（竞彩看板，上一代）在生产 nginx 上**无路由**；其消费的 `/api/jc/*` 竞彩盘口数据（5 玩法 × 场次）此前无页面展示。新 `static/dashboard.html` 已并入 fixtures/issues/backtest/ops 四个视图与彩票开奖视图，`jc.html` 与 `index.html` 可视为被取代的上一代页面。
