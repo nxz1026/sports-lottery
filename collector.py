@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import subprocess
@@ -39,18 +40,56 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 CN_TZ = timezone(timedelta(hours=8))
 UTC = timezone.utc
-CONFIG = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
-
-UA = CONFIG["ua"]
-REFERER = CONFIG["referer"]
-QPS = float(CONFIG["qps_interval"])
-RETRIES = int(CONFIG["retries"])
-BACKOFF = [float(x) for x in CONFIG["backoff"]]
-HEAD_BYTES = int(CONFIG["probe_head_bytes"])
-HOST = CONFIG["collector_host"]
-SSH_ALIAS = CONFIG["push"]["ssh_alias"]
-REMOTE_ROOT = CONFIG["push"]["remote_root"]
 CONTRACT = "v1.3"
+
+
+def _load_config() -> dict:
+    """读取 config.json；惰性调用，import 阶段不触发文件 IO。"""
+    p = ROOT / "config.json"
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise RuntimeError(f"config.json 不存在或无法读取：{exc}") from exc
+
+
+def _cfg() -> dict:
+    """进程内单次读取，结果缓存；首次调用时才真正读文件。"""
+    if _cfg._cache is None:  # type: ignore[attr-defined]
+        _cfg._cache = _load_config()
+    return _cfg._cache  # type: ignore[attr-defined]
+
+
+_cfg._cache = None  # type: ignore[attr-defined]
+
+# Lazily populated compatibility names; no config I/O occurs at import time.
+CONFIG = UA = REFERER = QPS = RETRIES = BACKOFF = HEAD_BYTES = HOST = None
+SSH_ALIAS = REMOTE_ROOT = None
+
+
+def _ensure_config() -> None:
+    global CONFIG, UA, REFERER, QPS, RETRIES, BACKOFF, HEAD_BYTES, HOST
+    global SSH_ALIAS, REMOTE_ROOT
+    if CONFIG is not None:
+        return
+    CONFIG = _cfg()
+    UA = CONFIG["ua"]
+    REFERER = CONFIG["referer"]
+    QPS = float(CONFIG["qps_interval"])
+    RETRIES = int(CONFIG["retries"])
+    BACKOFF = [float(x) for x in CONFIG["backoff"]]
+    HEAD_BYTES = int(CONFIG["probe_head_bytes"])
+    HOST = CONFIG["collector_host"]
+    SSH_ALIAS = CONFIG["push"]["ssh_alias"]
+    REMOTE_ROOT = CONFIG["push"]["remote_root"]
+
+
+def _get_config_val(key: str, *nested: str):  # noqa: ANN202
+    """安全取值，支持嵌套键（传多个 key）。"""
+    val = _cfg()
+    path = (key,) + nested
+    for k in path:
+        val = val[k]
+    return val
 
 # 玩法块 → 官方 poolCode（§5.1 实测）
 _POOL_CODE = {"had": "HAD", "hhad": "HHAD", "crs": "CRS", "ttg": "TTG", "hafu": "HAFU"}
@@ -88,6 +127,7 @@ def _req(url: str, ua: str, referer: str, timeout: int = 20) -> tuple[int, str, 
 
 def fetch(url: str) -> dict:
     """带重试的 GET（指数退避 5/15/45s，QPS 节流）。返回探针记录。"""
+    _ensure_config()
     rec = {"url": url, "fetched_at": now_utc()}
     last_err = ""
     for attempt in range(RETRIES):
@@ -112,12 +152,14 @@ def _ok(j: dict) -> bool:
 
 
 def _envelope(topic: str, url: str, rec: dict, snap_ts: str, payload: dict) -> dict:
+    _ensure_config()
     return {"kind": "line", "topic": topic, "snap_ts": snap_ts, "fetched_at": now_utc(),
             "endpoint": url, "http_status": rec.get("http_status", 0),
             "collector_host": HOST, "payload": payload, "src_hash": src_hash(payload)}
 
 
 def _error_row(topic: str, url: str, rec: dict, snap_ts: str, body: bytes) -> dict:
+    _ensure_config()
     """失败行（§5.0）：errorCode != "0" 或 success != true。payload 原样放四键（失败响应无 value）。"""
     try:
         j = json.loads(body.decode("utf-8", errors="replace"))
@@ -238,6 +280,7 @@ def parse_lottery_draw(url: str, rec: dict, snap_ts: str) -> list:
             for it in (j.get("value") or {}).get("list") or []]
 
 def parse_jc_odds_history(url: str, rec: dict, snap_ts: str) -> list:
+    _ensure_config()
     """jc_odds_history：一行 = 一场在售足球 × 整条赔率走势（getOddsHistoryV1 value 原样）。
 
     流程：candidates[0]（jczq_offer 端点）取在售场次 matchId → 逐场 GET history_url
@@ -296,6 +339,7 @@ def _update_status(**kw) -> None:
 
 
 def _pack_probe(rec: dict, tag: str) -> None:
+    _ensure_config()
     """单独回传一份探针包（§5.5 首次非空 / 复探用）。"""
     out = ROOT / "probe"
     out.mkdir(parents=True, exist_ok=True)
@@ -324,6 +368,7 @@ def _pack_probe(rec: dict, tag: str) -> None:
 
 
 def write_batch(topic: str, rows: list) -> Path:
+    _ensure_config()
     """落 out/<topic>/<utc>__<batch>.jsonl；0 行产 .empty。追加不覆盖（batch 序号递增）。"""
     out_dir = ROOT / "out" / topic
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -343,6 +388,7 @@ def write_batch(topic: str, rows: list) -> Path:
 
 
 def collect(topic: str) -> int:
+    _ensure_config()
     spec = CONFIG["topics"].get(topic)
     if not spec:
         print(f"[collect] 未知 topic: {topic}")
@@ -365,12 +411,14 @@ def collect(topic: str) -> int:
 
 
 def collect_all() -> int:
+    _ensure_config()
     rc = 0
     for topic in CONFIG["topics"]:
         rc |= collect(topic)
     return rc
 
 def collect_batch(topics: list) -> tuple[int, list]:
+    _ensure_config()
     """§6 B1：一批 = 全部 topic 齐全。每个指定 topic 各落一个文件（.jsonl 或 .empty），缺一个都不行。
 
     返回 (rc, 本批实际产出的文件路径列表)。
@@ -383,6 +431,7 @@ def collect_batch(topics: list) -> tuple[int, list]:
 
 
 def collect_topic(topic: str) -> Path:
+    _ensure_config()
     """单 topic 采集 + 落文件，返回产出路径（.jsonl 或 .empty）。"""
     spec = CONFIG["topics"].get(topic)
     if not spec:
@@ -406,6 +455,7 @@ def collect_topic(topic: str) -> Path:
 
 
 def probe() -> int:
+    _ensure_config()
     """探针模式（v1 遗留）：逐个 GET 候选端点；反爬 HTML 换 UA/Referer 重试 2 次；BLOCKED 标记。"""
     out_dir = ROOT / "probe"
     raw_dir = out_dir / "raw"
@@ -482,6 +532,7 @@ def _manifest(paths: list) -> str:
 
 
 def push_batch(topics: list) -> int:
+    _ensure_config()
     """B1+B2+G(A)：采集全部指定 topic → 打包本批产出文件 → 远端落盘 → 最后写 .done 清单。
 
     流程：collect_batch 各 topic 各产一个文件（.jsonl/.empty，记 paths）→ tar 只含本批 paths
@@ -567,10 +618,15 @@ def _acquire_singleton_lock() -> bool:
         except (ValueError, OSError):
             old_pid = 0
         if old_pid and old_pid != my_pid:
-            K32 = ctypes.windll.kernel32
-            h = K32.OpenProcess(0x0400, 0, old_pid)
-            if h:
-                K32.CloseHandle(h)
+            try:
+                os.kill(old_pid, 0)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                return False
+            except OSError:
+                pass
+            else:
                 return False
     lock.write_text(str(my_pid), encoding="utf-8")
     return True
@@ -600,13 +656,18 @@ def main() -> int:
     if args.mode_log:
         _lh = ROOT / "logs" / f"collector_{args.mode_log}.log"
         _lh.parent.mkdir(parents=True, exist_ok=True)
-        sys.stdout = open(_lh, "a", encoding="utf-8")
-        sys.stderr = open(_lh, "a", encoding="utf-8")
+        _log_fh = open(_lh, "a", encoding="utf-8")
+        with contextlib.redirect_stdout(_log_fh), contextlib.redirect_stderr(_log_fh):
+            return _run(args, ap)
     # 单例锁：--push / --push-batch 定时任务主路径专用；probe/collect 不锁（可并行诊断）
+    return _run(args, ap)
+
+
+def _run(args, ap) -> int:
     _locked = False
     if args.push or args.push_batch:
         if not _acquire_singleton_lock():
-            print(f"[singleton] 已有活跃批次在跑，本次 no-op")
+            print("[singleton] 已有活跃批次在跑，本次 no-op")
             return 0
         _locked = True
     try:
@@ -617,6 +678,7 @@ def main() -> int:
         if args.collect_all:
             return collect_all()
         if args.push:
+            _ensure_config()
             return push_batch(list(CONFIG["topics"]))
         if args.push_batch:
             return push_batch(args.push_batch)
