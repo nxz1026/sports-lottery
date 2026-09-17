@@ -3,8 +3,8 @@
 ## 访问地址
 
 ```text
-https://140.83.62.161/dashboard/
-```
+原有门户：`https://140.83.62.161/dashboard/`
+体彩 Dashboard：`https://140.83.62.161/dashboard/jc/`
 
 公网入口由本机 Nginx 提供 HTTPS 和 Basic Auth；页面自身继续使用 league-v2 的 session 登录。
 
@@ -13,8 +13,9 @@ https://140.83.62.161/dashboard/
 - systemd：`league-dashboard.service`
 - FastAPI：`127.0.0.1:8077`
 - 静态入口：`/static/dashboard.html`
-- Dashboard API 代理：公网 `/dashboard/api/` → FastAPI `/api/`
-- Dashboard 登录页：公网 `/dashboard/login` → `/static/dashboard-login.html`
+- Dashboard API 代理：公网 `/dashboard/jc/api/` → FastAPI `/api/`
+- Dashboard 登录页：公网 `/dashboard/jc/login` → `/static/dashboard-login.html`
+- 原有门户 `/dashboard/` 保持由原 NDORACLE 服务提供
 
 ## 验证
 

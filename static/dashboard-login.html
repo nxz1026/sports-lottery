@@ -59,7 +59,7 @@
     submitBtn.disabled = true;
     var username = document.getElementById("username").value.trim();
     var password = document.getElementById("password").value;
-    fetch("/dashboard/api/v1/login", {
+    fetch("/dashboard/jc/api/v1/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: username, password: password })
