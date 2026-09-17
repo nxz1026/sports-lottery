@@ -42,10 +42,13 @@ _ISSUE_SQL = """select i.game_num, i.issue_no, i.game_name, i.sale_begin, i.sale
 _BT_SQL = """select play_type, count(*) as n_fp,
        round(avg(bs)::numeric, 4) as brier,
        round(avg(us)::numeric, 4) as brier_uniform,
+       round(avg(ll)::numeric, 4) as log_loss,
        round(avg(hit::int)::numeric, 4) as acc,
+       round(avg(hit::int)::numeric, 4) as hit_rate,
        count(*) filter (where if_clv) as clv_filled
   from (select play_type, fixture_id,
                sum(power(p_pred - outcome, 2)) as bs,
+                -ln(greatest(max(p_pred) filter (where outcome = 1), 1e-6)) as ll,
                sum(power((1.0 / cnt) - outcome, 2)) as us,
                bool_or(outcome = 1 and p_pred = mx) as hit,
                count(clv) > 0 as if_clv

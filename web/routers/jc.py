@@ -21,6 +21,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from web.auth import require_auth
 
 router = APIRouter(prefix="/api/jc", tags=["jc"])
+# Stable v1 alias for consumers that do not use the /api/jc dashboard namespace.
+v1_router = APIRouter(prefix="/api/v1", tags=["backtest"])
 
 # T3 启动链 `PYTHONPATH=. uvicorn web.api:app` 不含 scripts/：自举一次，端点才可 import store。
 _SCRIPTS_DIR = str(Path(__file__).resolve().parents[2] / "scripts")
@@ -65,6 +67,13 @@ def issues(limit: str = "20", _: None = Depends(require_auth)) -> dict:
 
 @router.get("/backtest")
 def backtest(_: None = Depends(require_auth)) -> dict:
-    """基线 Brier/acc 聚合（每玩法一行）；store 层 SQL 异常降级为 []。"""
+    """基线 Brier/log-loss/hit-rate 聚合（每玩法一行）；异常安全降级为 []。"""
+    from store import jc_view
+    return _envelope("backtest", jc_view.backtest_summary())
+
+
+@v1_router.get("/backtest")
+def backtest_v1(_: None = Depends(require_auth)) -> dict:
+    """Authenticated compatibility alias for the existing JC backtest summary."""
     from store import jc_view
     return _envelope("backtest", jc_view.backtest_summary())
