@@ -53,7 +53,7 @@ def main() -> int:
 
     items = collect_items()
     if not items:
-        print("[AI Enrich] no items")
+        logger.info("[AI Enrich] no items")
         return 0
 
     priorities = LP_AI_PRIORITIES.split(",") if LP_AI_PRIORITIES else None
@@ -71,10 +71,12 @@ def main() -> int:
         enriched = analyse_batch(items, context="", preference_prompt="", config=cfg)
         enriched = [ai for ai in enriched if isinstance(ai, dict)]
         save_ai_scores(enriched, league_key="")
-        print(f"[AI Enrich] processed {len(items)} items, wrote back {len(enriched)}")
+        logger.info("[AI Enrich] processed %d items, wrote back %d", len(items), len(enriched))
+        sys.stdout.write("[AI Enrich] processed %d items, wrote back %d\n" % (len(items), len(enriched)))
+        sys.stdout.flush()
         return 0
     except Exception as exc:
-        print(f"[AI Enrich] error: {exc}")
+        logger.error("[AI Enrich] error: %s", exc)
         return 1
 
 
