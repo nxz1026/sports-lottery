@@ -65,7 +65,7 @@
       body: JSON.stringify({ username: username, password: password })
     }).then(function (res) {
       if (res.ok) {
-        window.location.href = "/dashboard/";
+        window.location.href = "/dashboard/jc/";
       } else {
         return res.json().then(function (data) {
           throw new Error(data.message || "登录失败（HTTP " + res.status + "）");

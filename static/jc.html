@@ -51,15 +51,26 @@
     if (v === null || v === undefined) return "-";
     if (typeof v === "object") return esc(JSON.stringify(v));
     var s = String(v);
-    // 时间戳统一转北京时间显示（库内一律 UTC）
-    if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s)) {
-      var d = new Date(s);
-      if (!isNaN(d.getTime())) {
-        var o = new Date(d.getTime() + 8 * 3600 * 1000);
-        var p = function (n) { return String(n).padStart(2, "0"); };
-        return esc(o.getUTCFullYear() + "-" + p(o.getUTCMonth() + 1) + "-" + p(o.getUTCDate()) +
-                   " " + p(o.getUTCHours()) + ":" + p(o.getUTCMinutes()) + " 北京");
+    // 时间戳按北京时间显示。库内**两种口径并存**，不能一律 +8h：
+    //   · 带时区（...Z / ...+08:00）：真 UTC 瞬时值（jc_offer.snap_ts、
+    //     jc_odds_history.update_ts）→ 需 +8h 换算；
+    //   · 不带时区（2026-09-16T20:00:00）：列本身存的就是北京时间
+    //     （kickoff_bj / sale_begin / sale_end / draw_at / odds_update）→ 原样显示。
+    // 旧代码对所有时间戳一律 +8h，使不带时区的列在 UTC 浏览器下再多跳 8h，
+    // 且同一页面上 fixtures 与 issues 的偏移方向互相矛盾（实测 sale_begin
+    // 2026-09-16 20:00 被显示成 "2026-09-17 04:00 北京"）。
+    var m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(s);
+    if (m) {
+      if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(s)) {
+        var d = new Date(s);
+        if (!isNaN(d.getTime())) {
+          var o = new Date(d.getTime() + 8 * 3600 * 1000);
+          var p = function (n) { return String(n).padStart(2, "0"); };
+          return esc(o.getUTCFullYear() + "-" + p(o.getUTCMonth() + 1) + "-" + p(o.getUTCDate()) +
+                     " " + p(o.getUTCHours()) + ":" + p(o.getUTCMinutes()) + " 北京");
+        }
       }
+      return esc(m[1] + " " + m[2] + " 北京");
     }
     return esc(s);
   }

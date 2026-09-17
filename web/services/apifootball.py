@@ -132,18 +132,55 @@ class ApiFootballService:
 
     def injuries(self, fixture_id: int) -> list[dict]:
         rows = self._rows(self._get("injuries", {"fixture": int(fixture_id)}))
-        return [{"player": r.get("player") or {}, "team": r.get("team") or {}, "type": r.get("type"), "reason": r.get("reason")} for r in rows]
+        out: list[dict] = []
+        for r in rows:
+            player = r.get("player") or {}
+            # API-Football 把伤停类型/原因嵌在 ``player`` 下（行级只有
+            # fixture/league/team/player 四键）。旧代码读行级字段，导致每条记录
+            # 的 type/reason 恒为 None —— 数据被静默丢弃。保留行级回退以兼容
+            # provider 未来把字段提到行级的情况。
+            out.append({
+                "player": player,
+                "team": r.get("team") or {},
+                "type": player.get("type") or r.get("type"),
+                "reason": player.get("reason") or r.get("reason"),
+            })
+        return out
 
     def lineups(self, fixture_id: int) -> list[dict]:
         rows = self._rows(self._get("fixtures/lineups", {"fixture": int(fixture_id)}))
         return [{"team": r.get("team") or {}, "formation": r.get("formation"), "startXI": r.get("startXI") or [], "substitutes": r.get("substitutes") or [], "coach": r.get("coach") or {}} for r in rows]
 
+    @staticmethod
+    def _fixture_date(row: dict) -> datetime:
+        raw = (row.get("fixture") or {}).get("date")
+        fallback = datetime.min.replace(tzinfo=timezone.utc)
+        if not isinstance(raw, str):
+            return fallback
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return fallback
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
     def h2h(self, home_team_id: int, away_team_id: int, *, last: int | None = None) -> list[dict]:
+        """Head-to-head fixtures, most recent first.
+
+        ``last`` is applied client-side and is deliberately never sent to the
+        provider: free API-Football plans reject the parameter outright with
+        ``Free plans do not have access to the Last parameter.`` and answer with
+        zero rows, so sending it would silently empty the result.  The provider
+        also does not order H2H rows globally by date (it groups by home-team
+        identity), which is why the limit is taken from an explicit date sort
+        rather than from the raw response order.
+        """
         params: dict[str, object] = {"h2h": f"{int(home_team_id)}-{int(away_team_id)}"}
-        if last is not None:
-            params["last"] = int(last)
         rows = self._rows(self._get("fixtures/headtohead", params))
-        return [{"fixture": r.get("fixture") or {}, "league": r.get("league") or {}, "teams": r.get("teams") or {}, "goals": r.get("goals") or {}, "score": r.get("score") or {}} for r in rows]
+        out = [{"fixture": r.get("fixture") or {}, "league": r.get("league") or {}, "teams": r.get("teams") or {}, "goals": r.get("goals") or {}, "score": r.get("score") or {}} for r in rows]
+        out.sort(key=self._fixture_date, reverse=True)
+        if last is not None:
+            out = out[: max(0, int(last))]
+        return out
 
 
 APIFootballService = ApiFootballService

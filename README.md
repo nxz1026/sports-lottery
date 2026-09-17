@@ -344,6 +344,29 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 - `.done` 行格式：`topic/<file>.jsonl\t<rowcount>\t<sha256>`（相对路径必带 `topic/` 前缀）
 - 契约版本：v1.3（2026-09-16 升级：`topic/` 前缀修复 + `jc_odds_history` topic + 8-topic daily 批）
 - 服务端篮彩赛果链路已接通（2026-09-17）：`jclq_result` → `parse_jclq_result` → `fact.jbq_result`；`jclq_offer` 仍因契约未冻结而保持不解析。
-- 最近验收基线：全量测试 **476 passed**；篮彩真批次幂等复跑保持 `fact.jbq_result=25`。
+- 最近验收基线：全量测试 **502 passed**（2026-09-17 完整验收，详见 `docs/acceptance-2026-09-17.md`）。
 - 代码质量审核（2026-09-17）：硬门禁 0 违规；已按审核修复 savepoint 分支重复、错误边界、`pk` 白名单校验与动态 SQL 标识符安全。
 - 项目整理：运行时日志目录 `logs/` 已加入忽略规则；预测/结果/output 等生成物继续不入库，保留已有历史样本与文档记录。
+
+## 完整验收（2026-09-17）
+
+完整报告见 `docs/acceptance-2026-09-17.md`。以下为需要长期记住的环境事实：
+
+**时区口径（易踩）**：`fact.jc_match.kickoff_bj`、`fact.jc_issue.sale_begin|sale_end|draw_at`、
+`fact.jc_offer.odds_update` 都是 `timestamp without time zone` 且**列里存的已是北京时间**，
+只能直接 `to_char`，**绝不能**再写 `at time zone 'Asia/Shanghai'`（会按会话时区 `Etc/UTC`
+渲染成早 8 小时）。对照：`jc_offer.snap_ts`、`jc_odds_history.update_ts` 是 `timestamptz`（真 UTC）。
+前端 `static/jc.html` 只对**带时区标识**（`Z` / `±HH:MM`）的字符串做 +8h 换算，naive 时间戳原样显示。
+
+**AI 富化**：`ai/feedback_loop.save_ai_scores` 只落盘**带 `ai_score`** 的条目——LLM 失败时
+`analyse_batch` 会原样返回未评分条目（有意契约），若在此兜底成 50 分会把"完全没分析"
+伪造成"中性 50 分"，并经 `adjust_prediction` 的 `0.7+0.3*50/100=0.85` 静默削减 15% 信心。
+`league` 必须回退到条目自带的 `league`，否则 AI 日报命中数结构性永久为 0。
+全部条目未评分时 `web/enrich.py` 返回非 0，任务记为 `failed`。
+
+**配额**：`web/.data/quota.json` 是**预测触发预算**（`PREDICT_DAILY_LIMIT`，BJT 日界），
+**不是数据源配额**；后者（API-Football 100/天 UTC 日界、football-data 30/天）目前无 API 出口。
+`_spawn` 采用"先检查后扣减"两段式，被 409 拒绝的请求不扣配额。
+
+**已知未修**：`LLM_API_KEY` 当前无效（Agnes 返回 `401 无效的令牌`）；
+`static/jc.html`（竞彩看板）在生产 nginx 上**无路由**，其数据 `/api/jc/*` 可达但无页面消费。

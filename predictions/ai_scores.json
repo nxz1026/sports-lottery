@@ -174,13 +174,6 @@
     "league": "laliga",
     "source": "laliga"
   },
-  "瓦伦西亚 vs 皇家贝蒂斯": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "laliga",
-    "source": "laliga"
-  },
   "博洛尼亚足球俱乐部 vs 拉齐奥足球俱乐部": {
     "ai_score": 57,
     "ai_summary": "Bologna vs Lazio selects Bologna as winner, a strong underdog angle. However, the absence of handicap data weakens reliability.",
@@ -265,41 +258,6 @@
     "league": "epl",
     "source": "epl"
   },
-  "桑坦德竞技 vs 埃尔切": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "laliga",
-    "source": "laliga"
-  },
-  "阿拉维斯 vs 比利亚雷亚尔": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "laliga",
-    "source": "laliga"
-  },
-  "莱万特 vs 皇家贝蒂斯": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "laliga",
-    "source": "laliga"
-  },
-  "皇家社会 vs 西班牙人": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "laliga",
-    "source": "laliga"
-  },
-  "塞维利亚 vs 马德里竞技": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "laliga",
-    "source": "laliga"
-  },
   "拜仁慕尼黑 vs 斯图加特": {
     "ai_score": 25,
     "ai_summary": "All predictions are rated 1-star with no betting line data, relying only on basic fundamentals. This makes them weak and high-risk for any betting strategy.",
@@ -339,34 +297,6 @@
     "ai_score": 45,
     "ai_summary": "All five items exhibit identical low-confidence markers with no betting line data, resulting in uniformly weak predictive value.",
     "ai_notes": "No underdog value or clear signals detected across any match.",
-    "league": "seriea",
-    "source": "seriea"
-  },
-  "萨索洛 vs 都灵": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "seriea",
-    "source": "seriea"
-  },
-  "蒙扎 vs 乌迪内斯": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "seriea",
-    "source": "seriea"
-  },
-  "佛罗伦萨 vs 弗罗西诺内": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "seriea",
-    "source": "seriea"
-  },
-  "尤文图斯 vs 帕尔马": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
     "league": "seriea",
     "source": "seriea"
   },
@@ -712,40 +642,5 @@
     "ai_notes": "Udinese vs Lazio is a tricky fixture; without data, the home win signal is unreliable.",
     "league": "seriea",
     "source": "seriea"
-  },
-  "Qingdao Hainiu vs Tianjin Jinmen Tiger": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "",
-    "source": ""
-  },
-  "Liaoning Tieren vs Qingdao West Coast": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "",
-    "source": ""
-  },
-  "Shanghai Port vs Shanghai Shenhua": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "",
-    "source": ""
-  },
-  "Wuhan Three Towns vs Chongqing Tonglianglong": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "",
-    "source": ""
-  },
-  "Yunnan Yukun vs Shenzhen Xinpengcheng": {
-    "ai_score": 50,
-    "ai_summary": "",
-    "ai_notes": "",
-    "league": "",
-    "source": ""
   }
 }

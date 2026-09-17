@@ -40,11 +40,12 @@ def save_ai_scores(enriched_items: list[dict], league_key: str = ""):
     """Save AI enrichment scores for next prediction run.
 
     Args:
-        enriched_items: output from analyse_batch() — each item has
-            name, ai_score, ai_summary, ai_notes, source
-        league_key: league identifier for filtering
+        enriched_items: output from analyse_batch() — **只有带 ai_score 的条目会落盘**；
+            LLM 失败或漏配时 analyse_batch 会原样返回未评分条目，此处一律跳过。
+        league_key: 单联赛调用时的联赛标识；为空时回退到条目自带的 league/source。
     """
     existing = load_ai_adjustments()
+    written = 0
     for item in enriched_items:
         name = item.get("name", "")
         if not name:
@@ -53,18 +54,29 @@ def save_ai_scores(enriched_items: list[dict], league_key: str = ""):
         notes = item.get("ai_notes", "")
         if "mock" in notes:
             continue
+        # 未评分条目必须跳过：analyse_batch 在 LLM 调用失败/分析漏配时会原样返回
+        # 条目（契约见 test_analyse_batch_missing_analysis_keeps_item_plain）。
+        # 若在此处兜底成 50 分，就会把"完全没分析"伪造成"中性 50 分"，而
+        # adjust_prediction 的 0.7+0.3*50/100=0.85 会静默削掉 15% 信心。
+        if "ai_score" not in item:
+            continue
         existing[name] = {
-            "ai_score": item.get("ai_score", 50),
+            "ai_score": item["ai_score"],
             "ai_summary": item.get("ai_summary", ""),
             "ai_notes": notes,
-            "league": league_key or item.get("source", ""),
+            # league_key 为空时回退到条目自带联赛：历史上只读 item["source"]，
+            # 而 collect_items() 写的是 item["league"]，导致落盘 league 恒为 ""，
+            # 使 ai_daily 的 league 校验（scores[match]["league"] == prediction["league"]）
+            # 永假 —— AI 日报与分数榜命中数结构性永久为 0。
+            "league": league_key or item.get("league") or item.get("source", ""),
             "source": item.get("source", ""),
         }
+        written += 1
 
     AI_SCORES_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(AI_SCORES_FILE, "w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2, ensure_ascii=False)
-    print(f"[AI Feedback] Saved {len(existing)} AI scores to {AI_SCORES_FILE}")
+    print(f"[AI Feedback] wrote {written} this run, {len(existing)} total in {AI_SCORES_FILE}")
 
 
 def adjust_prediction(prediction: dict, ai_adjustments: dict[str, dict]) -> dict:

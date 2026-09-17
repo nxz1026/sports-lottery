@@ -392,3 +392,67 @@ def test_analyse_batch_skips_non_dict_position_fallback(monkeypatch):
     assert out[0]["ai_score"] == 88
     assert "ai_score" not in out[1]
     assert "ai_score" not in out[2]
+
+# --- 验收修复（2026-09-17）：失败不得伪装成成功、league 不得丢失 ---------------
+
+def _load_feedback_loop(tmp_path, monkeypatch):
+    """把 ai_scores.json 指到 tmp，返回 feedback_loop 模块。"""
+    import importlib
+    import ai.feedback_loop as fl
+    importlib.reload(fl)
+    monkeypatch.setattr(fl, "AI_SCORES_FILE", tmp_path / "ai_scores.json")
+    return fl
+
+
+def test_save_ai_scores_skips_unscored_items(tmp_path, monkeypatch):
+    """LLM 失败时 analyse_batch 原样返回未评分条目 → 绝不能落盘成 ai_score=50。
+
+    旧行为：item.get("ai_score", 50) 兜底成 50，把"完全没分析"伪造成"中性 50 分"；
+    而 adjust_prediction 的 0.7+0.3*50/100=0.85 会静默削掉 15% 信心。
+    """
+    fl = _load_feedback_loop(tmp_path, monkeypatch)
+    fl.save_ai_scores([
+        {"name": "A vs B", "league": "epl"},                                   # 未评分
+        {"name": "C vs D", "league": "epl", "ai_score": 80, "ai_summary": "主队占优"},
+    ], league_key="")
+
+    import json
+    data = json.loads(fl.AI_SCORES_FILE.read_text(encoding="utf-8"))
+    assert "A vs B" not in data, "未评分条目不得落盘（否则等于编造 50 分）"
+    assert data["C vs D"]["ai_score"] == 80
+
+
+def test_save_ai_scores_keeps_item_league(tmp_path, monkeypatch):
+    """league_key 为空时必须回退到条目自带 league，否则 ai_daily 命中数结构性永久为 0。
+
+    旧行为：league_key or item.get("source","") → "" or "" = ""，
+    而 ai_daily 要求 scores[match]["league"] == prediction["league"]（预测侧 league 恒非空）。
+    """
+    fl = _load_feedback_loop(tmp_path, monkeypatch)
+    fl.save_ai_scores([
+        {"name": "布伦特福德 vs 切尔西", "league": "epl", "ai_score": 70, "ai_summary": "接近"},
+    ], league_key="")
+
+    import json
+    data = json.loads(fl.AI_SCORES_FILE.read_text(encoding="utf-8"))
+    assert data["布伦特福德 vs 切尔西"]["league"] == "epl"
+
+
+def test_enrich_main_returns_nonzero_when_nothing_scored(monkeypatch, capsys):
+    """全部条目都没被评分 → main() 必须返回非 0，不能报 done。
+
+    旧行为：恒 return 0 → 任务显示 done、看板"AI 状态：可用"，用户完全无法察觉 LLM 全挂。
+    """
+    import web.enrich as enrich_mod
+
+    monkeypatch.setattr(enrich_mod, "collect_items",
+                        lambda: [{"name": "A vs B", "league": "epl", "date_found": "",
+                                  "direction": "home", "stars": 1, "confidence": "c"}])
+    monkeypatch.setattr("ai.batch_pipeline.analyse_batch",
+                        lambda items, **kw: [dict(items[0])], raising=False)   # 未评分
+    monkeypatch.setattr("ai.feedback_loop.save_ai_scores",
+                        lambda enriched, league_key="": None, raising=False)
+
+    assert enrich_mod.main() == 1
+    out = capsys.readouterr().out
+    assert "processed 1 items, wrote back 0" in out

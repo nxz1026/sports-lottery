@@ -84,6 +84,24 @@ def _login(client):
     assert res.status_code == 200, res.text
 
 
+def _drain_jobs(timeout: float = 5.0) -> None:
+    """等后台任务线程写完结态后再退出用例。
+
+    ``web.services.jobs.executor`` 是**模块级**线程池：用例结束时若线程仍在跑，
+    monkeypatch 撤销后 ``_spin_state`` 会读到真实 ``web/.data/jobs``（找不到 tmp
+    目录里的任务文件）→ 走 ``_default_job`` 兜底，把任务"重建"成一条
+    ``started_at=null`` 的垃圾记录写进生产数据目录，污染看板的「任务状态」。
+    本函数保证线程在 monkeypatch 生效期内收尾。
+    """
+    import web.services.jobs as jobs_mod
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if jobs_mod.active_job() is None:
+            return
+        time.sleep(0.02)
+    raise AssertionError("后台任务线程未在超时内结束，测试隔离可能已破坏")
+
+
 # --- 验收点 B：并发双触发只起一个子进程 -----------------------------------
 
 class _OkProc:
@@ -130,6 +148,9 @@ def test_concurrent_trigger_only_one_producer(client, monkeypatch):
     class GateProc(_BlockProc):
         def __init__(self, cmd, **kw):
             super().__init__(cmd, **kw)
+            # 必须复用用例持有的 gate：_BlockProc 自建的事件无人 set，
+            # 会让 wait() 空等满 5s 才放行（线程悬挂到用例之后）。
+            self.gate = gate
             recorded.append(cmd)
 
     monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(GateProc))
@@ -148,6 +169,9 @@ def test_concurrent_trigger_only_one_producer(client, monkeypatch):
         assert len(jobs) == 1
     finally:
         gate.set()
+        # 放行门控后必须等后台线程写完结态，否则它会在 monkeypatch 撤销后
+        # 落到真实 web/.data/jobs（见 _drain_jobs 说明）。
+        _drain_jobs()
 
 
 # --- 验收点 D：状态机轮询到终态 + timeout 路径 ------------------------------
@@ -268,14 +292,19 @@ def test_quota_reset_on_new_day(jobs_env, tmp_path):
 # --- 惰性刷新：同日去重 -----------------------------------------------------
 
 def test_auto_refresh_trigger_and_dedup(client, tmp_path, monkeypatch):
+    import web.services.jobs as jobs_mod
     import web.services.store as store_mod
     monkeypatch.setattr(store_mod, "OUTPUT_DIR", tmp_path / "empty")
+    # 本用例经 API 真实投递任务：必须假 Popen（模块契约：测试绝不真跑引擎），
+    # 并在退出前排空线程，否则会污染真实 web/.data/jobs。
+    monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(_OkProc))
     _login(client)
     r1 = client.post("/api/v1/jobs/auto/refresh")
     assert r1.json()["triggered"] is True
     r2 = client.post("/api/v1/jobs/auto/refresh")
     assert r2.json()["triggered"] is False
     assert r2.json()["reason"] == "already_today"
+    _drain_jobs()
 
 
 # --- 验收点 C：AI 模块改坏后 app 仍能起 -------------------------------------
@@ -351,3 +380,33 @@ class TestOrphanRecovery:
         reloaded = jb.get_job(stale["id"])
         assert reloaded["status"] == jb.STATUS_FAILED
         assert "orphan" in (reloaded.get("error") or "")
+
+def test_rejected_trigger_does_not_consume_quota(client, monkeypatch):
+    """被 409 拒绝的请求没有产生任何任务，不得扣减当日配额。
+
+    旧行为：quota_consume() 排在 active_job() 之前 → 实测 3 并发得 1×202 + 2×409，
+    quota.json count 4→7，两次被拒请求永久吃掉当日预算（反复点击即可耗尽额度）。
+    """
+    import web.services.jobs as jobs_mod
+
+    gate = threading.Event()
+
+    class GateProc(_BlockProc):
+        def __init__(self, cmd, **kw):
+            super().__init__(cmd, **kw)
+            self.gate = gate
+
+    monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(GateProc))
+    _login(client)
+    try:
+        assert client.post("/api/v1/jobs/predict", json={"league": "epl"}).status_code == 202
+        used_after_first = jobs_mod.quota_usage()["used"]
+        for _ in range(3):
+            r = client.post("/api/v1/jobs/predict", json={"league": "epl"})
+            assert r.status_code == 409
+            assert r.json()["code"] == "already_running"
+        assert jobs_mod.quota_usage()["used"] == used_after_first, \
+            "被 409 拒绝的请求不得扣减配额"
+    finally:
+        gate.set()
+        _drain_jobs()

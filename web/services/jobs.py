@@ -85,27 +85,33 @@ def save_quota(data: dict) -> None:
     os.replace(tmp, config.QUOTA_FILE)
 
 
-def quota_usage() -> dict:
-    """当日配额用量（跨 BJT 日自动重置）。"""
-    data = load_quota()
+def _quota_state(data: dict) -> tuple[str, int]:
+    """把（可能跨日的）配额文件归一成 (今日 BJT 日键, 已用次数)。"""
     today = _bjt_day_key()
     if data.get("day") != today:
-        data = {"day": today, "count": 0}
-    return {"day": today, "used": int(data.get("count", 0)), "limit": config.DAILY_TRIGGER_LIMIT}
+        return today, 0
+    return today, int(data.get("count", 0))
+
+
+def quota_usage() -> dict:
+    """当日配额用量（跨 BJT 日自动重置）。"""
+    today, used = _quota_state(load_quota())
+    return {"day": today, "used": used, "limit": config.DAILY_TRIGGER_LIMIT}
+
+
+def quota_exhausted() -> bool:
+    """只读预检：当日配额是否已耗尽。不扣减，供"先检查后扣减"两段式使用。"""
+    _, used = _quota_state(load_quota())
+    return used >= config.DAILY_TRIGGER_LIMIT
 
 
 def quota_consume() -> bool:
     """原子消费一次配额（读-改-写带文件锁）；超限返回 False。"""
-    today = _bjt_day_key()
     with _exclusive_lock(config.QUOTA_FILE.with_suffix(".lock"), timeout=5):
-        data = load_quota()
-        if data.get("day") != today:
-            data = {"day": today, "count": 0}
-        count = int(data.get("count", 0))
+        today, count = _quota_state(load_quota())
         if count >= config.DAILY_TRIGGER_LIMIT:
             return False
-        data["count"] = count + 1
-        save_quota(data)
+        save_quota({"day": today, "count": count + 1})
         return True
 
 
@@ -290,8 +296,6 @@ def run_job(jid: str) -> None:
         return
     try:
         code = proc.wait(timeout=config.PREDICT_TIMEOUT_SECONDS)
-        _spin_state(jid, STATUS_DONE if code == 0 else STATUS_FAILED,
-                    finished_at=_now_epoch(), exit_code=code)
     except subprocess.TimeoutExpired:
         proc.kill()
         try:
@@ -300,6 +304,14 @@ def run_job(jid: str) -> None:
             pass
         _spin_state(jid, STATUS_TIMEOUT, finished_at=_now_epoch(),
                     exit_code=None, error="timeout killed")
+    else:
+        if code == 0:
+            _spin_state(jid, STATUS_DONE, finished_at=_now_epoch(), exit_code=0)
+        else:
+            # 非零退出必须留下可诊断原因：引擎把真实报错写在 stdout/stderr 日志里，
+            # 只记 exit_code 会让失败任务在 API/看板上显示 error=null。
+            _spin_state(jid, STATUS_FAILED, finished_at=_now_epoch(),
+                        exit_code=code, error=_failure_hint(log_path, code))
     finally:
         if proc.poll() is None:
             proc.kill()
@@ -333,6 +345,25 @@ def read_job_log(jid: str, tail: int = 200) -> str:
     return "\n".join(data.splitlines()[-tail:])
 
 
+def _failure_hint(log_path: Path, code: int, limit: int = 300) -> str:
+    """非零退出的可诊断摘要：退出码 + 日志最后一行非空内容。
+
+    引擎（predict/enrich）把真实报错写在 stdout/stderr 日志里；只记 exit_code
+    会让 API 与看板上的失败任务显示 ``error=null``，无从定位。
+    """
+    tail = ""
+    try:
+        text = log_path.read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        text = ""
+    for line in reversed(text.splitlines()):
+        stripped = line.strip()
+        if stripped:
+            tail = stripped[:limit]
+            break
+    return f"exit {code}: {tail}" if tail else f"exit {code}"
+
+
 def active_job() -> dict | None:
     """当前 running/queued 的任务（含过期孤儿回收：超时无进展 → failed）。"""
     now = _now_epoch()
@@ -360,11 +391,18 @@ def _spawn(script: str, extra_argv: list[str], trigger: str = "manual") -> tuple
     锁偏序：JOBS_LOCK_FILE > quota.lock（quota_consume 内部持 quota.lock）。
     """
     with _exclusive_lock(config.JOBS_LOCK_FILE, timeout=10):
-        if not quota_consume():
+        # 两段式：先"检查"再"扣减"。被 409 拒绝的请求没有产生任何任务，
+        # 绝不能扣配额——旧代码先扣后判，实测 3 并发得 1×202 + 2×409，
+        # quota.json count 4→7，两次被拒请求永久吃掉当日预算。
+        # 顺序上配额优先于并发：两者同时成立时报"额度已用尽"
+        # （既有契约见 test_quota_shared_between_predict_and_ai_enrich）。
+        if quota_exhausted():
             return None, "quota_exhausted"
         existing = active_job()
         if existing is not None:
             return existing, "already_running"
+        if not quota_consume():
+            return None, "quota_exhausted"
         job = create_job(extra_argv, trigger=trigger, script=script)
         return job, None
 

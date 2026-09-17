@@ -5,6 +5,14 @@
   · issues：jc_issue left join jc_issue_draw（开奖侧可能尚无数据，空即正确）；
   · backtest_summary：analysis.backtest_market 是逐选项明细（175200 行），本层按基线口径聚合：
     先按 (场, 玩法) 对全部选项加总平方误差（多分类 Brier），再对场取平均。
+
+⚠️ 时区口径（2026-09-17 修正）：
+  fact.jc_match.kickoff_bj / fact.jc_issue.sale_begin|sale_end|draw_at / fact.jc_offer.odds_update
+  都是 `timestamp without time zone`，**列里存的已经是北京时间**（schema 命名即 bj）。
+  因此只能直接 to_char，绝不能写 `at time zone 'Asia/Shanghai'` —— 那会把无时区的墙上时间
+  先当成北京时间转成 timestamptz，再由 to_char 按会话时区（本机 = Etc/UTC）渲染，结果早 8 小时
+  （实测 kickoff_bj 2026-09-18 18:30 被渲染成 "09-18 10:30"，影响全部 51 场）。
+  对照：fact.jc_offer.snap_ts / jc_odds_history.update_ts 是 `timestamptz`，那才是真 UTC 瞬时值。
 """
 from __future__ import annotations
 
@@ -17,7 +25,7 @@ from core.log import logger
 from store import pg
 
 _FIX_SQL = """select m.match_id, m.match_num, m.league_cn, m.home_cn, m.away_cn, m.match_status,
-        to_char(m.kickoff_bj at time zone 'Asia/Shanghai', 'MM-DD HH24:MI') as kickoff_bj,
+        to_char(m.kickoff_bj, 'MM-DD HH24:MI') as kickoff_bj,
         o.play_type, o.snap_ts, o.goal_line, o.options
    from fact.jc_match m
    left join lateral (
