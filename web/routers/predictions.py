@@ -37,7 +37,11 @@ def _bball_extras(doc: dict) -> dict:
 
 
 def _prediction_summary(doc: dict, day) -> dict:
-    """单场预测精简视图（契约 §2.2 字段对齐）。"""
+    """单场预测精简视图（契约 §2.2 字段对齐）。
+
+    Optional trace fields are copied only when produced by the engine.  In
+    particular, this does not calculate an ``edge``/EV from incomplete odds.
+    """
     summary = {
         "match": doc.get("match", ""),
         "home": doc.get("home", ""),
@@ -51,9 +55,31 @@ def _prediction_summary(doc: dict, day) -> dict:
         "kickoff_utc": doc.get("kickoff_utc", ""),
         "data_window": doc.get("data_window", ""),
     }
+    for key in ("odds_data_available", "confidence_note", "reasoning_factors",
+                "ml_model_used", "ml_proba", "poisson_top3", "lambda_home",
+                "lambda_away", "lambda_home_ci95", "lambda_away_ci95"):
+        if key in doc:
+            summary[key] = doc[key]
     if "spread_pred" in doc or "total_pred" in doc or "win_prob" in doc:
         summary.update(_bball_extras(doc))
     return summary
+
+
+def _run_metadata(league: str, doc: dict) -> dict:
+    """Safe, file-backed provenance metadata; never expose local paths."""
+    data = doc.get("data", {})
+    return {
+        "league": league,
+        "file": doc.get("name"),
+        "generated_at": data.get("generated_at"),
+        "data_window": data.get("data_window"),
+        "status": data.get("status"),
+        "data_source": data.get("data_source"),
+        "tournament_type": data.get("tournament_type"),
+        "dixon_coles_enabled": data.get("dixon_coles_enabled"),
+        "dixon_coles_rho": data.get("dixon_coles_rho"),
+        "n_predictions": len(data.get("predictions", [])) if isinstance(data.get("predictions"), list) else 0,
+    }
 
 
 def _group_for_day(day) -> dict:
@@ -109,6 +135,35 @@ def championship(request: Request,
             "simulation_count": mc.get("simulation_count"),
         }
     return {"leagues": out}
+
+
+@router.get("/prediction-metadata")
+def prediction_metadata(request: Request,
+                        _: None = Depends(require_auth)) -> dict:
+    """Latest run provenance per league (file-backed, read-only)."""
+    return {"leagues": {
+        league: _run_metadata(league, doc)
+        for league, doc in store.latest_by_league().items()
+    }}
+
+
+@router.get("/calibration")
+def calibration(request: Request,
+                _: None = Depends(require_auth)) -> dict:
+    """Persisted calibration state plus latest run context, when available."""
+    states = store.calibration_states()
+    latest = store.latest_by_league()
+    leagues = {}
+    for league in sorted(set(states) | set(latest)):
+        row = {"state": states.get(league)}
+        if league in latest:
+            data = latest[league].get("data", {})
+            row.update({"generated_at": data.get("generated_at"),
+                        "data_window": data.get("data_window"),
+                        "calibration": data.get("calibration"),
+                        "calibration_offset": data.get("calibration_offset")})
+        leagues[league] = row
+    return {"leagues": leagues}
 
 
 @router.get("/accuracy")
