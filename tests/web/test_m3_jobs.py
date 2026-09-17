@@ -301,6 +301,11 @@ def test_auto_refresh_trigger_and_dedup(client, tmp_path, monkeypatch):
     _login(client)
     r1 = client.post("/api/v1/jobs/auto/refresh")
     assert r1.json()["triggered"] is True
+    # 自动刷新必须显式传 --all：空 argv 会走 predict.py 的 --league 默认值 epl，
+    # 自动刷新将永远只产出英超，仪表盘其余联赛恒为空。
+    auto_job = json.loads((tmp_path / "jobs" / f"{r1.json()['job']}.json")
+                          .read_text(encoding="utf-8"))
+    assert auto_job["args"] == ["--all"], auto_job["args"]
     r2 = client.post("/api/v1/jobs/auto/refresh")
     assert r2.json()["triggered"] is False
     assert r2.json()["reason"] == "already_today"

@@ -250,7 +250,9 @@ def _lazy_auto_trigger() -> dict:
             return {"triggered": False, "reason": "already_today"}
     if not config.AUTO_REFRESH_DAILY:
         return {"triggered": False, "reason": "disabled"}
-    job, reason = jobs.trigger_predict([], trigger="auto")
+    # 必须显式传 --all：空 argv 会走 predict.py 的 --league 默认值 epl，
+    # 自动刷新将永远只产出英超，仪表盘上其余联赛恒为空（实测症状）。
+    job, reason = jobs.trigger_predict(["--all"], trigger="auto")
     if reason == "quota_exhausted":
         return {"triggered": False, "reason": "quota_exhausted"}
     if reason == "already_running":
