@@ -8,6 +8,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -52,6 +54,50 @@ def test_prediction_summary_does_not_add_optional_fields_when_absent():
     assert "odds_data_available" not in out
     assert "confidence_note" not in out
     assert "ml_proba" not in out
+    assert out["market"] == {"status": "missing"}
+
+
+def test_market_projection_complete_1x2_calculates_safe_value():
+    out = _prediction_summary({
+        "match": "A vs B",
+        "model_probs": {"home": 0.55, "draw": 0.25, "away": 0.20},
+        "market": {
+            "source": "test-book",
+            "captured_at": "2026-09-16T12:00:00Z",
+            "market_type": "1x2",
+            "odds_format": "decimal",
+            "selections": {"home": 2.0, "draw": 3.5, "away": 4.5},
+        },
+    }, None)
+    market = out["market"]
+    assert market["status"] == "complete"
+    assert market["model_probs"] == {"home": 0.55, "draw": 0.25, "away": 0.2}
+    assert market["decimal_odds"]["home"] == 2.0
+    assert market["ev_per_unit"]["home"] == pytest.approx(0.1)
+    assert set(market["edge_prob"]) == {"home", "draw", "away"}
+
+
+def test_market_projection_partial_never_fabricates_value():
+    out = _prediction_summary({
+        "match": "A vs B",
+        "confidence_score": 0.9,
+        "market": {"source": "test-book", "market_type": "1x2", "selections": {"home": 2.0}},
+    }, None)
+    market = out["market"]
+    assert market["status"] == "partial"
+    assert "ev_per_unit" not in market
+    assert "edge_prob" not in market
+
+
+def test_market_projection_rejects_reasoning_factors_as_model_probs():
+    out = _prediction_summary({
+        "match": "A vs B",
+        "reasoning_factors": {"home_ml_true_prob": 0.8, "draw_true_prob": 0.1, "away_ml_true_prob": 0.1},
+        "market": {"source": "test-book", "captured_at": "now", "market_type": "1x2",
+                   "selections": {"home": 2.0, "draw": 3.5, "away": 4.5}},
+    }, None)
+    assert "model_probs" not in out["market"]
+    assert "ev_per_unit" not in out["market"]
 
 
 def test_run_metadata_exposes_safe_provenance_without_local_path():

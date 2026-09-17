@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from datetime import date
+import math
 
 from fastapi import APIRouter, Depends, Request
 
@@ -36,12 +37,65 @@ def _bball_extras(doc: dict) -> dict:
     }
 
 
-def _prediction_summary(doc: dict, day) -> dict:
-    """单场预测精简视图（契约 §2.2 字段对齐）。
+def _validated_model_probs(doc: dict) -> dict | None:
+    """Return only an explicit, complete normalized 1X2 probability vector."""
+    value = doc.get("model_probs", doc.get("ml_proba"))
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        value = dict(zip(("home", "draw", "away"), value))
+    if not isinstance(value, dict) or set(value) != {"home", "draw", "away"}:
+        return None
+    try:
+        probs = {key: float(value[key]) for key in ("home", "draw", "away")}
+    except (TypeError, ValueError):
+        return None
+    if any(not math.isfinite(v) or not 0 <= v <= 1 for v in probs.values()):
+        return None
+    if abs(sum(probs.values()) - 1.0) > 1e-6:
+        return None
+    return probs
 
-    Optional trace fields are copied only when produced by the engine.  In
-    particular, this does not calculate an ``edge``/EV from incomplete odds.
-    """
+
+def _market_projection(doc: dict) -> dict:
+    """Project only source-backed structured odds; never infer from confidence."""
+    raw = doc.get("market")
+    if not isinstance(raw, dict):
+        return {"status": "missing"}
+    source = raw.get("source")
+    captured_at = raw.get("captured_at")
+    market_type = raw.get("market_type")
+    selections = raw.get("selections")
+    if not source or not captured_at or not market_type or not isinstance(selections, dict):
+        return {"status": "partial"}
+    out = {"status": "partial", "source": source, "captured_at": captured_at,
+           "market_type": market_type, "odds_format": raw.get("odds_format"),
+           "selections": selections}
+    if market_type != "1x2" or set(selections) != {"home", "draw", "away"}:
+        return out
+    decimals = {}
+    for key, item in selections.items():
+        if isinstance(item, dict):
+            item = item.get("decimal_odds")
+        try:
+            decimals[key] = float(item)
+        except (TypeError, ValueError):
+            return out
+    if any(not math.isfinite(v) or v <= 1 for v in decimals.values()):
+        return out
+    total = sum(1 / v for v in decimals.values())
+    market_probs = {key: (1 / value) / total for key, value in decimals.items()}
+    out.update({"status": "complete", "decimal_odds": decimals,
+                "implied_probs": {k: 1 / v for k, v in decimals.items()},
+                "devig_probs": market_probs, "margin": total - 1})
+    model = _validated_model_probs(doc)
+    if model is not None:
+        out["model_probs"] = model
+        out["edge_prob"] = {k: model[k] - market_probs[k] for k in model}
+        out["ev_per_unit"] = {k: model[k] * decimals[k] - 1 for k in model}
+    return out
+
+
+def _prediction_summary(doc: dict, day) -> dict:
+    """单场预测精简视图（契约 §2.2 字段对齐）。"""
     summary = {
         "match": doc.get("match", ""),
         "home": doc.get("home", ""),
@@ -54,6 +108,7 @@ def _prediction_summary(doc: dict, day) -> dict:
         "btts": doc.get("btts", ""),
         "kickoff_utc": doc.get("kickoff_utc", ""),
         "data_window": doc.get("data_window", ""),
+        "market": _market_projection(doc),
     }
     for key in ("odds_data_available", "confidence_note", "reasoning_factors",
                 "ml_model_used", "ml_proba", "poisson_top3", "lambda_home",
