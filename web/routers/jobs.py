@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from web import config, errors
@@ -27,22 +27,13 @@ from web.services.datasource import LEAGUES
 router = APIRouter(prefix="/api/v1", tags=["jobs"])
 
 # 参数白名单（契约 §1.1 安全子集）：固定取值域校验，杜绝任意字符串注入 argv。
-_FLAG_ARGS = {
-    "--all": False,
-    "--monte-carlo": False,
-    "--no-dc": False,
-    "--no-ml": False,
-    "--dashboard": False,
-}
-_VALUE_ARGS = {
-    "--league": sorted(league for league, info in LEAGUES.items()
-                       if info.get("active", True)),
-    "--data-source": ("football-data", "espn", "api-football", ""),
-    "--n-simulations": None,  # 正整数，单独校验
-    "--dates": None,          # YYYYMMDD-YYYYMMDD，正则校验
-}
+# frozenset：只需成员测试，不需要 key→value 映射。
+_FLAG_ARGS: frozenset[str] = frozenset({
+    "--all", "--monte-carlo", "--no-dc", "--no-ml", "--dashboard",
+})
 
-
+# value 型参数：key → 合法取值集合（None 表示单独正则/类型校验）。
+_DATASOURCE_VALUES: frozenset[str] = frozenset({"football-data", "espn", "api-football", ""})
 def _validate_args(params: dict) -> list[str]:
     """白名单校验 → argv 列表；非法参数抛 400（code=invalid_params）。"""
     unknown = set(params) - {"league", "dates", "data_source", "monte_carlo",
@@ -78,7 +69,7 @@ def _validate_args(params: dict) -> list[str]:
         if not isinstance(n_sim, int) or n_sim < 1:
             raise errors.ApiError("invalid_params", "n_simulations 须为正整数")
         argv += ["--n-simulations", str(n_sim)]
-    for flag, _ in _FLAG_ARGS.items():
+    for flag in _FLAG_ARGS:
         key = flag[2:].replace("-", "_")
         if params.get(key):
             argv.append(flag)
@@ -86,6 +77,7 @@ def _validate_args(params: dict) -> list[str]:
 
 
 def _job_view(job: dict) -> dict:
+    """基础视图：list 端点用；不含 log_tail（需 I/O，按需获取）。"""
     return {
         "id": job.get("id"),
         "status": job.get("status"),
@@ -100,8 +92,15 @@ def _job_view(job: dict) -> dict:
     }
 
 
+def _job_view_detail(job: dict, jid: str) -> dict:
+    """detail 视图：在基础视图上追加 log_tail（detail 端点专用）。"""
+    view = _job_view(job)
+    view["log_tail"] = jobs.read_job_log(jid)
+    return view
+
+
 @router.post("/jobs/predict", status_code=202)
-def jobs_predict(body: dict | None, request: Request,
+def jobs_predict(body: dict | None,
                  _: None = Depends(require_auth)) -> JSONResponse:
     """提交预测任务（队列语义：返回 202 + job；并发时 409 + already_running）。"""
     params = body or {}
@@ -127,7 +126,7 @@ def jobs_predict(body: dict | None, request: Request,
 
 
 @router.post("/jobs/ai-enrich", status_code=202)
-def jobs_ai_enrich(request: Request, _: None = Depends(require_auth)) -> JSONResponse:
+def jobs_ai_enrich(_: None = Depends(require_auth)) -> JSONResponse:
     """提交 AI 摘要重生成任务（python -m web.enrich，无 body 参数）。
 
     语义与 /jobs/predict 一致：202 + job / 409 already_running / 429 quota_exhausted。
@@ -153,19 +152,16 @@ def jobs_ai_enrich(request: Request, _: None = Depends(require_auth)) -> JSONRes
 
 
 @router.get("/jobs/{jid}")
-def jobs_get(jid: str, request: Request,
-             _: None = Depends(require_auth)) -> dict:
+def jobs_get(jid: str, _: None = Depends(require_auth)) -> dict:
     """查询任务状态（可轮询到终态）。"""
     job = jobs.get_job(jid)
     if job is None:
         raise errors.ApiError("job_not_found", f"任务不存在: {jid}", http_status=404)
-    view = _job_view(job)
-    view["log_tail"] = jobs.read_job_log(jid)
-    return {"job": view}
+    return {"job": _job_view_detail(job, jid)}
 
 
 @router.get("/jobs")
-def jobs_list(request: Request, _: None = Depends(require_auth)) -> dict:
+def jobs_list(_: None = Depends(require_auth)) -> dict:
     """最近任务列表（按创建时间倒序）。"""
     return {"jobs": [_job_view(j) for j in jobs.list_jobs(limit=20)]}
 
@@ -212,7 +208,7 @@ def _lazy_auto_trigger() -> dict:
 
 
 @router.post("/jobs/auto/refresh")
-def jobs_auto(request: Request, _: None = Depends(require_auth)) -> dict:
+def jobs_auto(_: None = Depends(require_auth)) -> dict:
     """惰性刷新入口：today 有数据 → 不触发；缺 → 同日去重自动触发。"""
     if _today_has_data():
         return {"triggered": False, "reason": "data_available", "auto": False}
