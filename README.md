@@ -110,9 +110,46 @@ vec = extract_features(match, {"elo_ratings": elo})
 X, y = build_training_set(past_matches, {"elo_ratings": elo})
 ```
 
+## 体彩 Dashboard（`/dashboard/jc/`）
+
+当前体彩 Dashboard 保留原门户 `/dashboard/`，独立挂载于：
+
+```text
+https://140.83.62.161/dashboard/jc/
+```
+
+当前能力：
+
+- 今日推荐、冠军概率、历史预测与数据源任务状态；
+- 串关工作台：选择赛事、结构化市场赔率可用时计算组合参考赔率；
+- 结构化 1X2 市场的隐含概率、比例去水概率、Edge 与 EV 展示；缺少完整市场数据时显示不可用，不使用置信度伪造赔率或价值；
+- 历史页展示来源已有的命中率、Brier、Log Loss、Hit Rate 与校准摘要；没有数据时不显示为 0；
+- 本机投注记录：使用浏览器 `localStorage` 保存手工输入的本金、赔率和结算状态，可计算已结算记录 ROI；不上传服务器、不代表真实赛果或平台账单；
+- 推荐卡片收藏与本地持久化；
+- 明确区分模型预测、市场数据、人工投注记录和实际赛果。
+
+主要只读接口（均需要应用登录 session）：
+
+```text
+GET /api/v1/predictions/today
+GET /api/v1/predictions/{YYYY-MM-DD}
+GET /api/v1/championship
+GET /api/v1/accuracy
+GET /api/v1/accuracy/breakdown
+GET /api/v1/calibration
+GET /api/v1/history
+GET /api/v1/backtest
+GET /api/v1/prediction-metadata
+GET /api/v1/sources/status
+```
+
+数据限制：当前预测数据不提供可靠的伤停、首发、历史交锋或预测概率校准分桶，因此 Dashboard 不虚构这些信息；校准摘要是实际赛果分布/修正信息，不等同于可靠性曲线或 ECE。
+
+部署与验证详情见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
+
 ## 运行与部署
 
-本项目统一在 **FastAPI Cloud** 上运行，不再使用 GitHub Actions。
+主应用部署说明沿用 **FastAPI Cloud**；体彩 Dashboard 是部署机上的独立 Nginx + systemd 入口，两者不是同一公网路由。Dashboard 的本机部署、`/dashboard/jc/` 前缀代理和应用 session 说明见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
 
 | 项 | 值 |
 |---|---|
@@ -210,6 +247,10 @@ scripts/
 | bundesliga | Bundesliga | football-data | 78 | 0.19 | 3.2 |
 | seriea | Serie A | football-data | 135 | 0.28 | 2.5 |
 | ligue1 | Ligue 1 | football-data | 61 | 0.21 | 2.7 |
+
+## Dashboard 推荐详情与数据边界
+
+推荐卡片提供“详情”展开，展示 API 已返回的预测字段：推荐方向、预测比分、大小球、双方进球、模型概率、Poisson Top 3、λ 及置信区间、推理因素和市场溯源。伤停、首发/阵容、历史交锋在当前数据链路中没有可靠字段，页面明确显示不可用，不从历史比赛或 AI 文案推断。
 
 ## 技术栈
 
