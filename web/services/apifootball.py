@@ -135,7 +135,7 @@ class ApiFootballService:
         return [{"player": r.get("player") or {}, "team": r.get("team") or {}, "type": r.get("type"), "reason": r.get("reason")} for r in rows]
 
     def lineups(self, fixture_id: int) -> list[dict]:
-        rows = self._rows(self._get("lineups", {"fixture": int(fixture_id)}))
+        rows = self._rows(self._get("fixtures/lineups", {"fixture": int(fixture_id)}))
         return [{"team": r.get("team") or {}, "formation": r.get("formation"), "startXI": r.get("startXI") or [], "substitutes": r.get("substitutes") or [], "coach": r.get("coach") or {}} for r in rows]
 
     def h2h(self, home_team_id: int, away_team_id: int, *, last: int | None = None) -> list[dict]:
