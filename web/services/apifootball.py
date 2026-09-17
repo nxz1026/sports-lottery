@@ -50,9 +50,7 @@ class ApiFootballService:
             return response.read()
 
     def _enabled(self) -> None:
-        # Enrichment is opt-in; retain the legacy switch for compatibility.
-        enabled = getattr(config, "API_FOOTBALL_ENRICH_ENABLED", False) or getattr(config, "API_FOOTBALL_ENABLED", False)
-        if not enabled:
+        if not getattr(config, "API_FOOTBALL_ENRICH_ENABLED", False):
             raise ApiFootballError("API-Football provider is disabled")
         if not config.API_FOOTBALL_KEY:
             raise ApiFootballError("API-Football key is not configured")

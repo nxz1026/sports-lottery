@@ -6,7 +6,7 @@ from web.services import apifootball
 
 
 def _enable(monkeypatch):
-    monkeypatch.setattr(apifootball.config, "API_FOOTBALL_ENABLED", True)
+    monkeypatch.setattr(apifootball.config, "API_FOOTBALL_ENRICH_ENABLED", True)
     monkeypatch.setattr(apifootball.config, "API_FOOTBALL_KEY", "test-key")
     monkeypatch.setattr(apifootball.config, "API_FOOTBALL_CACHE_TTL_SECONDS", 900)
     monkeypatch.setattr(apifootball.config, "API_FOOTBALL_DAILY_LIMIT", 100)
@@ -15,7 +15,7 @@ def _enable(monkeypatch):
 
 
 def test_disabled_is_safe_and_no_transport(tmp_path, monkeypatch):
-    monkeypatch.setattr(apifootball.config, "API_FOOTBALL_ENABLED", False)
+    monkeypatch.setattr(apifootball.config, "API_FOOTBALL_ENRICH_ENABLED", False)
     calls = []
     service = apifootball.ApiFootballService(transport=lambda *args: calls.append(args), cache_dir=tmp_path)
     with pytest.raises(apifootball.ApiFootballError):
