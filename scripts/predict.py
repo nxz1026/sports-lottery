@@ -167,9 +167,19 @@ def _generate_predictions(
 
 
 def _save_output(output: dict, calibration_offset: dict | None, now_utc) -> Path:
-    """保存预测结果到文件，返回文件路径。"""
+    """保存预测结果到文件，返回文件路径。
+
+    文件名必须带联赛后缀：时间戳只有小时精度（%Y-%m-%d_%H），而 --all 模式会在同
+    一次运行里依次跑完全部联赛 —— 不带联赛名时 6 个联赛写同一个文件、互相覆盖，
+    最终只剩最后一个联赛的数据（实测 --all 跑完 5 个联赛均成功，落盘文件却只有
+    ligue1 的 6 场）。
+    归并侧 store.latest_by_league() 读的是 JSON 里的 league 字段、不解析文件名，
+    故加后缀不影响归并。
+    """
     ts = now_utc.strftime("%Y-%m-%d_%H")
-    pred_file = PREDICTIONS_DIR / f"prediction_{ts}.json"
+    league = output.get("league") if isinstance(output.get("league"), str) else ""
+    suffix = f"_{league}" if league else ""
+    pred_file = PREDICTIONS_DIR / f"prediction_{ts}{suffix}.json"
     PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
     with open(pred_file, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
