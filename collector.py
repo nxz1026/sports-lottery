@@ -656,9 +656,9 @@ def main() -> int:
     if args.mode_log:
         _lh = ROOT / "logs" / f"collector_{args.mode_log}.log"
         _lh.parent.mkdir(parents=True, exist_ok=True)
-        _log_fh = open(_lh, "a", encoding="utf-8")
-        with contextlib.redirect_stdout(_log_fh), contextlib.redirect_stderr(_log_fh):
-            return _run(args, ap)
+        with open(_lh, "a", encoding="utf-8") as _log_fh:
+            with contextlib.redirect_stdout(_log_fh), contextlib.redirect_stderr(_log_fh):
+                return _run(args, ap)
     # 单例锁：--push / --push-batch 定时任务主路径专用；probe/collect 不锁（可并行诊断）
     return _run(args, ap)
 
