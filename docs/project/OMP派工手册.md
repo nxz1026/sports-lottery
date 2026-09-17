@@ -1,11 +1,11 @@
 ---
 name: omp-ops-oracle
 description: 在 NDORACLE 本机上驱动 OMP coder 干活的完整操作手册：后端选择、快问答、长任务派工器、工单六条、验收门禁、冒烟 SOP、已知坑。league-v2 所有代码工单必须按本文件模板下发。
+whenToUse: '写/改 league-v2 应用代码、跨文件重构、需要本机 PG/环境/网络的操作、审核大段代码，或下发任何 >30s 的工单时；不要用于单文件查询、纯问答、≤1 万行数据处理。'
 ---
 
 # OMP 操作技能（oracle 本机版，2026-09-15 复测校准 v2）
 
-> **2026-09-15 变更（用户指令）**：**mimir 不再参与任何步骤**——取 key、派工、验收全部在 NDORACLE 本机完成。
 > 本文件所有数字都是**本机实跑**得到的，不是转抄；改脚本或换机器后先跑 §7 冒烟。
 > 队长（你）纪律不变：**只写工单和验收，不替 coder 写应用代码**；一切自报结果必须独立复跑。
 
@@ -191,7 +191,7 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
 工单 `~/tickets/SMOKE1.txt` 要 coder：建 `hello.txt`（OMP_OK + 日期）、写 `<TAG>.report.txt`、真跑 `echo TASK_DONE > .omp-logs/<TAG>.done`、全程禁 git。
 用**独立临时目录**跑冒烟，绝不在 repo 里试刀。
 
-## 8. 数据源 key 与联网（替代旧"ssh mimir 取 key"）
+## 8. 数据源 key 与联网
 - 代码仓库：`https://github.com/nxz1026/league-predict`，本机克隆 `~/league-v2/repo`（origin/main `60e3201`；**工作分支 = `v2`**，本地已 checkout，远端无 v2、未推送）。
 - **key 出处（本机）**：`/home/ubuntu/.env`，含 `API_FOOTBALL_API_KEY`、`FOOTBALL_DATA_API_KEY`、`API_FOOTBALL_BASE_URL(=v3.football.api-sports.io)`。
 - **变量名不一致（重要）**：`scripts/core` 实际读的是 `API_FOOTBALL_KEY`（`data/fetch.py:27,256`、`backtest.py:287`）与 `FOOTBALL_DATA_API_KEY`——**不是** `API_FOOTBALL_API_KEY`。
@@ -248,12 +248,7 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
 16. **文件系统动作不随 DB 事务回滚**（P0-STORE1 真缺陷，队长复核抓到、coder 自报没有）：一个事务吃整批文件 + 循环里 `shutil.move` → 第 2 个文件炸，第 1 个文件的 DB 写被回滚而原件已进 `done/` = **既没数据也没留痕**。规则：凡"写库 + 动文件"混在一起，必须**逐条目独立事务 + 先 commit 后 move**，异常只脏当前条目并继续（P0-STORE1b 在修）。
 17. **`pgrep -f "[o]mp-…"` 会自匹配**：括号技巧只躲得过 pattern 字面量，躲不过我自己命令行里真实出现的串（`bash -c` 里带着 setsid 派工命令）→ 判"场上有没有单在跑"要用 `ps -eo pid,etimes,args | grep "omp-call --acp"`（排 grep 自身）或看 `.omp-logs/<TAG>.attempts` 末行。
 18. **幂等键口径与采集契约有已接受的偏离**：契约 §5 定义 `src_hash` = 该行**原始 JSON 字节**的 sha256，而 store 侧只用它校验字段存在、**幂等键自己按规范化对象（sort_keys + 紧凑分隔 + ensure_ascii=False）重算 64 位 hex**。理由：远端复现不了原始空白/键序，采信对方值 → 采集机一个 bug 就能把整文件塌成 1 行；本地重算的 dedup 语义严格更强。**代价**：与采集机本地去重不可直接对账 → 契约 v1.1 冻结时必须回头统一（已进 README 悬而未决）。
-19. **psycopg3 的 `conn.transaction()` 是"外层还是 SAVEPOINT"取决于进入瞬间连接是否 IDLE**（实测，非猜）：
-    `transaction.py:215` 判据 `self._outer_transaction = pgconn.transaction_status == IDLE`。所以
-    `with pg.write_conn(...) as conn: run(conn, commit=True)` 这种"外层再包一层"的写法，**只要内层进事务时还没人执行过任何语句，内层就是真 BEGIN/COMMIT**（libpq PQtrace 实测），外层 `with conn:` 的 rollback 变成空操作 → 现状"提交后才归档"成立；
-    但**只要将来有人在 run() 之前先查一句**（最典型：`SELECT pg_advisory_lock(...)` 防 cron 重叠），外层立刻变成真事务、内层退化成 SAVEPOINT → kill 时"文件已进 done/ 而 DB 全回滚"的洞**原样复活**。
-    ⇒ 已立 P0-STORE1c：`main()` 不再套 `write_conn`、`commit=True` 分支进事务前断言 IDLE、并加**零 DB 的 stub 顺序回归锁**。
-    ⇒ 通用教训：**"看起来对"的跨资源（DB+文件系统）顺序保证，必须有一条不依赖真库的测试钉住**，否则它是"碰巧"，一次重构就没了。
+19. → 并入 §9-25（同一根因：`pg.connect()` 非 autocommit ⇒ 第一条 SELECT 即开隐式事务，此后 `with conn.transaction():` 进入时连接已非 IDLE ⇒ 自动降级成 SAVEPOINT、永不提交）。§9-25 含 `transaction.py:215` 判据、复现姿势与 P0-STORE1c 修法。
 20. **`league_ing` 没有 `CREATE TEMP TABLE` 权限**（实测 `permission denied to create temporary tables`）→ 想用临时表做"自清理测试"这条路不通；要证明事务行为就用 `PQtrace` 看协议，别改权限。
 21. **队长自己也会造故障：新 DB 对象别顺手建进 `stg`**。P0-store 之后我想给回填加两块原始落地（`af_raw/fd_raw`），顺手建在 `stg.` → `tests/test_collector_contract.py` 的 `sorted(stg 表集合) == 七 topic 契约` **立刻红**。
     那条断言是**契约守卫**（防 schema 漂移），不是障碍：**红是对的方向，改的是我**。已迁到独立 `raw` schema（`docs/db/infra_p0_3_raw_api.sql`），stg 回到 7 表、用例复绿。
@@ -261,7 +256,7 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
     ⇒ 复跑口径：`PG 残留` 那一步现在打印 14 张（ref4+stg7+ops3，raw 两块不计入，因它 owner/grants 独立且只追加）；对象总数看 `select count(*) from pg_tables where schemaname in ('ref','stg','ops','raw')` = 16。
 22. **`sudo -u postgres psql -f ~/league-v2/docs/db/x.sql` 必然 Permission denied**：`/home/ubuntu` 是 0750，postgres OS 用户进不来我家目录（`-f /dev/stdin` 也不行，procfd 有 ptrace 级限制）→ 跑法固定为
     `install -m 0644 <file> /tmp/ && sudo -u postgres psql -d league -v ON_ERROR_STOP=1 -f /tmp/<file>`。
-23. **`ALTER DEFAULT PRIVILEGES` 会让"以后建的表"自动带权限** → 给某 schema 授过 `TRUNCATE` 之后，在该 schema 里新建的每一张表都会继承，事后想收紧必须**逐表 REVOKE**（§9-21 就是这么撞上的）。
+23. → 并入 §9-13（同一事实的另一面：之后在该 schema 新建的每一张表**自动继承**已授权的 `TRUNCATE` 等权限，事后想收紧必须**逐表 REVOKE**）。
 24. **`ref.league.scope` 有 CHECK，值域是 `regular|irregular`，语义是"竞彩开售范围"不是"联赛/杯赛"** → 我 seed 五大联赛时写 `scope='league'` 被整条 INSERT 拒（`ON_ERROR_STOP` 下 rc=3，前五联赛一条没进）。五大联赛 ⇒ `'regular'`；`window_from/window_to` 留给 P3 开关制。
     通用教训：**seed 前先 `\d+ 表名` 看 CHECK**，别照草案语义想当然。
 25. **同一个坑会在别人手里第二次出现——因为守卫只装在了一个地方**（2026-09-15 最重要的一课）：
@@ -356,24 +351,14 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
     `report["ok"] is True`，而 `run()` 返回体没有 `ok` 键 ⇒ `KeyError`，全量 427 passed / **1 failed**）。
     ⇒ 验收这类单时必须跑**全量** pytest，并对"一拆二"的用例做**语句级集合比对**（金标有效语句是否全部出现在两半并集里，只多不许少）；
       多了断言本身可以接受（前提是真键），**红了就退**。比对脚本思路：`ast.dump` 每条顶层语句，剔除纯 docstring/常量表达式后取集合差。
-45. **慢工人（Agnes）身上"拆小单"是反效果**（2026-09-16 实测两轮）：它的耗时**几乎全在探索**（20+ 分钟读文件/找先例），写代码只占尾部；
-    每次换会话都**从零重读**，所以拆成 2a/2b 不会省时间，只会把探索成本×2（2a 派下去 13 分钟 0 改动，还越界去读 `jc_write.py`，我把它杀了）。
-    ⇒ 正确做法是**一张大单 + 队长把喂料做到极致**：① 真值全部算好写进工单（我算了 7 条期望值 + HHAD 让球线五档分布 + dash 条数 4）；
-    ② **半成品代码的缺陷清单预先核实并点名到行**（`jc_write.py` 的 D1 参数数量必不匹配 / D2 `snap_ts` 没进 cols 但它是 PK / D3 查了不存在的 `ref.team.jc_id` / D4 死代码）；
-    ③ 明确"继承不许推翻重写"+"越界即拒收"；④ `maxtries 3`、单次 2400s。判据：**同一分钟内既没读也没写的 drift 苗头（开始搜 CLI 入口而本单禁改 scripts）就杀**。
+45. → 并入 §9-52（Agnes 工作剖面总表；「拆小单为何反效果」与「一张大单＋喂料到极致」的喂料清单均在其内）。
 46. **工人修期望值时最爱犯的偷法是把断言松绑而不是算真值**：新夹具下 `len(dash)==2` 对不上，它改成 `len(dash) > 0`（还留着原 docstring）。
     ⇒ 验收"期望值修正"类改动时，**凡是把 `==` 改成 `>0/is not None/in` 的，一律要求给出实算数字**（我这边直接 `python3` 遍历夹具算出 4 条，写进下一单 D0）。
     反例提醒：同一次改动里它把 `all(sorted(blocks)==...)` 改成 `all(sorted(set(blocks))==...)` 是**正当的**（跨批变化行让 block 列表出现重复），不是所有改动都是偷——逐条看证据。
 47. **派工链上的 `md5sum -c` 必须用绝对路径清单**（2026-09-16 19:10Z 踩）：清单是 `cd ~/bin && md5sum league-accept.sh …` 生成的（裸文件名），
     我在 repo 目录里 `-c` → "No such file" → 返回非零 → **`&&` 链断掉，派工根本没发生**，而我还以为在跑。
     ⇒ ① 清单里存绝对路径；② 派工后**必须**看 `.omp-logs/<TAG>.attempts` 有 `try 1/…` 才算真的发出去了（`sleep 5~8` 再读，别看空就下结论）。
-48. **对 Agnes 这类"探索型慢工人"要用 `【第一动作】先写文件再读代码` 的写死式工单**（19:09Z 实测：P0-COLLECT2b try1 **40 分钟 0 文件改动**，
-    全程在"算 oracle/读 logger/跑 pytest"；把它上一位留下的 `jc_write.py` 105 行原样放着没动，D0 那一处也没改）。
-    ⇒ 新工单格式：🅐 第一动作（先 `new file` 写骨架，每写一个函数就跑一次 CLI）＋ 🅑 **只准读这几个文件的这几行**（并列"不许读"清单）
-    ＋ 真值表全部队长算好（oracle 行数、缺陷点名到行）＋ 超时压到 1500s×2（**给它"没时间慢慢读"的压力**）。
-    ⇒ **19:11Z 实测有效**：2c 下去 **55 秒就 `new file` 建了 `jc_load.py`**（前两单 40 分钟 0 动作），6 分钟内改完 `jc_write.py` 的四条缺陷
-    （`jc_id`/`where_note`/死代码 `INT` 全部消失，我 grep 复验）。**代价**：25 分钟只走到"writer 修好 + CLI 空壳 + D0 没改"，仍没收尾 ⇒
-    结论是**写死式工单能把 Agnes 从"只读不写"里拽出来，但换不来它变快**；预算仍要按"一单两段（1500s×2）"排。
+48. → 并入 §9-52（「【第一动作】先写文件再读代码」写死式工单格式、55 秒见效实测与派工预算上限，见 §9-52）。
 49. **`psycopg3` 的 `sql.Literal(str)` 会把 WHERE 子句当"值"加引号**（2026-09-16 D5，**实测**：`sql.Literal(' WHERE a>=b').as_string(None)` → `"' WHERE a>=b'"`）：
     工人用它拼 `ON CONFLICT DO UPDATE ... {clause}` 时，语句会变成 `SET x = EXCLUDED.x ' WHERE ...'` ⇒ **每条 insert 必报语法错误**，
     但**AST/行数检查完全看不出来**（这不是风格问题，是运行时炸弹）。⇒ 以后凡是 DB 写人类的单子，验收加一条：
@@ -433,16 +418,7 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
     ⇒ 规矩：**凡是带"缺省/最新/默认"分支的函数，oracle 要用与该分支完全相同的 SQL 先跑一次**，
       并且工单里必须把"这个数是怎么来的"写成一句可复核的 SQL，而不是只写一个数字（数字无法自证，SQL 可以）。
     同类复发历史：`#MISSING` 我写 5（真 8）、fixtures 我写 85（真 40）——**都是"我记得"而不是"我此刻查了"**。
-61. **"重算一遍 oracle"必须把业务规则一起算进去，否则新算出来的错数比旧错数更危险**（2026-09-17 00:20Z，传统足彩 2e）：
-    我 00:12 用真包重算，得到 `jc_issue=4 / jc_issue_match=38`，据此准备推翻工单里旧版的 `7 / 62`。
-    差在哪：① **合成父行** —— `jc_issue_draw` 的 3 个 `(game_num,issue_no)` 与期头侧 **交集为 0**（开奖都是上一期号），
-    而 `fact.jc_issue_draw → fact.jc_issue` 有复合 FK ⇒ 不合成 3 条 `raw_head.head_source='jc_issue_result'` 的父行就整批违反外键（4+3=**7**）；
-    ② **双来源展开** —— `matchList` 在 `jc_issue`（38）与 `jc_issue_result`（24）**两侧都有**，只按一期头展开就少 24 行（38+24=**62**）。
-    ⇒ 规矩：**oracle 必须写成"可复核的推导链"**（哪来的数、按哪个 PK 去重、有没有第二来源、FK 是否需要补父行），
-      光写一个数字（哪怕是刚测的）都不算数；旧版工单那两个数这次是**对的**，我差点用"新测"把它改错。
-    附带事实（都实测过、别再猜）：`jc_issue_prize` **恒 0**（`prizeLevelList` 12 期全空数组）；开奖侧 `matchList` 的
-    `result/czScore/czHalfScore/a/d/h` **全为空串** ⇒ `official_result/cz_score/cz_half_score` 只能落 NULL、`is_drawn` 全 false；
-    `gmMatchId` **只有期头侧有**（114 个）；`startTime` 是纯日期（210/210）；`matchNum` 恒等于 1-based 下标（114/114）。
+61. → 并入 §9-60（oracle 必须写成**可复核的推导链**：数据从哪来、按哪个 PK 去重、有没有第二来源、FK 列是否需要补父行；光写数字——哪怕是刚实测的——都不算数）。
  62. **逐批期望值必须"每一批各自现算"，不许拿上一批的形状外推**（2026-09-17 01:04Z，COLLECT2o 的 E3，队长第 6 处规格错）：
      我在 E3 写"实时五批各 `ups=49`"，实际是 `23-01 / 23-03 / 23-13 / 00-03 = 40`、从 `00-13` 起才 `= 49`——
      差的正好是那几批的 `jczq_result` 是 **`.empty`**（那一刻没有已完场场次），而我看了两批有赛果就外推成"每批都带 9 条赛果"。
@@ -464,136 +440,52 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
           这次我删前拍数、删后核对：`119/14 → DELETE 6 → 113/8`，剩下 8 条全是老三批（0 字节 marker 走窗口）**真缺**，逐条点过名；
        ③ 每次验收 ingest 类工单，末尾加一句 `select src_file from ops.file_arrival where src_file like '%#MISSING%' order by 1`，
           **数一下 gap 是不是只减少了没增加** —— 这一条我原先的 oracle 里没有（只写了"count 不许下降"），所以差点漏掉。
-64. **"工人 15 分钟零写入"的第三种解释：ACP 会话在长思考里静默死亡**
-     （2026-09-17 10:07 北京，`P0-COLLECT2q` 连炸三次之后才看清）：
-     我先按"它只会读不会写"下结论 ⇒ 把工单从"行为描述"改成"内联骨架"再改成"内联整个函数 + 禁止先跑基线"，
-     三次尝试分别 12 / 14 / 2 分钟、**全部零写入**。第四次去看进程和日志才发现真相：
-     `.attempts` 记 `try 1 rc=0 end=…`、日志尾巴是**我包装器自己写的 `[ACP 无返回]`**，而且**三次都有这一行**
-     ⇒ **omp 的 ACP 会话在生成中途断流，`omp-call` 正常退出（rc=0），我 `max_tries=1` 于是直接 EXHAUSTED。**
-     附实测：死亡时 `usage_update: size=524288 used=29443` ⇒ **不是上下文撑爆** ⇒ 所以"把工单写得更短"根本救不了它。
-     ⇒ 三条永久规矩：
-       ① 诊断顺序固定：**`.attempts` 的 rc/end → 日志尾有没有 `[ACP 无返回]` → 才回头怪工单写得不清楚**
-          （我今晚先怪了工单两轮，白拆两遍工单，还在报告里错怪了模型）；
-       ② 派工 **`max_tries≥3`**：**只认 `.done` 哨兵，`rc=0` 绝不等于成功**；会话死亡是概率性的，重派比重写便宜；
-       ③ 重派前必须验工区干净：派工器新增 `LEAGUE_WATCH_PATHS="scripts/ingest …"`，
-          **只检工单授权可写的路径**（别检全仓 —— `predictions/*.json`、我自己的 `tickets/`、`docs/` 常年是脏的，
-          我第一版就是全仓检查，被 `ai_scores.json` 误伤成 `DIRTY-ABORT`）；脏就 `exit 2` 交回队长看 diff，
-          **绝不允许新尝试在"半个文件"上续写**（这正是 §9-63 那批伪 gap 的成因）。
-65. **建了表却没把 DDL 文件提交进 git ⇒ 环境不可重建，而且当场发现不了**
-     （2026-09-17 10:36 队长自查发现：`fact.jbq_match / jbq_offer / jbq_result` 三张表在库里活了两天、有数据、被工单当靶子用，
-     但 `docs/db/` 里**根本没有** `infra_p0_10_jbq_tables.sql` —— 我当时是在 `/tmp` 里执行完就直接开工单，文件没落进仓库）。
-     危害不是"少个文档"：① 换机/重建库会**少三张表**，装载器上线才炸；② 表形状只能靠 `information_schema` 反查，
-     于是**任何"列名写错"类验收（`jc-cols-check.py`）都在拿现状当规范**，等于没有规范；③ 我自己写工单时的"列清单"就变成口述。
-     ⇒ 三条规矩：
-       ① **DDL 与执行必须同一提交**：`psql -f docs/db/xxx.sql` 之前那个 commit 就得包含这个文件（不是执行之后再补）；
-       ② 新工具 **`~/bin/jc-ddl-audit.py`**：拿 `information_schema.tables` 全量基表逐张去 `docs/db/*.sql` 里找 `create table <schema>.<表>`，
-          **缺一张就 exit=1**；已反证过（把补回来的文件临时挪走 ⇒ 准确报出那三张、exit=1；放回 ⇒ 38/38 exit=0）；
-          ⇒ **每次验收 DDL 类工单、以及装 cron 之前跑一次**。
-       ③ 反向补文件之后必须**证明它可信**：把 `fact.` 换成临时 schema 在**一个 `begin … rollback` 的事务**里重放，
-          比对"表数 / 约束数 / 列数"与运行库一致（我这次是 **3 / 19 / 61** 两边全等），才准写"已核对"。
-66. **Agnes 一单只吃得下"一个函数级别"的改动**（2026-09-17 11:12，`P0-COLLECT2q2` 连烧 31 分钟零写入后定）
-     同一个派工器、同一个模型，对比很清楚：
-     · **成的那一单（`2q1b`）**：**只改一个文件里的三个函数**、净增 ≤14 行、**判定顺序与 `_resolve` 全文内联**、并写死
-       "**改完之前一行测试都不许跑**" ⇒ **第 10 分钟落笔**（83→99 行）、第 15 分钟在跑测试（只差没交报告，我按亲验收收了）。
-       （对比：**只有 2o 那一单是第 2 分钟落笔** —— 那单我把**整份旧代码 + 骨架**都贴进去了；可见"**贴得越死，落笔越快**"是条单调关系。）
-     · **废的那几单（`2q` v1/v2、`2q2`）**：**一步以上**（搬家 + 两处健壮性 + orphan）、或者只给"行为描述" ⇒
-       12 / 14 / 21 分钟全在"读文件 + 想"，**一次都没写**。`2q2` 的 `.attempts` 是 **`rc=124`（超时被杀，会话活着但没产出）**，
-       跟 §9-64 的 **`rc=0` + `[ACP 无返回]`（会话断流）** 是**两种不同死法**：前者是**单太大**，后者是**链路抖**。
-     ⇒ 三条落地规矩：
-       ① **切到"一个函数一单"**：搬家就是搬家、改判 missing 就是改判 missing，别打包；打包的结果是**两轮全废**（我今晚 2q2 就是教训）；
-       ② 工单里写死**"第 1 个动作就 edit，改完之前不许跑任何测试"**（`2q1b` 靠这句省了整整一轮），并且
-          **基线值由队长量好写进工单**（工人不需要"先复现基线"，那是我自己的活）；
-       ③ 看 `.attempts` 的 rc 分流处置：**`rc=124` ⇒ 立刻把单拆小重派**（别指望下一轮就突然会了）；
-          **`rc=0 + [ACP 无返回]` ⇒ 单不用改，直接让 `max_tries≥3` 续跑**；两种都别去怪"模型不行"。
-     附：`LEAGUE_WATCH_PATHS` 的脏检查现在按"**能编译才准续跑**"放行（10:43 那次它正确地拦下了字符串没闭合的半个文件）。
-67. **对方又新增一种违约：`.done` 被"半传半写"**（2026-09-17 11:15 北京实测，`2026-09-16T03-15-24Z.done` 只有 **99 B / 1 行**）
-     · 现象：清单只列了 `2026-09-16T03-15Z__001.jsonl / 135`（`jczq_offer` 那一个文件），**其余 6 个 topic 一个字都没有**；
-       而**盘上确实还没有**那 6 个文件（我逐条查过 ⇒ `jc-false-gaps.py` 判"清单没列该 topic、盘上也没有该文件 = **真缺档**"**保留**）。
-     · 为什么这不是我方 bug 而是**对方违约**：契约 v1.2 起就写死 `.done` 是**最后一步**（全部文件传完才落 marker）；
-       现在等于"边传边写清单" ⇒ 装载器只能看到残清单 ⇒ **一批里 6 个 topic 全被判缺档**（假警 + 真漏数据）。
-     · 我方已有的两道防线（都实测过）：**① 清单优先 + 消歧**（2q1b/2q3：丢前缀也能唯一认领，`_check_entry` 还要拿**实际非空行数 == 声明行数**再核一次）；
-       **② 假 gap 可逆**（`jc-false-gaps.py` 判伪后**只删 `ops.file_arrival` 的记录行**，数据本身在库里没丢；11:29 用它把 91 → 14 清零）。
-     · 还缺的第三道 = **orphan 兜底**（`P0-COLLECT2q2` 的 D 步：盘上有、清单/窗口都没认领的 `<topic>/*.jsonl`，
-       当**额外伪批**排在最后装载、`done_marker=false`、**不记 gap**）⇒ 这一单**从"优化"升级为"必须有"**，
-       因为它同时治"残清单"与"没 marker 的历史文件"（现场靶子：`jczq_offer/` 里 `22-48Z / 22-49Z / 22-54Z` 三个 40 行文件至今没被任何 marker 认领）。
-     · **给采集机的话（进 inbox）**：`.done` 必须**全部文件落地之后**再写、并且**写完整**（7 行起）；
-       若某 topic 这趟没采到，请写一行 `<topic>/none.empty\t0`（我方已把 `.empty` 当"正常无数据"，**不算 gap**），
-       而不是干脆不列 —— 现在"不列"和"没传"在我方**无法区分**，只能按最保守的真缺档记账。
+64. **ACP 会话会在长思考里静默死亡**：`rc=0` + 日志尾 `[ACP 无返回]` = 会话断流，**不是工单没写清**
+    （usage 只到 29443，远没撑爆上下文）。
+    ⇒ ① 诊断顺序：**`.attempts` 的 rc/end → 日志尾有没有 `[ACP 无返回]` → 才回头怪工单**；
+    ② **`max_tries≥3`，只认 `.done` 哨兵，`rc=0` 绝不等于成功**；
+    ③ 重派前验工区干净，`LEAGUE_WATCH_PATHS` **只检工单授权可写的路径**，脏就 `exit 2`，
+    **绝不允许新尝试在"半个文件"上续写**（这正是 §9-63 那批伪 gap 的成因）。
+65. **建了表却没把 DDL 文件提交进 git ⇒ 环境不可重建，而且当场发现不了**（三张表在库里活了两天、
+    有数据、被工单当靶子用，`docs/db/` 里根本没有对应 SQL）。
+    ⇒ ① **DDL 与执行必须同一提交**（执行前那个 commit 就得含该文件，不是执行之后再补）；
+    ② `~/bin/jc-ddl-audit.py` 缺一张就 exit=1，每次验收 DDL 类工单、装 cron 之前各跑一次；
+    ③ 反向补文件后必须在**一个 `begin…rollback` 事务**里重放、比对表数/约束数/列数，才准写"已核对"。
+66. **Agnes 一单只吃得下"一个函数级别"的改动**（成的那一单：只改一个文件三个函数、净增 ≤14 行、
+    判定顺序全文内联、写死"改完之前一行测试都不许跑" ⇒ 第 10 分钟落笔；废的单：一步以上或只给行为描述 ⇒ 21 分钟一次没写）。
+    ⇒ ① **切到"一个函数一单"**：搬家就是搬家、改判 missing 就是改判 missing，别打包；
+    ② 工单写死**"第 1 个动作就 edit，改完之前不许跑任何测试"**，**基线值由队长量好写进工单**；
+    ③ 按 `.attempts` 的 rc 分流：**`rc=124` ⇒ 单太大，立刻拆小重派**；**`rc=0 + [ACP 无返回]` ⇒ 单不用改，直接续跑**（§9-64）。两种都别去怪"模型不行"。
+67. **对方 `.done` 出现"半传半写"（99 B / 1 行）** ⇒ 一批里 6 个 topic 全被判缺档（假警 + 真漏数据）。
+    ⇒ 给采集机：**`.done` 必须全部文件落地之后再写、并且写完整**（7 行起）；
+    某 topic 这趟没采到，写一行 `<topic>/none.empty\t0`（我方已当"正常无数据"，不算 gap），
+    不要干脆不列——"不列"与"没传"在我方**无法区分**，只能按最保守的真缺档记账。
 68. **改工单文件对"正在跑的派工器"无效**（2026-09-17 11:39，我在 2q3 跑着的时候改了 `P0-COLLECT2q3.txt` 才发现）
      `~/omp-resilient3.sh` 第 13 行是 `PROMPT="$(cat "$PF")"` —— **启动时读一次进内存**，之后 `try 2/3` 用的是**同一份内存里的 prompt**。
      ⇒ 所以：想中途修正工单（补基线数字、改判据），**必须 kill 重派**；否则你改了文件、工人却按旧单跑，白等一轮。
      附带好处（同一行代码的另一面）：**跑着的时候随便改工单文件都不会炸正在跑的那轮**，所以我敢在 2q3 执行期间把 2q3b 整份重写。
      ⇒ 顺手定：**派工后 3 分钟内不许编辑该工单**（真要改就 kill 重派，反正 try 1 也才刚起步）；
        派工前把**基线数字全部量好写进单里**（T0 那种"你自己先测一遍基线"的写法 = 让 Agnes 白烧一轮，见 §9-66②）。
-69. **队长错账 #10：我在 `2q3b` 的工单里写了 `T0 先量基线`——正好违反 15 分钟前我自己写的 §9-66②**
-     （2026-09-17 11:52 看 trace 才发现：工人 11:41 接单，前 10 分钟在读文件，11:51 去跑 `bash ~/bin/jc-ingest-run.sh`**量基线**）。
-     后果不是慢一次：它**先花一整轮装载**才动手，而基线我早就量好了（`gaps=14`、`jc_offer=1440`、`jc_match=36`、`jc_result=24`、**orphan 权威数 n=14**）。
-     ⇒ 以后工单里**只准写"基线=已测值"**（"照抄别去查"），**"你自己先跑一遍看看"这种句子一律禁止**；
-       要它跑的唯一时机是**改完之后**（T1 起）。
-     顺带：`2q3b` 我把 **T1 的 n 从"你自己实测"改成写死 14** —— 权威口径是我 11:49 用真代码算的：
-       **`jsonl` 共 159 个、清单/窗口认领 145、无主 14**（分布在 `22-48 / 22-49 / 22-51 / 22-54` 四个采集分钟，**这四分钟根本没有 marker**；
-       topic 分布 `jczq_offer 3 / jc_issue 3 / jc_issue_result 3 / lottery_draw 3 / jclq_result 2`）。
-       我之前"文件名前 16 字 vs marker 前 16 字"的粗算给的是 35 ⇒ **口径错了**（早期批次 `.done` 的上传时刻 ≠ 文件的采集分钟，窗口分支会认领掉一批），
-       以后**判"无主"必须用 `files_for_batch()` 真跑一遍取 `seen`**，不许拿文件名比字符串。
-70. **`is_close`（封盘那一版）暂时**只能全 False**，不许拿"数组最后一版"冒充**（2026-09-17 11:56 定，`3b` 系列工单都引用这条）
-     · 我 11:44 逐键量过 `getOddsHistoryV1` 的响应：**顶层恰好 16 个键**
-       （`matchId / leagueId(字符串!) / homeTeamId / awayTeamId / homeTeamAbbName / homeTeamAllName / awayTeamAbbName / awayTeamAllName / leagueAbbName / leagueAllName / singleList`
-       + 五个玩法数组 `hadList / hhadList / crsList / ttgList / hafuList`）⇒ **里面没有任何"卖停 / 完场 / 封盘"状态字段**；
-     · 而数组是**"最新在前、最早在后"**（实测 `arr[0].updateTime` 最大）⇒ "最后一条 = 封盘"**在语义上恰好是反的**（最后一条是"最早 = 开盘"），
-       所以我方规定：`seq_no = len(arr)-1-index`（**0 = 最早一版 = 开盘价**）、`is_first = (seq_no==0)`、**`is_close` 恒 False**；
-     · 为什么现在不给 `is_close` 真值：CLV 要的"收盘价"= **官方停止销售前最后一版**；没有状态字段就只能靠"别的数据"推
-       （`fact.jc_offer` 的快照序列在**该场开售窗口结束**后不再出现该 `matchId`；或 `jczq_result` 出现该场 ⇒ 已完场）⇒ 这是**跨表派生**，
-       属于 `analysis.jc_close_price` 单独一张工单的活（队列里排在 3b 接线之后），**绝不允许在解析器/写手里顺手写死**（那是"插错"，红线：宁可不插，不可插错）。
-71. **队长错账 #11：我在 `2q3b` 的 T3 写了"幂等 ⇒ 第二次必须 `orphan 装载 n=0`"——这条判据本身是错的**
-     （2026-09-17 12:04 我自己跑 `jc-ingest-run.sh` 两次都是 **`n=14`** 才发现）。
-     原因：**孤儿的定义就是"永远不会有 marker 的文件"** ⇒ `seen` 是按 marker 现算的，孤儿**每次都照样不在 `seen` 里**
-     ⇒ 每次装载都重新捞这 14 个文件。**这不是 bug**：走的是 `on conflict do update` 的 upsert ⇒
-     库里**不新增行**（`ops.file_arrival` PK=`(topic,src_file)`，14 条反复刷新 `rows/bytes/done_marker`），
-     `fact.*` 同理按业务主键 upsert ⇒ **代价只是每天 144 趟多读 14 个小文件**（实测整个装载 25–30 s，完全可接受）。
-     ⇒ **正确判据（以后写死）**：幂等 = **"第二趟 `fact.jc_offer/jc_match/jc_result` 与 `ops.file_arrival` 总行数与第一趟完全相同"**，
-     而**不是** "`n` 变 0"。想 `n→0` 只能靠"查 arrival 里已装过的孤儿 src_file 再跳过"（**+3 行**），
-     但 `jc_load.py` 现在 **99 行装不下** ⇒ 归到 `P0-JCSPLIT` 搬家之后再议；在那之前**每次 n=14 是正常态，别当报警**。
-     自我检讨一句：这条和 §9-69 是同一类错——**我把"我以为的行为"写成了判据**，而没有先在** HEAD 代码**上跑一遍再说"必须是多少"。
-72. **队长错账 #12：我把一个**活着**的会话当死的杀掉了**（2026-09-17 12:15，`P0-COLLECT3b1` try 2 正在流式输出时被我 `kill -TERM`）
-     经过：`try 1` 只活了 **67 秒**（04:08:45 停在半个词 `" the D"`）；我看 liveness 时用的是
-     `ls -t .omp-logs/P0-COLLECT3b1_try1_*.log | head -1` —— **模式里写死了 `try1`** ⇒ 拿到的永远是**第一轮那份旧日志**的 mtime（04:08:45），
-     于是"6 分钟没动"是**我看错文件得出的假结论**；真实的 try 2 日志在涨（最后 1,050,705 B，04:12:32 停在代码 token `" \"h"`）。
-     ⇒ 两条硬规矩：
-       ① **liveness 只认"不带 try 编号的 mtime 最大值"**：`L=$(ls -t .omp-logs/<TAG>_try*_*.log | head -1)`（**必须含 `try*`**），
-          然后 `stat -c%y "$L"` 与 `date -u` 比；差 >180 s 才算停；
-       ② **"停"的判据不是找 `[ACP 无返回]`**——**今天两次断流都没有这个标记**（§9-64 那条标记只覆盖 omp-call 主动放弃的情形）；
-          真正的形态是 **`agent_thought_chunk` 流到半个 token 就再也不动**，`rc` 给的是 **15（被 SIGTERM）**而不是 0；
-          ⇒ 所以 §9-64 的诊断顺序补一格：**`.attempts` 的 rc=15 + 日志尾是半个 token + mtime 停滞 ⇒ 同样按"会话断流"处理**（单不用改，让 `max_tries` 续）。
-     代价：try 2 已经读了 3 分半的夹具结构（有价值的探索被我抹掉），现在只剩 **try 3/3**（本轮跑不完就 `EXHAUSTED`，得整单重派）。
-73. **队长错账 #13：我把"文件 ≤100 行"错卡到了 `tests/**` 上**（2026-09-17 12:27，`P0-COLLECT3b1` 的测试写到 106 行被自己的工具判违规）
-     · 事实核对：仓库里**早就验收过**的测试文件本来就超 100 —— `test_poisson.py 175 / test_parse.py 135 / test_bball.py 128 / test_elo.py 124`
-       ⇒ 说明 D7 那条本意是**生产码**（`scripts/**`），我却在 `omp-ast-check.py` 里对所有路径一刀切（工具自己的 docstring 还写着"tests 只查大小/列宽"，**代码与注释都不一致**）；
-     · 一刀切的**实际害处**：逼人为了过线把"一个主题的断言"拆成 2~3 个文件 ⇒ 测试可读性与覆盖率都变差，是**为格式牺牲内容**（比 D7 想防的"巨型文件"更糟）；
-     · 修法（已改 + **双向验证**）：`omp-ast-check.py` 现在 **`tests/**` 免文件上限**，但 **函数 ≤50、列宽 ≤120 照查**；
-       正向：`omp-ast-check.py tests/test_parse_odds_hist.py scripts/store/parse_odds_hist.py` → **0 违规**；
-       反证：临时造一个 101 行的 `scripts/probe.py` → **仍报 `文件 101 行 > 100`**（生产码这条**一格没松**，§2-D7 未放宽）。
-     · 以后写工单：`ast 检查`一句要写清"**生产码 ≤100，测试只查函数/列宽**"，别再让工人为过线去拆测试。
-74. **队长错账 #14：我在 `3b1` 的 C4 里写了"带北京 tz 的 `datetime.utcoffset()` 必须是 `timedelta(0)`"——概念错**
-     aware `datetime` 的 **`==` 比的是"时刻"**（所以 `2026-09-15 09:39:39+08:00 == 2026-09-15 01:39:39+00:00` 为真），
-     而 `utcoffset()` 只是"这个对象自带的那层偏移标签"，用 `Asia/Shanghai` 打 tzinfo 就必然是 `+8:00`。
-     ⇒ 我原本想表达的是"**不许拿本机时区凑**"，正确的写法应是**断言那个 UTC 瞬间本身**（`== datetime(..., tzinfo=timezone.utc)`，我同一条里其实已经写了 ✔）。
-     结果很有趣：工人改成 `... .replace(tzinfo=ZoneInfo("Asia/Shanghai")).astimezone(timezone.utc)`（**先解释墙上时钟、再归一到 UTC**）
-     ⇒ 我那句错的断言**反而成立了**、7 个用例全绿。**代码是对的、我的判据是歪的**，所以记进错账本而不是怪工人。
-     ⇒ 规矩：**跨时区的断言只断"时刻"（与 UTC 瞬间比较），不断"偏移标签"**；`timestamptz` 入库统一存 UTC 归一值（省 ZoneInfo、比较不歧义）。
-75. **队长错账 #15：cron 一上线，我工单里所有"写死的数据库计数"当场变成过期判据**（2026-09-17 12:46，`P0-JCSPLIT` 派出去 40 秒我自查出来、立刻收回）
-     · 我 11:5x 写 `P0-JCSPLIT` 时把判据写成 `fact.jc_offer=1440 / jc_match=36 / jc_result=24 / gaps=14 / pytest 428 passed`；
-     · 到 12:46 的真实现场：**cron 每 10 分钟自动装载** ⇒ `jc_offer` 已 1575 且还在涨、`gaps` 因两次"残清单批"变 20；
-       `P0-COLLECT3b1` 刚合进 **7 个新用例** ⇒ `pytest` 基线是 **435** 不是 428；
-       而 E1 那句 **"`orphan 装载 n=0`"跟我 12:04 刚立的 §9-71（孤儿每趟都会重装、`n=14` 才是正常态）正面矛盾**。
-     · ⇒ 结果注定是"工人正确地跑完、报告正确地红着、我再看一遍发现是我自己的错"——**浪费一轮工单，且会让工人误以为自己做坏**。
-     【**新规矩（以后照这条写单）**】
-       ① 凡是 **cron 会动的东西**（`fact.*` 计数、`ops.file_arrival` 行数、`orphan 装载 n`）**一律不许写死**：改成
-          **`E0 先自量基线抄进报告` + 后续只与 `A1/A2/…` 比**，并且明确"**只许多不许少**"或"**必须相等**"哪种；
-       ② **只有离线夹具**（`/tmp/incoming*`、`tests/fixtures/*`）可以写死数字——它们不受 cron 影响（本轮实测 `ups=15 / ups=40` 稳定）；
-       ③ 派工前**先 `git log --oneline -5` 看今天合了什么**，把 `pytest` 基线数**当场更新**（今天的轨迹：428 → **435**）；
-       ④ 收回流程本身也记一笔：杀 wrapper 用 `kill -TERM -<pgid>`（`pgid` 从 `ps -eo pid,pgid,args` 看），
-          **杀完必须再查一次 `omp` 残留**——这次 `timeout/omp-call/omp` 那条链的 pgid 与 wrapper **不同**（`omp-call` 自己开了新会话），
-          第一刀只杀掉了 wrapper，**孤儿会话还在跑**（差点同时跑两个工人改 `scripts/ingest`），补 `kill -TERM -223892` 才干净。
+69. **工单里禁写"先量基线/先复现"**：`T0 先量基线` 让工人白花一整轮装载（基线我早就量好了）。
+    ⇒ 只准写**"基线=已测值"（照抄别去查）**；要它跑的唯一时机是**改完之后**（T1 起）。基线值由队长量好写进单里。
+70. **改完脚本不许直接重派，必须核工具输出**：`git status --porcelain` 非空（含未跟踪 `??`）时
+    `league-accept.sh` 打印"跳过 pytest"后 exit 0 ⇒ **验收假通过**。
+    ⇒ 新单必查 `git diff HEAD`/`ls` 确认真落地；**新工单一律换新 TAG**（旧 TAG 是失败尝试，重派会 dup-wrapper-exit）。
+71. **验收命令必须逐字写进工单，不许只指文档**（指 README ⇒ 工人自己拼参数、静默跳步）。
+    ⇒ ① 工单直接给完整命令原文；② 新工单一律换新 TAG（理由同 §9-70）。
+72. **契约的"当前版本"以生产代码为唯一真源，不是文档**（文档会漏：生产读 `snap_ts`，文档没有；
+    `lottery_draw.prizes` 文档没定义结构但生产已消费）。
+    ⇒ 判契约违规三步：① 先读生产代码 ② 再拿文档交叉检查、缺的补上 ③ 才判"新代码不合规"。
+    **禁止**拿文档当基准去"修"与文档不符的生产代码。
+73. **契约未冻结就不要派"改生产代码"的单**（冻结前 6 项：文件/目录布局 · `.done` 语义 ·
+    时间戳格式 · 必传字段 · 幂等/去重口径 · 缺档/损坏/乱序处理）。
+    ⇒ 冻结动作本身 **≤10–15 分钟，队长本机做**（grep 生产代码 + `cat` 真包），别派成半小时工单。
+74. **时间戳列语义必须写死**：凡"业务发生时刻"一律**朴素 UTC**；带 tz 的 `utcoffset` 是**当地偏移**不是 0。
+    ⇒ 工单凡涉时间戳列必写"朴素 UTC 还是带 tz"；"看起来像 2026-09-15 15:00"必须配**输入→输出对照表**让工人自证。
+75. **验收必须核"数字从哪来"**：`cron 表 == DB count` 只是**两层数字相等**，两层可以同时算错
+    （cron 把入库当采集成功，两边各错一个方向、差值恰好对上）。
+    ⇒ 数字层复算 DB 行数；口径层抽 2 个 topic 跑 `wc -l` 与 cron 声明条数逐条对；**两边都真值才算通**。
+    凡"数字很整齐"（如 50 条全一样）优先怀疑"数的是自己的产物"。
 76. **封闭清单的"联赛闸门"该认 `league_abbr`，别拿中文名硬拼**（2026-09-17 12:53 实测；顺带纠正我自己一次误判）
      · 我 12:49 用 `union all` 把 `league_cn` 与 `league_abbr` **两列混在一起**去重，得到"20 个联赛名、同一联赛两种写法"的结论
        —— **那是我自己的查询写歪了**：`league_cn` 恒为**全称**、`league_abbr` 恒为**缩写**，成对出现、并不冲突；
@@ -614,13 +506,9 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
        只有"每趟都该出现"的 topic 才准进 `TOPICS`（判据就这一句，别凭感觉加）。
      · 顺带一条通用教训：**任何" cadence 不匹配"的接线，先问"我的记账逻辑会不会把它每趟都判成缺失"**——
        我方已知的第二例是 `jclq_*`（每天 15:00/15:30 一趟），将来接 `P0-STORE2` 时同样要走 `OPTIONAL`，**不许**再进 `TOPICS`。
-78. **队长错账 #16：我在 `3b2` 的 B3 写了"逐行 try/except 就不许炸批"——在 PostgreSQL 的同一事务里这句话不成立**
-     · 事实：**任何一条语句报错，整个事务立刻进入 aborted 状态**，之后所有语句都报 `InFailedSqlTransaction`
-       ⇒ 我 13:13 跑 `pytest tests -q` 看到的正是 `2 failed, 2 errors`，错误名就是 `psycopg...`（工人的实现"照我的规格写"，失败得完全合规）；
-     · **正确形状（以后凡是"一批里允许坏行"的写手一律照此）**：每行前 `savepoint` → 成功 `release savepoint` → 失败 **`rollback to savepoint`** 再记 `logger.warning` 并继续；
-       多花 2 行，换来"坏行只损失它自己"，而且**外层事务/回滚语义不变**（我们的测试模式是 `begin…rollback` 自证，两者完全兼容）；
-     · 顺带定一条通用规矩：**写手工单必须写清"错误恢复原语"**（savepoint / 独立事务 / 整批回滚三选一），
-       不写清就等于把"能不能容错"变成工人运气（今天 3b2 就是运气不好撞上了）。
+78. **工单的"逐条独立事务"要求可能超出被改代码的架构边界**（真例：`run(conn, commit=True)` 是
+    **每文件一个事务**、批量提交点只有 `commit_batch`；在 parse 层加逐行 try/except 只能把 154 行炸成 0 行）。
+    ⇒ 派"改错误处理"的单之前，先看**被改函数的边界在哪一层**，做不到就把要求改在正确的层。
 79. **写手类工单必须自带"连接生命周期"一段**（2026-09-17 13:20，`P0-COLLECT3b2` 现场）
      · 工人按 §9-78 加了 savepoint（代码里 4 处），测试仍红：**一对症状 `psycopg.OperationalError: the connection is closed` + `assert 0 == 34`**
        —— 前者是**测试**在 `conn.close()` 之后又用了 cursor（teardown 顺序），后者是**容错路径把真实错误吞成"0 行成功"**；
@@ -631,36 +519,16 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
 80. **psycopg3 事实（今天踩实）**：`Connection.transaction()` **没有** `savepoint=` 关键字（只收 `force/readonly/deferrable/isolated`）
      ⇒ 要"每行一个保存点"就**写裸 SQL**：`cur.execute("savepoint rh")` → 成功 `release savepoint rh` / 失败 `rollback to savepoint rh`；
      嵌套 `with conn.transaction():` 虽然会自动开保存点，但**在循环里逐行开 `with` 会把函数撑爆 50 行**（D7），所以裸 SQL 是本仓库的既定写法。
-81. **🔴 队长工具缺陷（不是工人的错）：`omp-resilient3.sh` 的"孤儿清理"会**跨工单杀会话**（13:43:34 一次杀掉另外两张在跑的单）**
-     · 现场：`P0-COLLECT3b2` try 3 超时结束（13:43:34）的**同一秒**，`P0-JCGATE1` try 2 与 `P0-COLLECT2q3c` try 2 同时 `rc=15`（被 SIGTERM）
-       —— 三张单只有一个是自己到点的，另两个是被**打扫**掉的；
-     · 根因（第 34/38 行）：`BEFORE=$(pgrep -f "local/bin/[o]mp")` 是**本 wrapper 启动这一轮时的全局快照**，
-       收尾时 `for p in $(pgrep …); do [[不在 BEFORE]] && kill $p; done` ⇒
-       **任何"比我这一轮晚启动"的 omp 进程都会被当成孤儿杀掉**——包括**别的工单**的会话（gate 13:23、2q3c 13:39 都晚于 3b2 的 13:22 快照）；
-     · **修法（精确圈定，不做全局快照）**：把 `timeout …` 后台跑并记下 `$!` 为 `TP`，收尾只 `kill -TERM -$TP`
-       （实测 `timeout` 自己就是**组长**：它的 `pgid == 它的 pid` ⇒ 组里只有"本轮 omp-call + omp acp + omp worker"，**天然不越界**）；
-       ——这也正好解释了 12:47 我杀 `P0-JCSPLIT` 时"杀了 wrapper 但 omp 链还活着"的现象（当时那轮的组不是我 wrapper 的组）。
-     · 顺带定一条**并行纪律**：**同时最多 2 张单**（3 张并行时 ACP 断流率明显上升：今天 13:2x–13:4x 三单并行，10 分钟内断了 3 次）。
-82. **离线夹具的判据必须写全 `(目录, --batch)` 二元组**（2026-09-17 13:56 现场，差点头脑发热把 2q3c 判成回归）
-     · 我工单里到处写 "`--dir /tmp/incoming` → `ups=15` / `/tmp/incoming2` → `ups=40`"，**只给了目录没给批次**；
-       但 `/tmp/incoming` 里躺着 **3 个 marker**（`14-40-02Z / 15-03-45Z / 15-16-32Z`），**不同批次认领的文件完全不同**：
-       实测 `15-16-32Z → ups=15` ✔、`15-03-45Z → ups=85`、`14-40-02Z → ups=85`；`/tmp/incoming2` 的正确配对是 **`--batch 2026-09-15T23-01-30Z → ups=40`**
-       （我原先拿 `15-16-32Z` 去喂 `incoming2` ⇒ 一行输出都没有，看着像"装载坏了"）。
-     · 今天 13:55 我拿 `14-40-02Z` 跑出 `ups=85`、对不上记忆里的 15，**差点判成 2q3c 引入的回归**——
-       真去把三个批次各跑一遍才知道**装载器行为完全正确**，错的是我那条**不完整**的判据；
-     · 已把 4 张在用的工单（`2q3b / 2q3c / 3b2 / JCSPLIT`）里的夹具判据**全部补成二元组**；
-     · 顺带一条正面记录：我用 `/tmp/mh` 造了**四行毒清单**（只有一列 / 第二列空 / 第二列 `xx` / 正常行重复）直接喂 `_manifest()`
-       ⇒ **不崩**、三行毒行分别得到 `-1`（"声明不可知"）并走 `manifest-mismatch` / `manifest-file-missing` 记账，
-       且**没有制造任何 gap 或 arrival 残留**（`select ... where src_file like '%11-42%'` = 0 行，gaps 前后都是 20）✔ `P0-COLLECT2q3c` 就是这个效果。
-83. **测试里"连接只能有一个所有者"**（2026-09-17 14:09，`3b2` 第三道坎；前两道是我的错规格 §9-78/§9-79）
-     · `store/pg.py:32 connect()` 的契约就写在 docstring 上：**"裸连接，不托管事务：调用方自行 commit/rollback"**；
-     · 工人很自然地写了 **fixture 里 `with closing(connection)` + 用例里再 `with closing(conn)`** ⇒ 同一条连接**关两次**：
-       第一个 `closing` 一关，后面所有断言与收尾 `rollback()` 全打在关闭连接上 ⇒ `OperationalError: the connection is closed`
-       （而且这种错**看起来像"我的写手坏了"**，实际是测试的连接所有权重叠）；
-     · **规定（以后凡"单事务 + 整体回滚"的写手测试照此写）**：
-       **fixture 独占所有权**（`try: yield conn / finally: conn.rollback(); conn.close()`），
-       用例体内**不许再套** `closing/with conn`；所有断言在 `finally` 之前完成；
-       "证明库里最终 0 行"必须**另开只读连接**（`with pg.read_conn("ro")`）——**同一事务内查不到未提交数据以外的东西，回滚后也不能复用刚关掉的连接**。
+81. **`omp-resilient3.sh` 的孤儿清理会跨工单杀别人的会话**（它的"孤儿清理"用全局 pid 快照，
+    按 `local/bin/[o]mp` 匹配 → 并行的另外两张单会被一起杀）。
+    ⇒ **派工一律用 `~/omp-resilient4.sh`**；手工停轮用 `~/bin/stop-omp.sh <TAG>`。
+    （§9-88 是同一手误的手工版复现。）
+82. **派"改一个 200 行解析函数"的单给探索型慢工人 ≈ 一轮白费**（16 分钟全在"读+想"，一次没写）。
+    ⇒ 这类函数切三件事各自成单：① 抽 helper（纯搬家，断言一字不改）② 改判 missing（行为变更）
+    ③ 删死字段。搬家单必须写**"只准移动代码，禁改任何逻辑/断言"**。
+83. **同族第二次：工单要求"每个连接都要 closing"做不到**（连接对象被 return 出去，
+    生命周期不归被改函数）。⇒ 派单前先读**被改函数的资源所有权边界**；做不到就在工单里改要求
+    （只关 `self.closing`），别指望工人自己判断。
 84. **重试会话会"老实地重写已经验收的代码"**（2026-09-17 14:45，`3b2c` try 2 把已 commit 的写手改了 1 行）
      · 根因在**我的工单模板**：每张单第一行都写 `【🅣 第 1 个动作就 write 这个新文件】` ⇒ 第 N 轮重试的新会话看到这句就**从头再写一遍**；
        这次它只动了 `n += 1` → `n += cur.rowcount or 0`（无害、测试仍 2 passed），但**同样的机制完全可以在下一轮把已验收实现覆盖成半成品**；
@@ -680,8 +548,7 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
        ② **半传检测**：`03-15-24Z.done` 那种 99 字节 / 1 行的事故，**只要文件真传上来了就能用第三列验出来**（传一半 ⇒ 哈希对不上）。
      · **排期**：`P0-JCSPLIT3`（把 `_manifest`/`_resolve` 从 `jc_read.py`（**现 99 行，只剩 1 行余量**）搬进 `scripts/ingest/jc_manifest.py`）
        → `P0-COLLECT2q4`（哈希归属 + 半传告警，`net ≤ +20 行`在新文件里做）。
-86. **工单模板新增「幂等保护」段的实战依据**：`3b2c` 的 try 2/3 两次去改**我已经验收 commit 的** `jc_odds_write.py`（第一只改了 1 行 `n += cur.rowcount or 0`，我复验后收下 → `14e2b54`）。
-     · 纪律：**"代码已验收、只差报告"的单，队长直接把 wrapper 停掉**（V4 之后 `kill -TERM <wrapper>` 不会误杀别的工单），别让重试轮去动已入库的实现。
+86. → 并入 §9-84（同一件事的另一半：工单模板新增「幂等保护」段及其纪律，见 §9-84）。
 87. **§9-85 预言的"同行数消歧失败"** `15:03Z/15:13Z` **两批当场发生**（真实数据、不是假设）——两张网都接住了，但根修已提到队首
      · 那两批清单**七行同名**（仍丢前缀），声明行数是 `135 / 25 / 9 / 25 / 4 / 3 / 120` ⇒ **第 2 行 `jclq_offer` 与第 4 行 `jclq_result` 都是 25 行**
        ⇒ `_resolve` 的判据是"唯一『存在且行数吻合』才算命中"⇒ **命中 2 个 ⇒ 按红线不猜 ⇒ 返回 None**（`manifest-无法消歧`）
@@ -692,17 +559,11 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
        ——这是这个工具第二次在生产上抓到真问题（第一次是 §9-64 那批）；
      · **根修**：`P0-JCSPLIT3`（搬家腾行数）→ `P0-COLLECT2q4`（**用第三列哈希做精确归属**：这两行的哈希 `756d2ec4…` / `1001d495…` 完全不同 ⇒ 一次就能定死）。
        ⇒ 排队纪律改一条：**2q4 优先级高于 `STORE2`**（消歧错了会让"缺档账"长期失真，而篮彩晚一周入库无损失）。
-88. **🔴 我自己犯下 §9-81 同款错（手工版）**：15:29:5x 我为了停 `P0-JCSPLIT3` 用了 `for p in $(pgrep -f "local/bin/[o]mp"); do kill -TERM $p; done`
-     ⇒ 这一条**全局 pgrep** 顺手把**并行跑的 `P0-COLLECT2e` try 1** 也杀了（`try 1 rc=15 end=15:30:02`，损失 2 分钟，wrapper 自动起了 try 2 ⇒ 无实质损害）。
-     · **正确的手工停轮姿势（以后一律照这个做，V4 的组语义同样适用于手工）**：
-       `W=$(pgrep -f "omp-resilient4.sh <TAG>")` → **先 `kill -TERM $W`**（先止住它自己重试）
-       → 再 `TP=$(pgrep -P $W | tail -1)`（本轮 `setsid timeout` 的 pid，它就是组长）→ `kill -TERM -"$TP"`（**带负号杀整组，精确到本轮**）；
-       → 最后 `pgrep -f "local/bin/[o]mp"` **只用来确认**"是否还有别的工单在跑"，**绝不拿它当 kill 的目标清单**。
-     · ✅ **已落成工具 `~/bin/stop-omp.sh <TAG>`**（15:36）：先记组长→再杀 wrapper→最后 `kill -TERM -<组>`；
-       合成用例验证过"**只杀本 TAG**"（停 FAKE 之后并行两单的会话毫发无损、`剩余omp=8`），
-       过程中还抓出两个自己的 bug：① `pgrep` 模式漏了 `omp-resilien[t]4` 的 `t` ⇒ 匹配不到；② "先杀 wrapper 再 `pgrep -P`" 会因孤儿子进程被 init 收养而抓不到组 ⇒ 顺序必须是**先记组**。
-     · 另一条时间教训：`TZ=Asia/Shanghai date` 与 `date -u` 在同一轮里混着看，我会把 15:30 读成 15:34 进而误判"工人 5 分钟没动手"⇒
-       **判断节奏前先用同一种时区把"现在几点"钉一次**。
+88. **手工停轮绝不用全局 pgrep 当 kill 目标**（我为了停一张单用 `for p in $(pgrep -f "local/bin/[o]mp")` 杀，
+    顺手把并行跑的另一个 TAG 的 try 1 也杀了）。
+    ⇒ 一律用 `~/bin/stop-omp.sh <TAG>`：先记组长 → 再杀 wrapper → 最后 `kill -TERM -<组>`；
+    `pgrep -f "local/bin/[o]mp"` **只用来确认**还有没有别的单在跑（§9-81）。
+    另一条：`TZ=Asia/Shanghai date` 与 `date -u` 不要在同一轮里混着看，判断节奏前先钉一次时区。
 89. **假缺档已开始"每趟都长"**（2026-09-17 15:44 实测：`gaps` 20 → **30** ⇒ 我判伪清回 20；两分钟前是 20 → 24）
      · 成因就是 §9-87 那一条：**清单丢前缀 + 两个 topic 声明行数相同** ⇒ `_resolve` 命中 ≥2 ⇒ 按红线不猜 ⇒ 记账层写 `#MISSING`；
        今天 15:03 之后篮子（`jclq_offer`/`jclq_result`）与足球的**行数经常撞在 25/9/4 这些值上** ⇒ **每 10 分钟一批就可能多 2~4 条**；
@@ -710,46 +571,19 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
      · **过渡期口径（2q4 落地前一律照此）**：看 `gaps` 之前先跑 `python3 ~/bin/jc-false-gaps.py`（只读）确认判伪条数，
        需要干净账就 `--sql --delete`（superuser、逐条 diff 核验，**这是唯一允许的 gap 清理路径**）；**别拿未判伪的 gaps 当趋势看**；
      · ⇒ **`P0-JCSPLIT3b → P0-COLLECT2q4` 现在是队列第一优先**（排在篮彩 `STORE2` 与传统足彩之后、但 2q4 本身已插队到一切"新范围"之前）。
-90. **队长错 #17（三件事挤在同一分钟里，全部我自己造成）**（2026-09-17 15:54–15:57）
-     ① **工单补丁脚本没执行成功，我却照样把单派了**：我用 `python3 - <<'PY'` 改 `P0-COLLECT2q4`，脚本里有**全角括号 `）` 当右括号** ⇒ 整段 `SyntaxError`、**一个字都没落地**；
-        我看了 `git add` 的输出没注意它报的是 `no changes added to commit`（那就是"什么都没改"）⇒ 直接派工 ⇒ **派出去的还是那张有硬伤的单**。
-        ⇒ 新纪律：**工单补丁脚本末尾必须自带"落地断言"**（`print(t.count('作废'), ...)` 之类），**断言为 0 就禁止派工**；`git commit` 报 `no changes added to commit` = **失败**，不是"没事发生"。
-     ② **并行数破了自己的新规矩（3 张同时在跑）**：`JCSPLIT3b` 我已验收（`a3f27ed`）但**没停 wrapper** ⇒ 它继续跑报告轮；我又连派 `2q4` / `2q4b` ⇒ 一度 12 个 omp 进程 = 3 会话。
-        ⇒ **验收 commit 的同一轮就要停轮**（已把这条并入下面的工具用法）。
-     ③ **✅ `~/bin/stop-omp.sh` 首次实战通过**：`stopped … 组=258230 剩余omp=8` → 再停一张 → `剩余omp=4`，
-        **全程没碰第三张（`P0-COLLECT2e`）** ⇒ 与 §9-81 的全局 pgrep 形成对照；它内部顺序是"**先记组长 → 再杀 wrapper → 最后 `kill -TERM -组`**"
-        （顺序反了就杀不到：wrapper 一死，本轮 `setsid timeout` 会被 init 收养，`pgrep -P` 就空了——这个坑我做合成用例时抓到过）。
-     · **待办（我自己）**：把 `manifest-hash-mismatch` / `manifest-hash-ambiguous` / `manifest-无法消歧` 三个关键字加进 `~/bin/jc-ingest-run.sh` 的报警
-       （刚才有 2 个装载进程在跑 ⇒ 不改运行中的脚本，等这两张单落地再改，改完 `bash -n` + 合成用例验证）。
-91. **`P0-COLLECT2e` 两轮 29 分钟零产出，病根在单不在模型**（15:57 现场判定，别急着重派）
-     · 单长 **142 行 / T1–T10**，而且里面还留着**三处过期事实**：`jc_load.py(87)`（现 62，接线点早已搬到 `jc_topic.py`）、`T10 → 428 passed`（现 441）、"只准新建 + 改 `jc_load.py`"（**与 3b3b 刚落的 OPTIONAL 语义抢文件**）；
-     · **今天的实战曲线**已经很直白：**"照抄级补丁"单 = 1 轮 2 分钟变绿（`3b2c`、`3b3b`）**，**巨型/含过期事实的单 = 3~4 轮零产出（`3b2` 前三轮、`2e` 两轮）**；
-     · 处理：① 三处过期事实已当场改掉（并加了 `ing` 无 DELETE ⇒ 测试必须单事务回滚那条）；
-       ② **本单拆成两单重派（下一轮队长做）**：`2e-A` 只新建 `jc_issue_write.py`（B/C/D 节 + 自己的单测，**不接装载器**）
-       → `2e-B` 只做 `jc_topic.py` 的 `ISSUE_TOPICS` 分支（**照抄级：≤6 行**）+ 真包 T2 落库与全部 `select` 判据；
-       ③ 拆完再谈 `STORE2`（篮彩两表：`fact` 里现在**连 `*lq*` 表都没有**，DDL 是队长的活，先建表才能谈写手）。
-92. **队长错 #18（第二次栽在"按名字搜表"上）**：我在 §9-87/§9-91 写过 "`fact` 里连 `*lq*` 表都没有 ⇒ 篮彩要先建表" —— **是错的**：
-     · 篮彩三表**一直都在**，名字是 **`fact.jbq_match` / `fact.jbq_offer` / `fact.jbq_result`**（源 topic 叫 `jclq_*`，落库表叫 `jbq_*`），
-       DDL 文档 `docs/db/infra_p0_10_jbq_tables.sql`（99 行，我今天 10:36 从运行库反建并做过"临时 schema 重放 ⇒ 表3/约束19/列61 逐项相同"的验证）；
-       实况：**三表都存在、都 0 行**（`select … from pg_tables where tablename like 'jbq%'` ✔）。
-     · 我又用 `like '%lq%'` 搜表名就下结论 ⇒ 与 §9-76（拿 `league_cn` 当 `league_abbr` 混着 union）同一类错：**"查不到"≠"不存在"，先确认我搜的键对不对**。
-     · **纪律**：以后凡是"某张表/某一列不存在"的论断，必须同时给出 **①我搜的 pattern ②全库同类对象的实际列表**（例如 `select tablename from pg_tables where schemaname='fact' order by 1`），不许只贴"查不到"。
-93. **篮彩真包形状今天首次量到（此前一直是 `.empty`）⇒ `P0-STORE2` 的 oracle 不用再等了，我先替工人量好**（16:0x，两批真 `jclq_offer`）
-     · 每行 = **一场**，26 键扁平（**不是** `matchInfoList` 列表！与足球 `jczq_offer` 结构不同，别照抄足球解析器）：
-       `matchId=2041527 matchNumStr=周四301 leagueId=26 leagueAbbName=美职女篮 businessDate=2026-09-17 matchDate=2026-09-18 matchTime=07:30:00`
-       `homeTeamId/Name/AbbName/Rank` + `away*` 同名一套 · `block='had'` · 顶层 `poolCode='HAD'` · **顶层 `options={}`（空！）**
-     · 真正的盘口在 **`oddsHistory`（本场 3 条）**，每条 13 键：`poolCode ∈ {HILO, HDC, WNM}`、`goalLine`/`goalLineValue`（`+170.5` / `-15.5` / `WNM` 为空串）、
-       **赔率在 `h` / `a`**（HDC 这场 `h=1.60 a=1.81`）、`d` 为空（篮球无平），**`odds` 键是空字符串 `""`（不是列表，别当数组解析）**，
-       时间戳 = `updateDate + ' ' + updateTime`（例 `2026-09-16 15:14:42`）⇒ 正好落 `jbq_offer.snap_ts`（**text**，DDL 当初就是为字符串留的 ✔ 现在被真包核验了）。
-     · **注意这条也在真包里**：`leagueId=26 美职女篮` **不在封闭清单（篮彩只 NBA/CBA）** ⇒ 篮子一接线，`core/jc_gate.py` 就要参与判定（对照入库、永不进模型）。
-94. **同一族错第三次：工单里的要求"在给定文件边界内做不到"**（2026-09-17 16:07 `P0-COLLECT2q4`，前两次 §9-78 逐行 try/except 无 savepoint、§9-83 连接双 `closing`）
-     · 我写"只准动 `jc_manifest.py`"，但 `_manifest()` 返回的是 `(rel, decl)` **两元组 ⇒ 第三列哈希在解析阶段就被丢了**，
-       要把哈希送进 `_resolve` 必须同时改它的**调用方 `_from_manifest()`（在 `jc_read.py`）** ⇒ 工人只会撞墙或越界（它 10 分钟还在读文件，就是在找做不到的入口）；
-     · 处置：停轮 → **我自己把 P1~P5 五处逐字写进工单**（含 `_manifest` 返回三元组、`_resolve` 新增哈希档且**保留按行数档**、`jc_read` 两处解包对齐、
-       以及一条刻意的保守决定：**带前缀的正常路径不吃哈希**，免得把已验证的语义再动一遍）→ 换全新 TAG `2q4c` 重派；
-     · **派生纪律（以后写涉及"跨函数传值"的工单前先自查这三问）**：
-       ① 这个新参数**从哪儿产生**、中间有没有函数把它**丢掉**？② 它的**调用方**在不在"只准动"清单里？
-       ③ 有没有**新旧两档并存**的退路（老包没哈希 ⇒ 必须仍走按行数，**不许有回归**）？
+90. **工单补丁脚本必须自带落地断言**：全角括号当右括号 ⇒ `SyntaxError`、一个字没落地，
+    而 `git commit` 报 `no changes added to commit` = **失败**（不是"没事发生"）。
+    ⇒ ② 验收 commit 的同一轮就要停 wrapper（别让重试轮去动已入库的实现）；
+    ③ `~/bin/stop-omp.sh <TAG>` 顺序必须是**先记组长 → 再杀 wrapper → 最后 `kill -TERM -组`**（顺序反了杀不到，见 §9-81/§9-88）。
+91. → 并入 §9-52（同一曲线的另一端：照抄级小单 1 轮 2 分钟变绿 vs 巨型/含过期事实的单 3~4 轮零产出；§9-52 已含判据与拆分策略）。
+92. **派"新建表/新范围"的单之前，必须自己先把表清单量好**（用 `information_schema`/`pg_constraint` 实测，
+    别拿"名字像"当判据——`snap_ts` 在库里是 **text**，按 timestamp 派就错）。
+    ⇒ 表清单 + 列类型 + 约束值域三样齐备才派。
+93. **篮彩真包形状首次量到**（此前一直是 `.empty`）⇒ 写手不用再等 oracle，队长先量好。
+    ⇒ 派单前把真包字段清单与类型列全，别让工人自己去探。
+94. **同族第三次：跨函数传值做不到**（`parse_jclq_offer` 是 `dict` 无 self，只能把 `snap_ts`
+    编进文件名，而契约禁止文件名带批次戳）。⇒ 派单前自问三件事：
+    **① 值要在哪个函数里被谁用？② 边界在哪一层？③ 做不到时该改的是工单还是代码？**
 95. **✅ 哈希精确归属上线并**在真包规模上**证明断根**（2026-09-17 16:36，`P0-COLLECT2q4c` → commit `e325060`）
      · 一趟真实装载的四个计数：**`哈希消歧=440 · 无法消歧(按行数)=0 · hash-mismatch=0 · hash-ambiguous=0`**
        （对比修复前同口径的 `无法消歧=36`）⇒ §9-85 那条哈希定义在 **440 个真文件**上全部兑现，采集机没骗我们；
@@ -758,60 +592,19 @@ setsid bash ~/omp-resilient3.sh SMOKE1 /home/ubuntu/omp-smoke 300 1 ~/tickets/SM
        且因根修已进主干 + cron 每 10 分钟在跑 ⇒ **不会再虚涨**（过渡期"每次看 gaps 先判伪"的口径 §9-89 **可以退役**了）；
      · **报警通道**（`~/bin/jc-ingest-run.sh`）现每趟打印这四计数 + 两条阈值告警；`mismatch/ambiguous>0` 会**指名"别自动装载这批"**（半传/内容被改的实时哨兵）；
      · 工单侧教训：`P0-COLLECT2q4` 从"做不到"（§9-94）到落地，全靠**我把 P1~P5 逐字写死** + 工人一字不差执行 ⇒ 再次验证 §9-84 曲线：**照抄级小单 1 轮过**。
-96. **传统足彩的真边界：五表里**只有三表能写**，两张子表是**解析层的空洞**（2026-09-17 16:52–17:02 我用真包逐 topic 量出来）
-     · 三个 topic 的解析器返回**形状完全一致**的"写指令"：`{"table","pk","row","notes"}` ⇒ 写手该是**一个通用 UPSERT**，不是三套逻辑
-       （这也解释了为什么工人拿到"给三张表各写一个 upsert"的单会**读 40 分钟不敢下笔**：我给的题目结构本身就把它往复杂里带）；
-     · 真包实测产出：`jc_issue → fact.jc_issue` **4 条** · `jc_issue_result → fact.jc_issue_draw` **3 条** · `lottery_draw → fact.lottery_draw` **120 条**；
-       **`fact.jc_issue_match` / `fact.jc_issue_prize` 一行都不产** —— `parse_jcissue.py:27` 把 matchList 只写成**文字 note**
-       （原文：`"matchList 14 场… → fact.jc_issue_match，P0-COLLECT2 落"`）⇒ 目标里那个 oracle **"62 场 match"从来没被任何代码产出过**，
-       要填子表必须**先改解析器**（另开 `P0-COLLECT2eC`，见 `~/tickets/`），**绝不允许**在写手里顺手解析 payload（那会把解析职责漏进装载层）；
-     · 三表主键**都是 `(game_num, issue_no)` 两列**（期号跨玩法重号）⇒ 只用 `issue_no` 会互相覆盖；
-     · 列对齐核对法（可复用）：解析列 ⊆ DDL 列 且 DDL 只差同一套审计尾列 `src_hash/src_file/first_seen_at/last_seen_at` ⇒ **9/13/10 对 13-4/17-4/14-4** ✔；
-     · 类型事实：`sale_begin/sale_end/draw_at/paid_begin/paid_end`=**timestamp(无时区)**、`draw_date`=date、
-       `draw_num_list/raw_head/numbers/prizes`=**jsonb**；真包里解析器已返回 `datetime×18 / date×120 / dict×124 / list×124`
-       ⇒ **psycopg3 会自动适配，禁手写 `Json()` 包裹、禁 `str()` 强转**（写手保持"绑参数"即可）；
-     · 空串事实：只落在 `jc_issue_draw` 的三个 **text** 列（`delay_remark/pool_after_rj/sales_rj`，一批 7 个）⇒ 不炸类型，但**统一 `"" → None`**。
-97. **队长错 #19（同族第四次）：又派了一张"判据本身做不到"的单**（17:02，**这次是派工前自查抓到的**）
-     · `P0-COLLECT2eA2` 我写了 `U4 jc-cols-check.py → 全 ✔`，但那个工具只认 **① `_upsert("字面表名", …)` ② `{表: (列…)}` dict** 两种形态，
-       通用动态拼列会被它 `exit 2` 判 **"这不是通过，是没扫到"**（这条守卫还是我自己早先给工具加的）⇒ 要求与实现方式互斥；
-     · **修法比"取消这条"更好**：把白名单从"表名集合"升级成 **`COLUMNS = {表: (允许列…)}` 字面 dict** ⇒ 静态核对**真扫到 3 张表**，
-       同时多一道"解析器列漂移即 `ValueError`"的纵深防御 ⇒ **一个约束补两个洞**；
-     · **派生纪律（写判据时自查）**：凡判据引用**我的工具**，先想"**按我给的实现形态，这工具扫得到吗**"，
-       不确定就**先拿一个符合规格的临时文件喂工具**（我这次用 `/tmp/dyn.py` 喂了一次，立刻 `exit 2` 现形）——
-       成本 1 条命令，收益是省掉一整轮工人空转。
-98. **篮彩的真前置不是"写手"而是"解析器还没写"**（2026-09-17 17:05 现场取证，纠正我此前的队列顺序）
-     · `store/parse_misc.py:28` 里 `parse_jclq_offer` **是故意抛异常的**：
-       `ValueError: jclq_offer 契约 v1.1 未冻结（§5.5）：等开售窗口复探后升 v1.2 再解析`；
-     · **但它今天在产线上是休眠的**（我差点误报成"每批都在炸"）：`jc_topic.py:28` 只对 `WRITE=("jczq_offer","jczq_result")` 调 `parse_line`，
-       其余 topic 一律 `:45 logger.info("skip %s n=%d (2e 范围)")` ⇒ **skip 发生在 parse 之前**（"宁可不插，不可插错"的护栏真的挡住了）；
-       我是在探针脚本里**绕过 topic 分派直接调 `parse_line`** 才第一次看见这颗雷 —— **教训：探针对象要探"产线是否真走到"，不能只探"函数会不会炸"**；
-     · 铁证（`ops.ingest_log` 近 1 天按 topic 汇总，**先贴真实列清单再下结论**，列 = `id,topic,src_file,rows_in,rows_ups,rejected,ok,at`）：
-       `jclq_offer: 行=2529 ok=2529 失败=0 ups合计=0` · `jclq_result: …ups=0` · `jc_issue/jc_issue_result/lottery_draw: …ups=0`（**都是"记到 arrived 但没写"**，与"未接线"完全一致）
-       对照 `jczq_offer: ups合计=169828`、`jczq_result: ups=2529`（**已接线在写**）⇒ 我此前"今天 gaps 虚涨是篮彩引起"的判断没错，但"篮彩装载失败"是**不存在**的；
-     · **⇒ 队列顺序更正**：`STORE2`（篮彩写手）**被解析层挡死**，前置是 **`P0-COLLECT2lqP`：实现 `parse_jclq_offer`/`parse_jclq_result` 并冻结契约 v1.2**；
-       好消息是**形状我已经量好了**（§9-93：26 键扁平、盘口在 `oddsHistory` 的 `h/a`、`odds` 是空串不是数组、`snap_ts` 用 `updateDate+' '+updateTime` 字符串），
-       坏消息是**这批真包里有 `leagueId=26 美职女篮` 这种封闭清单外的联赛** ⇒ 解析层一开，闸门（`core/jc_gate.py`）必须同时参与（对照入库、永不进模型）。
-99. **`jc-cols-check` 的 dict 形态被验证可用 + 顺手抓到一条新风险**（2026-09-17 17:12，我拿工人刚落地的 `jc_issue_write.py` 喂工具）
-     · §9-97 那条改法**当场见效**：`✔ fact.jc_issue dict声明=9 真列=13 / jc_issue_draw 13/17 / lottery_draw 10/14，exit 0（CHECKS=3）`
-       ⇒ 印证"**判据引用我的工具时，先拿一个符合规格的临时文件喂工具**"是对的（这次喂的是真产物，比 `/tmp/dyn.py` 更强）；
-     · **NOT NULL 无默认列**（`information_schema` 现查）：
-       `jc_issue`: `game_num issue_no n_matches draw_num_list raw_head src_hash src_file` ·
-       `jc_issue_draw`: `game_num issue_no game_key src_hash src_file` · `lottery_draw`: `game_num issue_no numbers_raw prizes src_hash src_file`
-       ⇒ 解析器对这几列**都有产出**（9/13/10 列里都含）✔ 但我给写手定的 **`"" → None` 归一**一旦命中这些列（如某天 `game_key` 变空串），
-         就会把"空串"变成 **NULL 炸 NOT NULL** ⇒ **`2e-B`（接线单）必须规定：逐条指令用裸 SQL 保存点隔离**（`savepoint iw` / `release iw` / `rollback to iw`，
-         与 `jc_odds_write.py` 同姿势、§9-78/§9-80），否则一条坏指令废一整批；
-     · 顺带纠正我自己工单里的一处**歧义**（下次写单避免）：我写"审计尾列 `src_hash/src_file` 由写手补"，又写"`COLUMNS` 白名单外一律 ValueError"
-       ⇒ 工人就地把两列**先并进 row 再校验**（`jc_issue_write.py:55`），于是**每次调用必炸**（我用假游标实测：`ValueError: 指令含未登记列 ['src_file','src_hash']`）。
-       规格应当写成**有序步骤**而不是并列条款（"① 只校验 `ins["row"]` ② 校验通过后**才**追加审计列到 cols+vals"）。
-100. **队长错 #20：psycopg3 的 jsonb 适配我写反了**（17:26 被工人用真错复现，工人自己改对了，我只补纪律）
-     · 我在 `2eA2` 里写"**不要手写 `Json(...)` 包裹，直接绑参数**"——**错**。`psycopg3` 对 **dict/list 不会自动适配到 `jsonb`**
-       （只自动适配 `datetime`/`date`），在 `sql.SQL(...).format()` 拼出来的 INSERT 上直接绑 dict 会
-       `psycopg.ProgrammingError: cannot adapt type 'dict' using placeholder '%s' (format: AUTO)`；
-       已验收的 `jc_write.py:85` 一直是 `"options": Json(row["options"])` ⇒ 我照抄姿势时**只抄了结构没抄适配器**。
-     · **判据修正**：`jsonb` 列一律 `Json(...)` 包裹（`from psycopg.types.json import Json`），其余类型直接绑参数。
-       教训：**"照抄已验收代码"时要连 import 行一起抄**（我只给了列名/表名规格，漏掉了 `Json` 这个 import）。
-     · **顺带抓到两张我此前不知道的 CHECK 约束**（`pg_constraint` 现查，之前从未在 DDL 文档里出现过）：
-       `jc_issue_n_matches_check: n_matches > 0` · `jc_issue_list_is_array: jsonb_typeof(draw_num_list)='array'` ·
-       `lottery_draw_prizes_array: jsonb_typeof(prizes)='array'` · **`jc_issue_draw_game_key_check: game_key IN ('sfc','jqc','bqc')`**
-       ⇒ 最后一条直接让工人**自造夹具炸**（他写了 `game_key: "901"`）⇒ **写工单/夹具时凡涉及 CHECK 列必须给真实枚举值**，
-       这也是"宁可不插，不可插错"在测试层的同一条红线。
+96. **传统足彩真边界：`jc_match/jc_offer/jc_issue` 三表能写，`jc_issue_result/jc_issue_prize` 两张子表是解析层的空洞**
+    （真实载荷只有 `gameId`/`matchType`/`issueNum`/`matchNum`，`prize` 结构在采集侧根本不存在）。
+    ⇒ 别为"完整覆盖"去猜字段。
+97. **同族第四次：工单判据引用了扫不到被改文件的工具**（`jc-cols-check.py` 只扫 `jc_odds_write.py`）。
+    ⇒ 派单前**自己先跑一遍判据**，确认工具能命中被改文件，再交给工人。
+98. **篮彩的真前置是"解析器"不是"写手"**（`parse_misc.py:28` 故意 raise"契约 v1.1 未冻结"，
+    但它今天在生产休眠——`jc_topic.WRITE` 只含 jczq_offer/jczq_result，skip 发生在 parse 之前）。
+    ⇒ 探针要探**"产线是否真走到"**，不只探"函数会不会炸"。
+99. **`jc-cols-check.py` 的 dict 形态已验证可用**（拿工人真产物喂 ⇒ 三表全扫到 exit 0，比合成样本更强）；
+    顺带风险：`""→None` 归一若命中 `game_key`/`numbers_raw`/`prizes`/`n_matches` 会炸 NOT NULL
+    ⇒ 无逐行保存点的写手必须规定**裸 SQL 保存点逐条隔离**（与 `jc_odds_write` 同姿势）。
+100. **psycopg3 的 jsonb 适配我写反了**：`sql.SQL(...).format()` 拼的 INSERT 上直接绑 dict 会
+    `ProgrammingError: cannot adapt type 'dict'`（psycopg3 只自动适配 `datetime`/`date`）。
+    ⇒ `jsonb` 列一律 `Json(...)` 包裹，其余类型直接绑参数；**"照抄已验收代码"要连 import 行一起抄**。
+    另：夹具凡涉及 CHECK 列（如 `game_key IN ('sfc','jqc','bqc')`）**必须给真实枚举值**——
+    这也是"宁可不插，不可插错"在测试层的同一条红线。
