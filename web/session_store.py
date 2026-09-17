@@ -13,7 +13,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterator
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from pathlib import Path
 
 from web import config

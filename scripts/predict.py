@@ -109,7 +109,7 @@ def _update_elo(past: list, fifa_rankings: dict, force_refresh: bool = False) ->
 
 def _compute_calibration(past: list, future: list, league_key: str | None = None) -> tuple[dict, dict | None]:
     """计算校准参数，返回 (calibration, calibration_offset)。"""
-    calibration = build_calibration(past, future)
+    calibration = build_calibration(past)
     logger.info(f"Calibration: {json.dumps(calibration)}")
 
     # P1-2 修复: 按联赛过滤历史文件，避免跨联赛校准污染
@@ -391,7 +391,7 @@ def run_league(league_key: str, args, now_utc, dates_str, silent: bool = False) 
 
     if not future and not run_backtest:
         logger.info("No future matches to predict")
-        calibration = build_calibration(past, future)
+        calibration = build_calibration(past)
         output = {
             "generated_at": now_utc.isoformat(), "data_window": dates_str,
             "status": "no_future_matches", "league": league_key,

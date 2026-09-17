@@ -271,7 +271,7 @@ def _parse_score(score_str: str | None) -> tuple[int, int] | None:
     return int(parts[0]), int(parts[1])
 
 
-def build_calibration(past_matches: list[dict[str, Any]], future_matches: list[dict[str, Any]]) -> dict[str, Any]:
+def build_calibration(past_matches: list[dict[str, Any]], future_matches: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """从结束比赛计算校准参数"""
     if not past_matches:
         return {"note": "no past matches to calibrate from"}
