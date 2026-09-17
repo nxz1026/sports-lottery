@@ -6,6 +6,7 @@ probe/probe_results.json
 probe/probe_pack.tar.gz
 probe/probe_*.tar.gz
 collector.status.json
+logs/
 
 # Python
 __pycache__/
