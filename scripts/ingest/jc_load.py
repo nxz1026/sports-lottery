@@ -12,6 +12,7 @@ TOPICS = ("jczq_offer", "jczq_result", "jc_issue", "jc_issue_result",
           "lottery_draw", "jclq_offer", "jclq_result")
 TABLES = ("jc_match", "jc_offer", "jc_result", "jc_issue", "jc_issue_draw",
           "jc_issue_match", "jc_issue_prize", "lottery_draw")
+_TABLE_SQL = {name: f"SELECT count(*) FROM fact.{name}" for name in TABLES}
 
 
 def load_batch(conn, root: Path, marker: Path) -> dict:
@@ -51,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("orphan 装载 n=%d 文件=%s", len(orph),
                     ",".join(p.name for p in orph[:5]) + ("…" if len(orph) > 5 else "") or "-")
         with conn.cursor() as cur:
-            vals = [cur.execute(f"select count(*) from fact.{t}").fetchone()[0] for t in TABLES]
+            vals = [cur.execute(_TABLE_SQL[t]).fetchone()[0] for t in TABLES]
         conn.commit()
         logger.info("count jc_match=%d jc_offer=%d jc_result=%d jc_issue=%d jc_issue_draw=%d "
                     "jc_issue_match=%d jc_issue_prize=%d lottery_draw=%d", *vals)

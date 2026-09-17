@@ -13,6 +13,14 @@ ISSUE = ("jc_issue", "jc_issue_result", "lottery_draw")
 BASKETBALL_RESULTS = ("jclq_result",)
 _BBALL_LANE = ("jbq", "jbq-reject", "pk")   # 篮球结果通道：保存点名 / 拒绝日志前缀 / 主键标签
 _ISSUE_LANE = ("iw", "issue-reject", "期")  # 三个写指令 topic 通道：同上
+_SAVEPOINT_SQL = {
+    name: {
+        "savepoint": f"savepoint {name}",
+        "release": f"release savepoint {name}",
+        "rollback to": f"rollback to savepoint {name}",
+    }
+    for name in ("jbq", "iw")
+}
 
 
 def _ops(cur, topic: str, rel: str, size: int | None, n: int, ups: int,
@@ -36,11 +44,11 @@ def _load_saved(cur, topic: str, rel: str, lines: list, rej: list, writer) -> in
             rej.append({"line": i, "reason": "parse_none"})
             continue
         try:
-            cur.execute(f"savepoint {sp}")
+            cur.execute(_SAVEPOINT_SQL[sp]["savepoint"])
             ups += writer(cur, ins, env.get("src_hash") or "", rel)
-            cur.execute(f"release savepoint {sp}")
+            cur.execute(_SAVEPOINT_SQL[sp]["release"])
         except ValueError as e:
-            cur.execute(f"rollback to savepoint {sp}")
+            cur.execute(_SAVEPOINT_SQL[sp]["rollback to"])
             rej.append({"line": i, "reason": str(e)})
             logger.warning("%s topic=%s 文件=%s %s=%s err=%s",
                            kind, topic, rel, label, ins.get("pk"), str(e)[:80])

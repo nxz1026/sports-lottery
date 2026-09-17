@@ -2,13 +2,17 @@
 Generic LLM client for any OpenAI-compatible API.
 No hardcoded provider — configure via env vars or params.
 """
-import os
 import json
+import logging
+import os
+import threading
 import time
-import requests
-import sys
 
+import requests
+
+logger = logging.getLogger(__name__)
 _last_call = 0.0
+_rate_lock = threading.Lock()
 
 # Gemini fallback chain — only used when provider is "gemini"
 GEMINI_FALLBACK = [
@@ -44,10 +48,11 @@ def generate(
 
     # Rate limiting (only if set > 0)
     if rate_limit > 0:
-        elapsed = time.time() - _last_call
-        if elapsed < rate_limit:
-            time.sleep(rate_limit - elapsed)
-        _last_call = time.time()
+        with _rate_lock:
+            elapsed = time.time() - _last_call
+            if elapsed < rate_limit:
+                time.sleep(rate_limit - elapsed)
+            _last_call = time.time()
 
     if provider == "gemini":
         # Gemini REST API: different URL format, fallback chain
@@ -76,20 +81,20 @@ def _call_openai(prompt: str, model: str, api_base: str, api_key: str) -> dict:
                 timeout=30,
             )
             if resp.status_code == 429:
-                print(f"[LLM] 429 rate limited, retry {attempt + 1}/3...", file=sys.stderr)
+                logger.warning("[LLM] 429 rate limited, retry %d/3", attempt + 1)
                 time.sleep(10 * (attempt + 1))
                 continue
             if resp.status_code != 200:
-                print(f"[LLM] API error {resp.status_code}: {resp.text[:200]}", file=sys.stderr)
+                logger.error("[LLM] API error %s: %s", resp.status_code, resp.text[:200])
                 return {}
             result = _parse_openai(resp)
             if not result:
-                print(f"[LLM] Failed to parse response: {resp.text[:200]}", file=sys.stderr)
+                logger.warning("[LLM] Failed to parse response: %s", resp.text[:200])
             return result
         except requests.RequestException as e:
-            print(f"[LLM] Request failed: {e}", file=sys.stderr)
+            logger.error("[LLM] Request failed", exc_info=True)
             return {}
-    print("[LLM] Gave up after 3 retries on 429", file=sys.stderr)
+    logger.error("[LLM] Gave up after 3 retries on 429")
     return {}
 
 
@@ -97,7 +102,8 @@ def _call_gemini(prompt: str, model: str, api_key: str, rate_limit: float) -> di
     """Call Gemini REST API with model fallback on 429/404."""
     models = [model] + [m for m in GEMINI_FALLBACK if m != model] if model else GEMINI_FALLBACK
     for m in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+        headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -107,7 +113,7 @@ def _call_gemini(prompt: str, model: str, api_key: str, rate_limit: float) -> di
             },
         }
         try:
-            resp = requests.post(url, json=payload, timeout=30)
+            resp = requests.post(url, json=payload, headers=headers, timeout=30)
             if resp.status_code == 200:
                 return _parse_gemini(resp)
             if resp.status_code in (429, 404):
@@ -115,6 +121,7 @@ def _call_gemini(prompt: str, model: str, api_key: str, rate_limit: float) -> di
                 continue
             return {}
         except requests.RequestException:
+            logger.error("[LLM] Gemini request failed", exc_info=True)
             return {}
     return {}
 
