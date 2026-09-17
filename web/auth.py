@@ -24,7 +24,8 @@ from web.errors import ApiError
 router = APIRouter(prefix="/api/v1", tags=["auth"])
 
 COOKIE_NAME = "lp_session"
-_failures: dict[str, dict] = {}  # ip -> {"count": int, "lockout_until": float}
+_FAILURE_TTL_SECONDS = config.LOGIN_LOCKOUT_SECONDS
+_failures: dict[str, dict] = {}  # ip -> {"count": int, "lockout_until": float, "last_failure_at": float}
 _failures_lock = threading.Lock()
 
 
@@ -48,15 +49,18 @@ def _record_failure(ip: str) -> None:
     global _failures
     now = time.time()
     with _failures_lock:
-        # 清理已完全过期的锁定记录，防止失败字典无界增长。
-        _failures = {
-            k: rec for k, rec in _failures.items()
-            if not (rec["lockout_until"] > 0
-                    and rec["lockout_until"] < now
-                    and now - rec["lockout_until"] > config.LOGIN_LOCKOUT_SECONDS)
-        }
+        # 清理过期锁定和长期没有新失败的普通记录，防止字典无界增长。
+        def active(rec: dict) -> bool:
+            lockout_until = rec.get("lockout_until", 0.0)
+            last_failure_at = rec.get("last_failure_at", 0.0)
+            if lockout_until > 0:
+                return not (lockout_until < now and now - lockout_until > _FAILURE_TTL_SECONDS)
+            return now - last_failure_at <= _FAILURE_TTL_SECONDS
+
+        _failures = {k: rec for k, rec in _failures.items() if active(rec)}
         rec = _failures.setdefault(ip, {"count": 0, "lockout_until": 0.0})
         rec["count"] += 1
+        rec["last_failure_at"] = now
         if rec["count"] >= config.LOGIN_MAX_FAILURES:
             rec["lockout_until"] = time.time() + config.LOGIN_LOCKOUT_SECONDS
             rec["count"] = 0
