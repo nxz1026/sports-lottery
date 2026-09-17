@@ -145,7 +145,7 @@ GET /api/v1/ai/ranking
 GET /api/v1/sources/status
 ```
 
-数据限制：当前预测数据不提供可靠的伤停、首发、历史交锋或预测概率校准分桶，因此 Dashboard 不虚构这些信息；校准摘要是实际赛果分布/修正信息，不等同于可靠性曲线或 ECE。
+数据限制：当前预测摘要本身不携带稳定的 API-Football fixture/team ID，因此 Dashboard 不把外部伤停、首发或 H2H 猜测拼接到比赛上。API-Football EPL enrichment 客户端已完成真实接口验证，但默认由 `API_FOOTBALL_ENRICH_ENABLED=0` 关闭；启用后仍须先完成 fixture/team ID 保留与唯一映射。预测概率校准分桶当前不可用；校准摘要是实际赛果分布/修正信息，不等同于可靠性曲线或 ECE。
 
 部署与验证详情见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
 
@@ -161,7 +161,7 @@ GET /api/v1/sources/status
 | 看板鉴权 | 用户名 `admin`（口令见运维机 `deploy/runtime.env`，**不入库**） |
 
 **部署链路**（运维机 `/root/projects/league-predict`）：
-1. `deploy/runtime.env`（gitignore）存凭据：`AUTH_*`、`API_FOOTBALL_KEY`、`FOOTBALL_DATA_API_KEY`、`LLM_API_KEY/BASE/MODEL`。
+1. `deploy/runtime.env`（gitignore）存凭据：`AUTH_*`、`API_FOOTBALL_KEY`、`FOOTBALL_DATA_API_KEY`、`LLM_API_KEY/BASE/MODEL`。本机 systemd Dashboard 当前使用 `/home/ubuntu/league-v2/repo/.env`，并通过 `EnvironmentFile` 注入；不要提交该文件。
 2. `bash /root/build_league_web.sh` 组装 staging 到 `/root/build/league-web`（拷 web/static/scripts/ai/… + 写 pyproject `[tool.fastapi] entrypoint="web.api:app"` + 顶层 `main.py` 引导 + `.env`→`config.env` + 注入 `web/__init__.py` load_dotenv）。
 3. 用部署 token 免登录发布：`FASTAPI_CLOUD_TOKEN=<deploy token> FASTAPI_CLOUD_APP_ID=<id> fastapi cloud deploy /root/build/league-web`。
 4. 核验：`GET https://api.fastapicloud.com/api/v1/apps/<id>` → `latest_deployment.status == success`。
@@ -169,7 +169,8 @@ GET /api/v1/sources/status
 **运行时预测/富化**（在 Web 界面触发，或 API）：
 - `POST /api/v1/jobs/predict`（选联赛/数据源/蒙特卡洛）跑 `scripts/predict.py`。
 - `POST /api/v1/jobs/ai-enrich` 跑 `python -m web.enrich` 生成中文 AI 摘要（LLM 走 agnes-ai，OpenAI 兼容）。
-- 每日配额共享计数；容器 scale-to-zero，结果 JSON 不跨冷启持久（冷启回退 git 种子）。
+- 每日配额共享计数；容器 scale-to-zero，结果 JSON 不跨冷启持久（冷启回退 git 种子）。本机实测：预测任务可完成；AI enrich 任务可完成但当前 LLM token 对 Agnes API 返回 HTTP 401，AI 按降级语义继续，不阻断预测。
+- API-Football EPL（league id `39`）实测：2024 赛季返回 380 场，伤停接口返回数据，`/fixtures/lineups` 返回 2 队阵容；免费档不支持 2025 赛季和 H2H 的 `last` 参数，客户端需省略该参数。免费额度为每日 100 次、每分钟 10 次，客户端有缓存与配额保护。
 
 > 关键约束（实测）：平台部署链会**静默丢弃 dotfile `.env`**，故凭据经 `config.env` 上传并在 `web/__init__.py` 用 `load_dotenv(override=True)` 注入；runtime 日志/环境变量接口需 user token（deploy token 只够发布 + 读构建日志）。
 
