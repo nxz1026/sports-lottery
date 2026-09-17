@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
 import uuid
 from collections.abc import Iterator
@@ -34,9 +35,20 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
-def _init_db(conn: sqlite3.Connection) -> None:
-    conn.executescript(_SCHEMA)
-    conn.commit()
+_db_initialized = False
+_db_init_lock = threading.Lock()
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """首次调用执行建表 DDL，后续请求直接跳过（进程级 once 哨兵）。"""
+    global _db_initialized
+    if _db_initialized:
+        return
+    with _db_init_lock:
+        if not _db_initialized:
+            conn.executescript(_SCHEMA)
+            conn.commit()
+            _db_initialized = True
 
 
 @contextmanager
@@ -56,7 +68,7 @@ def create_session(ttl_seconds: int | None = None) -> str:
     token = uuid.uuid4().hex
     now = time.time()
     with _db() as conn:
-        _init_db(conn)
+        _ensure_schema(conn)
         conn.execute(
             "INSERT INTO sessions (token, created, expires) VALUES (?, ?, ?)",
             (token, now, now + ttl),
@@ -67,7 +79,7 @@ def create_session(ttl_seconds: int | None = None) -> str:
 def validate_token(token: str) -> bool:
     """token 有效（存在且未过期）则 True，并惰性清理过期行。"""
     with _db() as conn:
-        _init_db(conn)
+        _ensure_schema(conn)
         _purge_expired(conn)
         row = conn.execute(
             "SELECT expires FROM sessions WHERE token = ?", (token,)
@@ -84,7 +96,7 @@ def validate_token(token: str) -> bool:
 def delete_session(token: str) -> None:
     """主动失效（logout）。"""
     with _db() as conn:
-        _init_db(conn)
+        _ensure_schema(conn)
         conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
         conn.commit()
 
@@ -98,5 +110,5 @@ def _purge_expired(conn: sqlite3.Connection) -> int:
 def purge_expired_sessions() -> int:
     """启动清理口：建连接+建表+清理过期会话，返回删除行数（幂等兜底）。"""
     with _db() as conn:
-        _init_db(conn)
+        _ensure_schema(conn)
         return _purge_expired(conn)

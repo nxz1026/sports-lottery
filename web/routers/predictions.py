@@ -138,7 +138,6 @@ def history(request: Request,
         out[league] = [
             {
                 "name": doc["name"],
-                "path": str(doc["path"]),
                 "generated_at": doc.get("generated_at_iso"),
                 "data_window": doc.get("data", {}).get("data_window"),
                 "status": doc.get("data", {}).get("status"),

@@ -26,17 +26,27 @@ logger = logging.getLogger("web.store")
 
 def _json_load(path: Path) -> dict | None:
     """宽容解析 JSON（utf-8/gbk 回退）；坏文件 → None + warning，永不抛穿。"""
+    raw: bytes | None = None
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        logger.warning("跳过不可读文件: %s", path)
+        return None
     for enc in ("utf-8", "gbk", "gb18030"):
         try:
-            with open(path, encoding=enc) as fh:
-                data = json.load(fh)
-            if isinstance(data, dict) and data:
-                return data
-            logger.warning("跳过非对象/空 JSON: %s", path)
-            return None
-        except (UnicodeDecodeError, ValueError, OSError):
+            text = raw.decode(enc)
+        except UnicodeDecodeError:
             continue
-    logger.warning("跳过坏 JSON: %s", path)
+        try:
+            data = json.loads(text)
+        except ValueError:
+            logger.warning("跳过坏 JSON（JSON 格式错误，%s 编码）: %s", enc, path)
+            return None
+        if isinstance(data, dict) and data:
+            return data
+        logger.warning("跳过非对象/空 JSON: %s", path)
+        return None
+    logger.warning("跳过编码无法识别的文件: %s", path)
     return None
 
 

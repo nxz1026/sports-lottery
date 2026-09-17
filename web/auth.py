@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hmac
+import threading
 import time
 
 from fastapi import Request, Response
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/api/v1", tags=["auth"])
 
 COOKIE_NAME = "lp_session"
 _failures: dict[str, dict] = {}  # ip -> {"count": int, "lockout_until": float}
+_failures_lock = threading.Lock()
 
 
 def _client_ip(request: Request) -> str:
@@ -32,34 +34,37 @@ def _client_ip(request: Request) -> str:
 
 
 def _check_lockout(ip: str) -> None:
-    rec = _failures.get(ip)
-    if rec and rec["lockout_until"] > time.time():
-        raise ApiError(
-            "rate_limited",
-            "登录失败次数过多，请稍后再试",
-            http_status=429,
-        )
+    with _failures_lock:
+        rec = _failures.get(ip)
+        if rec and rec["lockout_until"] > time.time():
+            raise ApiError(
+                "rate_limited",
+                "登录失败次数过多，请稍后再试",
+                http_status=429,
+            )
 
 
 def _record_failure(ip: str) -> None:
     global _failures
     now = time.time()
-    # 清理已完全过期的锁定记录，防止失败字典无界增长。
-    _failures = {
-        k: rec for k, rec in _failures.items()
-        if not (rec["lockout_until"] > 0
-                and rec["lockout_until"] < now
-                and now - rec["lockout_until"] > config.LOGIN_LOCKOUT_SECONDS)
-    }
-    rec = _failures.setdefault(ip, {"count": 0, "lockout_until": 0.0})
-    rec["count"] += 1
-    if rec["count"] >= config.LOGIN_MAX_FAILURES:
-        rec["lockout_until"] = time.time() + config.LOGIN_LOCKOUT_SECONDS
-        rec["count"] = 0
+    with _failures_lock:
+        # 清理已完全过期的锁定记录，防止失败字典无界增长。
+        _failures = {
+            k: rec for k, rec in _failures.items()
+            if not (rec["lockout_until"] > 0
+                    and rec["lockout_until"] < now
+                    and now - rec["lockout_until"] > config.LOGIN_LOCKOUT_SECONDS)
+        }
+        rec = _failures.setdefault(ip, {"count": 0, "lockout_until": 0.0})
+        rec["count"] += 1
+        if rec["count"] >= config.LOGIN_MAX_FAILURES:
+            rec["lockout_until"] = time.time() + config.LOGIN_LOCKOUT_SECONDS
+            rec["count"] = 0
 
 
 def _clear_failures(ip: str) -> None:
-    _failures.pop(ip, None)
+    with _failures_lock:
+        _failures.pop(ip, None)
 
 
 def _set_session_cookie(response: Response, token: str) -> None:

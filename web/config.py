@@ -94,7 +94,6 @@ def env_summary() -> dict:
         "login_lockout_seconds": LOGIN_LOCKOUT_SECONDS,
         "use_https": USE_HTTPS,
         "cors_origins": CORS_ORIGINS,
-        "session_db_path": SESSION_DB_PATH,
         "predict_timeout_seconds": PREDICT_TIMEOUT_SECONDS,
         "daily_trigger_limit": DAILY_TRIGGER_LIMIT,
         "enable_cron": ENABLE_CRON,

@@ -234,6 +234,18 @@ def _spin_state(jid: str, status: str, **extra) -> dict:
         _write_job(jid, job)
         return job
 
+def _write_state(jid: str, status: str, **extra) -> dict:
+    """无 state.lock 的状态写入；仅限已持 JOBS_LOCK_FILE 的调用方使用。
+
+    规定锁偏序：JOBS_LOCK_FILE > state.lock；凡持 JOBS_LOCK_FILE 者
+    必须走此函数而非 _spin_state，避免嵌套取锁。
+    """
+    job = _read_job(jid) or _default_job(jid)
+    job["status"] = status
+    job.update(extra)
+    _write_job(jid, job)
+    return job
+
 
 # --- 子进程执行 -----------------------------------------------------------
 
@@ -253,42 +265,45 @@ def _build_cmd(args: list[str], script: str = "predict") -> list[str]:
 
 def run_job(jid: str) -> None:
     """执行一个 queued 任务到终态（同步；调用方负责不阻塞请求线程）。"""
+    # 原子步：确认 queued → running（持 JOBS_LOCK_FILE 仅限此窗口）
     with _exclusive_lock(config.JOBS_LOCK_FILE, timeout=10):
         job = _read_job(jid)
         if job is None or job.get("status") not in (STATUS_QUEUED, STATUS_RUNNING):
             return
-        _spin_state(jid, STATUS_RUNNING, started_at=_now_epoch())
+        _write_state(jid, STATUS_RUNNING, started_at=_now_epoch())
         args = list(job.get("args", []))
-        script = job.get("script", "predict")  # 老 job 文件缺字段 → predict 容错
+        script = job.get("script", "predict")
         cmd = _build_cmd(args, script)
-        log_path = _log_file(jid)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        started = _now_epoch()
-        try:
+    # 锁已释放：spawn、等待、写终态均不持 JOBS_LOCK_FILE
+    log_path = _log_file(jid)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    started = _now_epoch()
+    try:
+        with open(log_path, "wb") as log_fh:
             proc = subprocess.Popen(
                 cmd, cwd=str(config.BASE_DIR), env=_build_env(),
-                stdout=open(log_path, "wb"), stderr=subprocess.STDOUT, text=False,
+                stdout=log_fh, stderr=subprocess.STDOUT, text=False,
             )
-        except OSError as exc:
-            _spin_state(jid, STATUS_FAILED, finished_at=_now_epoch(),
-                        exit_code=-1, error=f"spawn failed: {exc}")
-            return
+    except OSError as exc:
+        _spin_state(jid, STATUS_FAILED, finished_at=_now_epoch(),
+                    exit_code=-1, error=f"spawn failed: {exc}")
+        return
+    try:
+        code = proc.wait(timeout=config.PREDICT_TIMEOUT_SECONDS)
+        _spin_state(jid, STATUS_DONE if code == 0 else STATUS_FAILED,
+                    finished_at=_now_epoch(), exit_code=code)
+    except subprocess.TimeoutExpired:
+        proc.kill()
         try:
-            code = proc.wait(timeout=config.PREDICT_TIMEOUT_SECONDS)
-            _spin_state(jid, STATUS_DONE if code == 0 else STATUS_FAILED,
-                        finished_at=_now_epoch(), exit_code=code)
+            proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
+            pass
+        _spin_state(jid, STATUS_TIMEOUT, finished_at=_now_epoch(),
+                    exit_code=None, error="timeout killed")
+    finally:
+        if proc.poll() is None:
             proc.kill()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
-            _spin_state(jid, STATUS_TIMEOUT, finished_at=_now_epoch(),
-                        exit_code=None, error="timeout killed")
-        finally:
-            if proc.poll() is None:
-                proc.kill()
-            logger.info("job %s done in %.1fs", jid, _now_epoch() - started)
+        logger.info("job %s done in %.1fs", jid, _now_epoch() - started)
 
 
 # --- 线程池投递 -----------------------------------------------------------
@@ -342,14 +357,16 @@ def _spawn(script: str, extra_argv: list[str], trigger: str = "manual") -> tuple
 
     契约：任务提交即占配额（predict 与 ai_enrich 共享同一计数器）；
     并发有新任务时返回 (existing, "already_running")。
+    锁偏序：JOBS_LOCK_FILE > quota.lock（quota_consume 内部持 quota.lock）。
     """
-    if not quota_consume():
-        return None, "quota_exhausted"
-    existing = active_job()
-    if existing is not None:
-        return existing, "already_running"
-    job = create_job(extra_argv, trigger=trigger, script=script)
-    return job, None
+    with _exclusive_lock(config.JOBS_LOCK_FILE, timeout=10):
+        if not quota_consume():
+            return None, "quota_exhausted"
+        existing = active_job()
+        if existing is not None:
+            return existing, "already_running"
+        job = create_job(extra_argv, trigger=trigger, script=script)
+        return job, None
 
 
 def trigger_predict(args: list[str], trigger: str = "manual") -> tuple[dict | None, str | None]:
