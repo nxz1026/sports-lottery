@@ -30,7 +30,7 @@ def _sint(value: Any) -> int | None:
     return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def _team(cur, home_sporttery_id: int | None, away_sporttery_id: int | None) -> tuple[int | None, int | None]:
+def resolve_jc_teams(cur, home_sporttery_id: int | None, away_sporttery_id: int | None) -> tuple[int | None, int | None]:
     """官方 team id → ref.team(team_id)：aliases->>'sporttery' 文本比较（该键可能缺，缺=NULL，不许猜）。"""
     ids = [i for i in (home_sporttery_id, away_sporttery_id) if i]
     if not ids:
@@ -88,7 +88,7 @@ def upsert_jc_offer(cur, row: dict, snap: str, source: dict) -> int:
             "src_hash": source["src_hash"], "src_file": source["src_file"]}
     return _upsert(cur, "fact.jc_offer", ["match_id", "play_type", "snap_ts"], cols, data,
                    gates=["snap_ts"], extra_where="EXCLUDED.snap_ts IS NOT NULL")
-def upsert_jc_result(cur, row: dict, snap: str, source: dict, home: int | None, away: int | None) -> int:
+def upsert_jc_result(cur, row: dict, snap: str, source: dict) -> int:
     """fact.jc_result：解析层 25 键行 + team 映射 + 元数据；空串 SP/比分解析列已是 None；last_seen_at=snap_ts 门控防旧批回退。"""
     cols = ["match_num_str", "sections_no_1", "sections_no_999", "ht_h", "ht_a", "ft_h", "ft_a", "sp_home", "sp_draw",
             "sp_away", "goal_line", "win_flag", "match_result_status", "result_status", "pool_status", "league_id",

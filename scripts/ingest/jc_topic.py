@@ -36,13 +36,13 @@ def load_topic(cur, root: Path, marker: Path, topic: str, path: Path | None, sta
             if topic == "jczq_offer":
                 # P0-JCTEAM1 热修：原先硬传 None,None ⇒ 每轮 cron 都把 home/away_team_id 覆盖回 NULL，
                 # 球队对照回填（docs/db/seed_jc_team_pool_v2.sql）每 10 分钟被冲掉一次。
-                # jc_write._team 早已写好「sporttery id → ref.team(team_id)」解析却零调用方（死代码）。
-                home, away = jc_write._team(cur, p["match"].get("home_sporttery_id"),
-                                            p["match"].get("away_sporttery_id"))
+                # jc_write.resolve_jc_teams 早已写好「sporttery id → ref.team(team_id)」解析却零调用方（死代码）。
+                home, away = jc_write.resolve_jc_teams(cur, p["match"].get("home_sporttery_id"),
+                                                       p["match"].get("away_sporttery_id"))
                 jc_write.upsert_jc_match(cur, p["match"], snap, src, home, away)
                 ups += jc_write.upsert_jc_offer(cur, p["row"], snap, src)
             else:
-                ups += jc_write.upsert_jc_result(cur, p["row"], snap, src, None, None)
+                ups += jc_write.upsert_jc_result(cur, p["row"], snap, src)
     elif topic in ISSUE:
         for i, env in enumerate(lines, 1):
             ins = parse_line(env)
