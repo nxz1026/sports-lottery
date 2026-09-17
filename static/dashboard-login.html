@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 · 竞彩智荐</title>
+<style>
+  :root { --accent: #2563eb; --error: #dc2626; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f1f5f9; color: #0f172a;
+  }
+  .card {
+    width: 340px; padding: 32px 28px; background: #fff; border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .08);
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #64748b; font-size: 13px; margin-bottom: 24px; }
+  label { display: block; font-size: 13px; color: #334155; margin: 12px 0 4px; }
+  input {
+    width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 14px; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  button {
+    width: 100%; margin-top: 20px; padding: 10px; border: 0; border-radius: 8px;
+    background: var(--accent); color: #fff; font-size: 15px; cursor: pointer;
+  }
+  button:disabled { opacity: .6; cursor: not-allowed; }
+  .error { color: var(--error); font-size: 13px; min-height: 18px; margin-top: 12px; }
+  .hint { font-size: 12px; color: #94a3b8; margin-top: 16px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>竞彩智荐</h1>
+  <div class="sub">Dashboard · 请登录</div>
+  <form id="login-form" novalidate>
+    <label for="username">用户名</label>
+    <input id="username" name="username" autocomplete="username" required autofocus>
+    <label for="password">密码</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button id="submit" type="submit">登 录</button>
+    <div id="error" class="error" role="alert"></div>
+  </form>
+  <div class="hint">Enter 提交</div>
+</div>
+<script>
+(function () {
+  var form = document.getElementById("login-form");
+  var errorEl = document.getElementById("error");
+  var submitBtn = document.getElementById("submit");
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    errorEl.textContent = "";
+    submitBtn.disabled = true;
+    var username = document.getElementById("username").value.trim();
+    var password = document.getElementById("password").value;
+    fetch("/dashboard/api/v1/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: username, password: password })
+    }).then(function (res) {
+      if (res.ok) {
+        window.location.href = "/dashboard/";
+      } else {
+        return res.json().then(function (data) {
+          throw new Error(data.message || "登录失败（HTTP " + res.status + "）");
+        });
+      }
+    }).catch(function (err) {
+      errorEl.textContent = err.message || "网络错误，请重试";
+      submitBtn.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>
