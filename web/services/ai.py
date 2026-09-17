@@ -38,6 +38,7 @@ def ai_status() -> dict:
     try:
         scores = _load_ai_scores()
     except Exception as exc:  # 防御：任何异常都不许拖垮端点
+        logger.exception("AI 状态加载异常: %s", exc)
         return {"available": False, "reason": f"load_failed: {exc.__class__.__name__}", "matches": 0}
     if not scores:
         return {"available": True, "matches": 0, "note": "no ai_scores yet"}
@@ -59,6 +60,7 @@ def ai_details() -> dict:
     try:
         scores = _load_ai_scores()
     except Exception as exc:
+        logger.exception("AI 明细加载异常: %s", exc)
         return {"available": False, "reason": f"load_failed: {exc.__class__.__name__}"}
     items = []
     for match, value in scores.items():
