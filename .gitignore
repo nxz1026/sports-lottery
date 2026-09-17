@@ -1,3 +1,12 @@
+# 数据产物（不入库）——collector-cn
+out/
+out.tar.gz
+probe/raw/
+probe/probe_results.json
+probe/probe_pack.tar.gz
+probe/probe_*.tar.gz
+collector.status.json
+
 # Python
 __pycache__/
 *.pyc

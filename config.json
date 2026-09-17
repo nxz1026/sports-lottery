@@ -1,0 +1,63 @@
+{
+  "collector_host": "cn-collector",
+  "push": {
+    "ssh_alias": "oracle",
+    "remote_root": "/srv/league-staging/incoming"
+  },
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  "referer": "https://static.sporttery.cn/",
+  "qps_interval": 1.0,
+  "retries": 3,
+  "backoff": [5, 15, 45],
+  "probe_head_bytes": 800,
+  "topics": {
+    "jczq_offer": {
+      "candidates": [
+        "https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry?channel=c"
+      ]
+    },
+    "jczq_result": {
+      "candidates": [
+        "https://webapi.sporttery.cn/gateway/uniform/football/getUniformMatchResultV1.qry?matchBeginDate={today}&matchEndDate={today}&leagueId=&pageSize=30&pageNo=1&isFix=0&matchPage=1&pcOrWap=1"
+      ]
+    },
+    "jc_issue": {
+      "candidates": [
+        "https://webapi.sporttery.cn/gateway/lottery/getFootBallConcernV1.qry?param=90,0&lotteryDrawNum=",
+        "https://webapi.sporttery.cn/gateway/lottery/getFootBallConcernV1.qry?param=900129,0&lotteryDrawNum=",
+        "https://webapi.sporttery.cn/gateway/lottery/getFootBallConcernV1.qry?param=98,0&lotteryDrawNum=",
+        "https://webapi.sporttery.cn/gateway/lottery/getFootBallConcernV1.qry?param=94,0&lotteryDrawNum="
+      ]
+    },
+    "jc_issue_result": {
+      "candidates": [
+        "https://webapi.sporttery.cn/gateway/lottery/getFootBallDrawInfoV2.qry?isVerify=1&param=94,0;90,0;98,0"
+      ]
+    },
+    "jclq_offer": {
+      "candidates": [
+        "https://webapi.sporttery.cn/gateway/uniform/basketball/getMatchCalculatorV1.qry?channel=c"
+      ]
+    },
+    "jclq_result": {
+      "candidates": [
+        "https://webapi.sporttery.cn/gateway/uniform/basketball/getUniformMatchResultV2.qry?matchBeginDate={today_minus_7}&matchEndDate={today}&leagueId=&pageSize=30&pageNo=1&isFix=0"
+      ]
+    },
+    "lottery_draw": {
+      "candidates": [
+        "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=85&provinceId=0&isVerify=1&termLimits=30",
+        "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=35&provinceId=0&isVerify=1&termLimits=30",
+        "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&isVerify=1&termLimits=30",
+        "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=04&provinceId=0&isVerify=1&termLimits=30"
+      ]
+    },
+    "jc_odds_history": {
+      "candidates": [
+        "https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry?channel=c"
+      ],
+      "history_url": "https://webapi.sporttery.cn/gateway/uniform/football/getOddsHistoryV1.qry?channel=c&matchId={matchId}",
+      "selling_only": true
+    }
+  }
+}

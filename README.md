@@ -282,3 +282,14 @@ scripts/
 - Cache 补全 TTL 过期清理 + URL 键生成 + `purge_expired()`
 - API-Football + ESPN fallback 并行获取 (`ThreadPoolExecutor`)
 - JSON→SQLite/Parquet 评估: 数据量 ~95KB, 无迁移必要
+
+## 国内采集机（cn-collector，v1.3 契约）
+
+本仓库 `collector-cn/` 子目录是 `collector-cn` 分支的全量内容（v1.3 契约采集机）。
+完整说明见 `collector-cn/README.md`（运行环境、计划任务、远端通道、节奏、契约、红线）。
+
+- 代码根 = 本仓库根目录（`collector.py` 等），Windows 机器 `ND-PC-WIN` 直接 checkout 本分支
+- 计划任务 5 个：`collector_offer_10m`（2026-09-17 起**每 1 小时**，原 10 分钟）+ 4 个 daily 档（0930/1530/2130/2330，8 topic 含 `jc_odds_history`）
+- 落港：`ssh oracle`（`ubuntu@140.83.62.161`）→ `/srv/league-staging/incoming/cn-collector/`（topic 子目录 + `.done` 清单）
+- `.done` 行格式：`topic/<file>.jsonl\t<rowcount>\t<sha256>`（相对路径必带 `topic/` 前缀）
+- 契约版本：v1.3（2026-09-16 升级：`topic/` 前缀修复 + `jc_odds_history` topic + 8-topic daily 批）
