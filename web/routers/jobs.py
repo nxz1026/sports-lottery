@@ -28,12 +28,14 @@ router = APIRouter(prefix="/api/v1", tags=["jobs"])
 
 # 参数白名单（契约 §1.1 安全子集）：固定取值域校验，杜绝任意字符串注入 argv。
 # frozenset：只需成员测试，不需要 key→value 映射。
-_FLAG_ARGS: frozenset[str] = frozenset({
+_FLAG_ARGS: tuple[str, ...] = (
     "--all", "--monte-carlo", "--no-dc", "--no-ml", "--dashboard",
-})
+)
 
 # value 型参数：key → 合法取值集合（None 表示单独正则/类型校验）。
 _DATASOURCE_VALUES: frozenset[str] = frozenset({"football-data", "espn", "api-football", ""})
+
+
 def _validate_args(params: dict) -> list[str]:
     """白名单校验 → argv 列表；非法参数抛 400（code=invalid_params）。"""
     unknown = set(params) - {"league", "dates", "data_source", "monte_carlo",

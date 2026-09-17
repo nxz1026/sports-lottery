@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""国内采集机：取官方 JSON → 落 JSONL → 推远端（契约 v1.1，2026-09-15 冻结）。
+"""国内采集机：取官方 JSON → 落 JSONL → 推远端（契约 v1.3，2026-09-15 冻结）。
 
 定位：独立小工具，只做取数/落盘/推送。不连 DB、不解析 HTML、不装重型依赖。
 仅 stdlib（urllib/json/hashlib/pathlib/subprocess/tarfile/argparse）。
 
-契约 v1.1（单一真源：doc/国内采集机实施文档-v1.md §5）：
+契约 v1.3（单一真源：doc/国内采集机实施文档-v1.md §5）：
 - 通用行外壳：{"kind","topic","snap_ts","fetched_at","endpoint","http_status",
   "collector_host","payload","src_hash"}
 - snap_ts = 请求发出时刻（UTC 带 Z），同批同值；官方更新时间留 payload 原样
@@ -16,7 +16,7 @@
 用法：
   python collector.py --probe            # 探针模式（v1 遗留，契约冻结后仅复探用）
   python collector.py --collect <topic>  # 采集指定 topic 落 JSONL
-  python collector.py --collect-all      # 采集全部 7 topic
+  python collector.py --collect-all      # 采集全部 8 topic
   python collector.py --push             # 打包 out/ → scp+sudo 推 oracle + .done
 """
 from __future__ import annotations
@@ -642,7 +642,7 @@ def _release_singleton_lock() -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="国内采集机（契约 v1.2）")
+    ap = argparse.ArgumentParser(description="国内采集机（契约 v1.3）")
     ap.add_argument("--probe", action="store_true", help="探针模式（复探用）")
     ap.add_argument("--collect", metavar="TOPIC", help="采集指定 topic 落 JSONL")
     ap.add_argument("--collect-all", action="store_true", help="采集全部 8 topic")
