@@ -86,7 +86,12 @@ class _OkProc:
 
 
 class _BlockProc:
-    """阻塞门控假子进程：wait 挂起直到 gate 释放（制造 running 窗口）。"""
+    """阻塞门控假子进程：wait 挂起直到 gate 释放（制造 running 窗口）。
+
+    注意：本类自建 gate。子类若想由用例控制放行，**必须**在 __init__ 里覆盖
+    ``self.gate = <用例持有的事件>``，否则用例 finally 里的 gate.set() 是死代码，
+    wait() 会空等满 5s，线程悬挂到用例之后。
+    """
 
     def __init__(self, cmd, **kw):
         self.cmd = cmd
@@ -101,6 +106,23 @@ class _BlockProc:
 
     def poll(self):
         return None
+
+
+def _drain_jobs(timeout: float = 5.0):
+    """等共享线程池里的 run_job 线程写完结态，再让用例退出。
+
+    jobs 模块的 ThreadPoolExecutor 是模块级的，活过 monkeypatch 撤销：用例结束时
+    若线程仍在跑，它会把终态写进**真实** web/.data/jobs（此时 config.JOBS_DIR 已被
+    还原），造成生产目录污染（实测每次全量测试落 2 条 started_at=null 的幽灵记录）。
+    """
+    import time as _time
+    import web.services.jobs as jobs_mod
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        if jobs_mod.active_job() is None:
+            return
+        _time.sleep(0.05)
+    raise AssertionError("run_job 线程未在超时内结束（会污染真实 jobs 目录）")
 
 
 # --- 验收：401 未鉴权拒绝 ---------------------------------------------------
@@ -177,6 +199,9 @@ def test_ai_enrich_concurrent_409(client, monkeypatch):
     class GateProc(_BlockProc):
         def __init__(self, cmd, **kw):
             super().__init__(cmd, **kw)
+            # 必须复用用例持有的 gate：_BlockProc 自建的事件无人 set，
+            # 会让 wait() 空等满 5s，线程悬挂到用例之后并回写真实 jobs 目录。
+            self.gate = gate
             recorded.append(cmd)
 
     monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(GateProc))
@@ -199,21 +224,29 @@ def test_ai_enrich_concurrent_409(client, monkeypatch):
         assert len(recorded) == 1
     finally:
         gate.set()
+        _drain_jobs()
 
 
 # --- 验收：配额计数共享消耗（predict 与 ai_enrich 同一计数器） --------------
 
 def test_quota_shared_between_predict_and_ai_enrich(client, monkeypatch):
     import web.config as config
+    import web.services.jobs as jobs_mod
     monkeypatch.setattr(config, "DAILY_TRIGGER_LIMIT", 1)
+    # 本用例经 API 真实投递任务：必须假 Popen（模块契约：测试绝不真跑引擎），
+    # 并在退出前排空线程，否则会污染真实 web/.data/jobs。
+    monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(_OkProc))
     _login(client)
-    r1 = client.post("/api/v1/jobs/ai-enrich")
-    assert r1.status_code == 202
-    r2 = client.post("/api/v1/jobs/predict", json={})
-    assert r2.status_code == 429
-    assert r2.json()["code"] == "quota_exhausted"
-    usage = client.get("/api/v1/sources/status").json()["jobs"]["quota"]
-    assert usage["used"] == 1
+    try:
+        r1 = client.post("/api/v1/jobs/ai-enrich")
+        assert r1.status_code == 202
+        r2 = client.post("/api/v1/jobs/predict", json={})
+        assert r2.status_code == 429
+        assert r2.json()["code"] == "quota_exhausted"
+        usage = client.get("/api/v1/sources/status").json()["jobs"]["quota"]
+        assert usage["used"] == 1
+    finally:
+        _drain_jobs()
 
 
 # --- 验收：中文指令行存在于 _build_prompt 输出（读 ai 包断言） ---------------
