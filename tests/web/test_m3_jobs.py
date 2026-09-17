@@ -410,3 +410,66 @@ def test_rejected_trigger_does_not_consume_quota(client, monkeypatch):
     finally:
         gate.set()
         _drain_jobs()
+
+
+# --- 篮球（NBA）独立入口：WO 2026-09-18 -------------------------------------
+
+def test_bball_build_cmd_uses_bball_entry(jobs_env):
+    """predict_bball 必须指向 scripts/bball/run.py（独立入口），不是足球的 predict.py。"""
+    cmd = jobs_env._build_cmd(["--ahead-days", "90"], "predict_bball")
+    joined = " ".join(cmd)
+    assert joined.endswith("scripts/bball/run.py --ahead-days 90"), joined
+    assert "predict.py" not in joined
+
+
+def test_bball_route_202_and_script(client, monkeypatch):
+    import web.services.jobs as jobs_mod
+    monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(_OkProc))
+    _login(client)
+    try:
+        r = client.post("/api/v1/jobs/predict-bball", json={"ahead_days": 90})
+        assert r.status_code == 202, r.text
+        job = r.json()["job"]
+        assert job["script"] == "predict_bball"
+        assert job["args"] == ["--ahead-days", "90"]
+    finally:
+        _drain_jobs()
+
+
+def test_bball_route_rejects_bad_args(client):
+    _login(client)
+    for bad in ({"ahead_days": 0}, {"ahead_days": 999}, {"ahead_days": "90"},
+                {"ahead_days": True}, {"backtest": -1}, {"foo": 1}):
+        r = client.post("/api/v1/jobs/predict-bball", json=bad)
+        assert r.status_code == 400, (bad, r.status_code)
+        assert r.json()["code"] == "invalid_params"
+
+
+def test_bball_requires_auth(client):
+    assert client.post("/api/v1/jobs/predict-bball", json={}).status_code == 401
+
+
+def test_bball_shares_quota_and_concurrency_with_football(client, monkeypatch):
+    """篮球与足球共用配额与并发守卫：一方在跑，另一方 409；配额只扣一次。"""
+    import web.config as config
+    import web.services.jobs as jobs_mod
+    monkeypatch.setattr(config, "DAILY_TRIGGER_LIMIT", 5)
+    gate = threading.Event()
+
+    class GateProc(_BlockProc):
+        def __init__(self, cmd, **kw):
+            super().__init__(cmd, **kw)
+            self.gate = gate
+
+    monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(GateProc))
+    _login(client)
+    try:
+        assert client.post("/api/v1/jobs/predict", json={"league": "epl"}).status_code == 202
+        used = jobs_mod.quota_usage()["used"]
+        r = client.post("/api/v1/jobs/predict-bball", json={"ahead_days": 90})
+        assert r.status_code == 409, r.text
+        assert r.json()["code"] == "already_running"
+        assert jobs_mod.quota_usage()["used"] == used, "被拒的篮球请求不得扣配额"
+    finally:
+        gate.set()
+        _drain_jobs()

@@ -412,6 +412,15 @@ def trigger_predict(args: list[str], trigger: str = "manual") -> tuple[dict | No
     return _spawn("predict", args, trigger)
 
 
+def trigger_bball(args: list[str], trigger: str = "manual") -> tuple[dict | None, str | None]:
+    """提交篮球预测任务（脚本 scripts/bball/run.py，独立入口）。
+
+    与足球预测共用同一配额计数器与并发守卫（_spawn 的契约）——篮球与足球不能同时跑，
+    避免两个引擎在同一小时内争抢同一批 API 配额。
+    """
+    return _spawn("predict_bball", args, trigger)
+
+
 def trigger_ai_enrich(trigger: str = "manual") -> tuple[dict | None, str | None]:
     """提交 AI 富化任务（python -m web.enrich，argv 固定为空）。"""
     return _spawn("ai_enrich", [], trigger)

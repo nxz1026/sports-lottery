@@ -33,6 +33,7 @@ _NOTES = {
     "fixtures": "每场 5 行（had/hhad/crs/ttg/haf），盘口取该 (场,玩法) 最新一版 snap_ts",
     "issues": "传统足彩期头 + 开奖；head_source='jc_issue_result' 表示期头是合成的",
     "backtest": "多分类 Brier：先按 (场,玩法) 加总各选项平方误差，再对场取平均；acc=argmax 命中率；与已发布基线同式",
+    "lottery": "各彩种最近 N 期，按 (彩种, 期号降序)；号码串原样返回（numbers_raw），解析层不重排不去重",
 }
 
 
@@ -77,3 +78,20 @@ def backtest_v1(_: None = Depends(require_auth)) -> dict:
     """Authenticated compatibility alias for the existing JC backtest summary."""
     from store import jc_view
     return _envelope("backtest", jc_view.backtest_summary())
+
+
+@router.get("/lottery")
+def lottery(per_type: str = "20", _: None = Depends(require_auth)) -> dict:
+    """各彩种最近 N 期开奖（超级大乐透/排列3/排列5/7星彩）；异常安全降级为 []。
+
+    彩种清单来自采集端 lottery_draw 主题，解析层无白名单 —— 采集端补采新彩种后
+    本端点自动带出，无需改代码。
+    """
+    try:
+        n = int(per_type)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="per_type must be an integer 1..100")
+    if n < 1 or n > 100:
+        raise HTTPException(status_code=400, detail="per_type must be 1..100")
+    from store import jc_view
+    return _envelope("lottery", jc_view.lottery_draws(n))

@@ -68,6 +68,15 @@ _BT_SQL = """select play_type, count(*) as n_fp,
  order by play_type"""
 
 
+_LOTTERY_SQL = """select game_num, game_name, issue_no, draw_date, status,
+                         numbers_raw, pool, equipment_count
+                    from (select *, row_number() over (partition by game_num
+                                                       order by issue_no desc) as rn
+                            from fact.lottery_draw) t
+                   where rn <= %(per_type)s
+                   order by game_num, issue_no desc"""
+
+
 def _fetch(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """单次只读查询：ro 连接 SELECT-only；任何异常 → 记日志返回 []（页面降级但不 5xx）。"""
     try:
@@ -102,3 +111,14 @@ def issues(limit: int = 20) -> list[dict[str, Any]]:
 def backtest_summary() -> list[dict[str, Any]]:
     """多分类 Brier / argmax 命中率的基线口径聚合，每玩法一行（与已发布基线一致）。"""
     return _fetch(_BT_SQL)
+
+
+def lottery_draws(per_type: int = 20) -> list[dict[str, Any]]:
+    """各彩种最近 per_type 期开奖，一行 = 一个彩种的一期。
+
+    彩种来自采集端 lottery_draw 主题：超级大乐透(85)、排列3(35)、排列5(350133)、
+    7星彩(04)；解析层无白名单，新增彩种只需采集端补采。draw_date 是 date 类型，
+    不带时区，无需 to_char 转换（对比 fact.jc_match.kickoff_bj 的北京时间墙钟规则）。
+    """
+    per_type = max(1, min(int(per_type), 100))
+    return _fetch(_LOTTERY_SQL, {"per_type": per_type})

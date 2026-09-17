@@ -62,3 +62,32 @@ def test_missing_league_still_writes_a_file(tmp_path, monkeypatch):
     out = mod._save_output({"generated_at": "x", "predictions": []}, None, now)
     assert out.exists()
     assert out.name == "prediction_2026-09-18_06.json"
+
+
+def test_bball_and_football_do_not_clobber_each_other(tmp_path, monkeypatch):
+    """篮球与足球写同一个 PREDICTIONS_DIR：同小时内必须互不覆盖。
+
+    scripts/bball/run.py 的 _save 原本也是 prediction_%Y-%m-%d_%H.json，与足球
+    同小时先后跑会互相覆盖（一方数据静默丢失）。两处都已加联赛后缀。
+    """
+    import importlib.util
+
+    football = _load_predict_module()
+    spec = importlib.util.spec_from_file_location(
+        "bball_run_for_test", REPO_ROOT / "scripts" / "bball" / "run.py")
+    bball = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = bball
+    spec.loader.exec_module(bball)
+
+    monkeypatch.setattr(football, "PREDICTIONS_DIR", tmp_path)
+    monkeypatch.setattr(bball, "PREDICTIONS_DIR", tmp_path)
+
+    now = datetime(2026, 9, 18, 6, 0, tzinfo=timezone.utc)
+    football._save_output({"league": "epl", "predictions": [{"match": "a"}]}, None, now)
+    bball._save({"league": "nba", "sport": "basketball", "predictions": [{"match": "b"}]}, now)
+
+    files = sorted(p.name for p in tmp_path.glob("prediction_*.json"))
+    assert files == ["prediction_2026-09-18_06_epl.json",
+                     "prediction_2026-09-18_06_nba.json"], files
+    for p in tmp_path.glob("prediction_*.json"):
+        assert json.loads(p.read_text(encoding="utf-8"))["league"] in p.name

@@ -4,6 +4,8 @@
 - POST /api/v1/jobs/predict   require_auth；参数白名单透传（league/dates 等），
   禁任意字符串注入 argv；无预算 → 429；已有运行 → 409/202 语义；
   提交后异步执行（线程池），立即返回 202 + job。
+- POST /api/v1/jobs/predict-bball  require_auth；篮球独立入口（scripts/bball/run.py），
+  参数白名单 ahead_days/backtest（有界整数）；与足球共用配额与并发守卫。
 - GET  /api/v1/jobs/{id}      require_auth；状态机可轮询到终态。
 - GET  /api/v1/jobs           require_auth；最近任务列表。
 
@@ -123,6 +125,61 @@ def jobs_predict(body: dict | None,
             "job": _job_view(job),
         })
     # 异步执行（fire-and-forget：失败只写状态文件，绝不抛回请求线程）。
+    jobs.submit_job(job["id"])
+    return JSONResponse(status_code=202, content={"job": _job_view(job)})
+
+
+# 篮球参数白名单：--ahead-days / --backtest 为有界整数（NBA 休赛期揭幕战在数月后，
+# 默认 1 天会得 0 场，故允许放宽前瞻窗口）。
+_BBALL_MAX_AHEAD_DAYS = 180
+_BBALL_MAX_BACKTEST = 60
+
+
+def _validate_bball_args(params: dict) -> list[str]:
+    """篮球参数白名单校验 → argv；非法参数抛 400（code=invalid_params）。"""
+    unknown = set(params) - {"ahead_days", "backtest"}
+    if unknown:
+        raise errors.ApiError("invalid_params", f"未知参数: {sorted(unknown)}")
+    argv: list[str] = []
+    ahead = params.get("ahead_days")
+    if ahead is not None:
+        if not isinstance(ahead, int) or isinstance(ahead, bool) or not 1 <= ahead <= _BBALL_MAX_AHEAD_DAYS:
+            raise errors.ApiError("invalid_params",
+                                  f"ahead_days 须为 1..{_BBALL_MAX_AHEAD_DAYS} 的整数")
+        argv += ["--ahead-days", str(ahead)]
+    backtest = params.get("backtest")
+    if backtest is not None:
+        if not isinstance(backtest, int) or isinstance(backtest, bool) or not 1 <= backtest <= _BBALL_MAX_BACKTEST:
+            raise errors.ApiError("invalid_params",
+                                  f"backtest 须为 1..{_BBALL_MAX_BACKTEST} 的整数")
+        argv += ["--backtest", str(backtest)]
+    return argv
+
+
+@router.post("/jobs/predict-bball", status_code=202)
+def jobs_predict_bball(body: dict | None,
+                       _: None = Depends(require_auth)) -> JSONResponse:
+    """提交篮球（NBA）预测任务 —— 独立入口 scripts/bball/run.py。
+
+    与足球预测共用配额计数器与并发守卫：两者不能同时跑（409），避免同一小时内
+    两个引擎争抢同一批上游配额。需要 ODDS_API_KEY；未配置时任务会以 exit 2 失败。
+    """
+    argv = _validate_bball_args(body or {})
+    try:
+        job, reason = jobs.trigger_bball(argv, trigger="manual")
+    except LockTimeout:
+        raise errors.ApiError("lock_busy", "系统繁忙，请稍后再试", http_status=503)
+    if reason == "quota_exhausted":
+        usage = jobs.quota_usage()
+        raise errors.ApiError("quota_exhausted",
+                              f"今日预测配额已用尽（{usage['used']}/{usage['limit']}）",
+                              http_status=429)
+    if reason == "already_running":
+        return JSONResponse(status_code=409, content={
+            "code": "already_running",
+            "message": "已有预测任务在运行，请稍后再试",
+            "job": _job_view(job),
+        })
     jobs.submit_job(job["id"])
     return JSONResponse(status_code=202, content={"job": _job_view(job)})
 

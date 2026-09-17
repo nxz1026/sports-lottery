@@ -99,7 +99,16 @@ def _past_detail(game: dict[str, Any], prediction: dict) -> dict:
 
 
 def _save(output: dict, now: datetime) -> Path:
-    path = PREDICTIONS_DIR / f"prediction_{now.strftime('%Y-%m-%d_%H')}.json"
+    """落盘篮球预测。
+
+    文件名必须带联赛后缀：时间戳只有小时精度（%Y-%m-%d_%H），而篮球与足球预测写的是
+    同一个 PREDICTIONS_DIR —— 不带后缀时同小时内先后跑的两者会互相覆盖，一方数据静默
+    丢失（足球侧 scripts/predict.py 的 _save_output 有同样的缺陷，已一并修复）。
+    归并侧 store.latest_by_league() 读 JSON 里的 league 字段、不解析文件名。
+    """
+    league = output.get("league") if isinstance(output.get("league"), str) else ""
+    suffix = f"_{league}" if league else ""
+    path = PREDICTIONS_DIR / f"prediction_{now.strftime('%Y-%m-%d_%H')}{suffix}.json"
     PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
