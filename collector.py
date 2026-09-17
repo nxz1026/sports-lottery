@@ -28,12 +28,10 @@ import json
 import subprocess
 import sys
 import os
-import threading
 import tarfile
 import time
 import urllib.error
 import urllib.request
-import io
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
