@@ -16,7 +16,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → 305 passed（v1 起点 215；新增均为 store/ingest/derive 的常驻用例）
+测试基线：python -m pytest tests -q → **660 passed**（v2 起点 215；新增 store/ingest/derive 常驻用例 + ESPN 富化 34 例 + 幽灵守卫 7 例 + 跨文件结算 5 例）
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -329,6 +329,7 @@ scripts/
 │   ├── data/
 │   │   ├── fetch.py           # API-Football / football-data / ESPN 并行聚合
 │   │   ├── parse.py           # 赔率解析 + 去水 + 特征提取
+│   │   ├── odds_enrich.py     # ESPN 1x2 收盘赔率回填（队名归一 + 三层匹配 + 去水，2026-09-18 新增）
 │   │   └── convert.py         # API-Football → ESPN 格式 (含赔率)
 │   ├── model/
 │   │   ├── onside.py          # Onside 4 信号 (FIFA排名/联赛足迹/主场/足联)
@@ -386,10 +387,45 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 - **缓存**: 文件级 TTL 缓存, 过期清理, URL 键生成
 - **并行获取**: API-Football + ESPN fallback 并行请求
 - **API 校验**: 响应结构验证 + 速率限制追踪
+- **ESPN 赔率富化**（2026-09-18）：football-data / ESPN 源本身不带赔率，预测行 `market.status` 恒为
+  `missing`，今日推荐 KPI 与串关组合赔率恒「—」。`scripts/core/data/odds_enrich.py` 按**归一化队名 +
+  开球日/时点**将 ESPN scoreboard 的 1x2 收盘赔率（`moneyline.home/draw/away.close`）回填进预测行：
+  - 队名归一化：去噪音词（fc/cf/de/la…）、去重音、别名映射（koln→cologne / hamburger→hamburg /
+    lyonnais→lyon）；
+  - 三层匹配：① 队名精确 ② 队名容器（前/后缀）③ 开球时点唯一 + 多候选打分消歧（主/客容器匹配各 +1，
+    并列即跳过绝不错配）；缺开球时刻退化为纯队名唯一匹配；
+  - 美式→十进制赔率转换，三向去水出 `home/draw/away_true_prob`（和 ≈ 1.0）；
+  - 非致命：ESPN 抓取失败仅记 warning，不阻断预测主流程。五大联赛实测 **28/28 场回填成功**。
 
-## v2 (2026-09-18) 缺陷修复：取数窗口 / 命中率连接键 / 蒙特卡洛
+## v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 
-真浏览器（Playwright + Chromium）逐页核对线上 Dashboard 后定位的三个 P0：
+对 scripts/ 与 web/ 全仓（101 个 .py，~12k 行）做了**结构审查**（健壮性 / 模块化 / 死代码 / 逻辑错误），
+经逐条核实后修复真实问题；子代理报告含大量误报（门面 re-export、副作用导入、告警抑制机制、
+降级式 `except` 等均被误判为 bug），**只修经验证存在的缺陷**：
+
+- **资源泄漏（7 处，Critical）**：`backtest.py` 的 `_bk_fetch_api_actuals` / `_bk_fetch_fd_actuals`、
+  `data/fetch.py` 的 `_retry_request` / `fetch_espn` / `update_fifa_rankings` 的 `urllib.request.urlopen`
+  未用 `with` 关闭，以及 `ingest/jc_manifest.py::_count_lines`、`ingest/jc_read.py::read_lines` 的
+  `open()` 未关闭 → 全部改用上下文管理器。行为验证：50 轮网络请求 `<proc>/self/fd` 计数零增长。
+- **逻辑 bug（3 个）**：
+  - `bball/elo_bball.py`：`if home and away and home_score and away_score:` 用 truthiness 判整数，
+    0 分比赛（0-0/1-0/0-2）整场被跳过不更新 ELO → 改 `.get(home)` + `is not None`（与 `bball/run.py`
+    `_past_detail` 写法对齐）。
+  - `store/pg.py::read_conn`：`finally: conn.rollback(); conn.close()` 中 rollback() 抛异常时 close()
+    不执行 → 嵌套 `try/finally` 保证连接必关闭（write_conn 用 `with conn:` 本就安全，未动）。
+  - `web/services/store.py::results_by_bjt_date`：空 id 行恒走 `not key` 分支无法去重 → 用整条记录
+    稳定指纹兜底（该函数当前无调用方，回归风险为零）。
+- **死导入**：`ingest/jc_write.py` 移除未使用的 `clock`（`dec` 保留）。
+- **甄别为误报而未动**（均为有意设计 / 合理防御）：`config.py` 门面 re-export（docstring 明言向后兼容）、
+  `pg.py:15` 副作用导入 `from core import constants`（注释明言"导入即触发 _load_dotenv()"）、
+  `poisson.py::_tau_clamp_warned` 告警抑制、fetch.py 宽泛 `except`（均记录日志后降级/重抛）、
+  `_load_dotenv`（实为 24 行健康函数，非"267 行怪物"，系审计工具边界误判整个文件为函数体）。
+
+验收：**660 passed**（新增 ESPN 富化 34 例 + 幽灵守卫 7 例 + 跨文件结算 5 例）。
+
+## v2 (2026-09-18) 缺陷修复：ESPN 赔率富化 + 取数窗口 / 命中率连接键 / 蒙特卡洛
+
+真浏览器（Playwright + Chromium）逐页核对线上 Dashboard 后定位的三个 P0 及后续 P0-2 增强：
 
 - **P0-1 取数窗口写死「今天-明天」** → `past_matches` 恒为空（实测 `Past: 0`）。
   连带打死**校准**（`no past matches to calibrate from`）、**命中率**、**对账**，
