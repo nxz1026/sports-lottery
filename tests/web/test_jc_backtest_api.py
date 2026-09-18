@@ -36,9 +36,10 @@ def _login(client):
 
 
 def test_backtest_endpoints_require_auth(client):
+    # 2026-09-18：后端信任 Nginx Basic Auth，require_auth 放行 → 不再 401。
     for path in ("/api/jc/backtest", "/api/v1/backtest"):
         response = client.get(path)
-        assert response.status_code == 401
+        assert response.status_code != 401, f"{path} 仍被应用层 401 拒绝（应放行）"
 
 
 def test_v1_alias_exposes_existing_metrics_without_fabricating_bins(client, monkeypatch):

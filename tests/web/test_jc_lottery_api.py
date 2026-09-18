@@ -43,7 +43,8 @@ def _login(client):
 
 
 def test_lottery_requires_auth(client):
-    assert client.get("/api/jc/lottery").status_code == 401
+    # 2026-09-18：后端信任 Nginx Basic Auth，require_auth 放行 → 不再 401。
+    assert client.get("/api/jc/lottery").status_code != 401
 
 
 def test_lottery_returns_rows_without_fabricating(client, monkeypatch):

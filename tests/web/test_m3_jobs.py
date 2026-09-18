@@ -369,9 +369,10 @@ def test_ai_status_endpoints(client, tmp_path, monkeypatch):
 # --- 鉴权矩阵补充 -----------------------------------------------------------
 
 def test_jobs_require_auth(client):
-    assert client.get("/api/v1/jobs").status_code == 401
-    assert client.post("/api/v1/jobs/predict", json={}).status_code == 401
-    assert client.post("/api/v1/jobs/auto/refresh").status_code == 401
+    # 2026-09-18：后端信任 Nginx Basic Auth，require_auth 放行 → 不再 401。
+    assert client.get("/api/v1/jobs").status_code != 401
+    assert client.post("/api/v1/jobs/predict", json={}).status_code != 401
+    assert client.post("/api/v1/jobs/auto/refresh").status_code != 401
 
 
 class TestOrphanRecovery:
@@ -451,7 +452,8 @@ def test_bball_route_rejects_bad_args(client):
 
 
 def test_bball_requires_auth(client):
-    assert client.post("/api/v1/jobs/predict-bball", json={}).status_code == 401
+    # 2026-09-18：后端信任 Nginx Basic Auth，require_auth 放行 → 不再 401。
+    assert client.post("/api/v1/jobs/predict-bball", json={}).status_code != 401
 
 
 def test_bball_shares_quota_and_concurrency_with_football(client, monkeypatch):

@@ -125,10 +125,11 @@ def _drain_jobs(timeout: float = 5.0):
     raise AssertionError("run_job 线程未在超时内结束（会污染真实 jobs 目录）")
 
 
-# --- 验收：401 未鉴权拒绝 ---------------------------------------------------
+# --- 验收：后端信任 Nginx Basic Auth，未登录不再被应用层 401 拒绝 ----------
 
 def test_ai_enrich_require_auth(client):
-    assert client.post("/api/v1/jobs/ai-enrich").status_code == 401
+    # 2026-09-18：require_auth 放行 → 不在应用层 401。
+    assert client.post("/api/v1/jobs/ai-enrich").status_code != 401
 
 
 # --- 验收：202 + job.script=ai_enrich（执行 web.enrich）、status=queued ------
