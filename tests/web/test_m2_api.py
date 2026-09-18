@@ -112,12 +112,9 @@ def _seed_fixture_data(tmp_path):
     return scripts
 
 
-# --- 验收点 B：后端信任外层 Nginx Basic Auth，未登录不再被应用层 401 拒绝 ---
-# 2026-09-18 变更：require_auth 放行（nginx 承担认证）。直连后端（绕过 nginx）
-# 时这些端点现在可被调用；测试验证「不再返回 unauthorized」。
+# --- 验收点 B：未登录 5 端点全 401 ------------------------------------------
 
 def test_unauth_401_matrix(client):
-    # 保留端点可达；若未来恢复 require_auth 强制性，此函数应断言 401。
     endpoints = [
         "/api/v1/predictions/today",
         "/api/v1/predictions/2026-07-26",
@@ -128,10 +125,9 @@ def test_unauth_401_matrix(client):
     ]
     for ep in endpoints:
         res = client.get(ep)
-        # 不再 401（后端放行，信任 nginx）；断言返回的是数据或结构化错误而非 unauthorized
+        assert res.status_code == 401, f"{ep} → {res.status_code}"
         body = res.json()
-        assert res.status_code != 401, f"{ep} 仍被应用层 401 拒绝（应放行）"
-        assert body.get("code") != "unauthorized"
+        assert body["code"] == "unauthorized"
 
 
 # --- 验收点 C：today 按联赛分组 + 字段对齐契约 §2 --------------------------

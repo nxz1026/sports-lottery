@@ -130,8 +130,7 @@ def me(request: Request) -> dict:
 def require_auth(request: Request) -> None:
     """FastAPI 依赖：未登录抛 401（统一 JSON 错误）。
 
-    2026-09-18 变更：现信任外层 Nginx Basic Auth 作为唯一认证，本依赖放行
-    （session cookie 不再强制）。保留登录路由（/login /logout /me）与 session
-    机制不动，避免破坏可能依赖它们的调用方；需要时可直接恢复强制校验。
+    体彩 /dashboard/jc/ 与 Nginx Basic Auth 隔离（nginx 对该路径 auth_basic off），
+    本依赖是体彩项目的独立认证（session cookie）。Nginx 账号只保护其它业务。
     """
-    _ = request  # 信任 nginx basic auth，放行所有请求
+    _current_token(request)

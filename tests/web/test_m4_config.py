@@ -28,7 +28,14 @@ def test_env_int_bad_value_returns_default(monkeypatch, caplog) -> None:
 
 
 def test_prod_guard_rejects_default_password(monkeypatch) -> None:
-    """非本机 HOST + 未设置 AUTH_PASSWORD → 模块加载即 RuntimeError。"""
+    """非本机 HOST + 进程未设 AUTH_PASSWORD → 模块加载即 RuntimeError。
+
+    2026-09-18 补丁：.env 现含 AUTH_PASSWORD，reload config 时 load_dotenv 会从
+    磁盘读回真实值、遮蔽"未设置"场景。为隔离真实 .env，本测试把 load_dotenv
+    patch 成 no-op，使进程 env 完全决定结果，真正验证守卫路径。
+    """
+    import dotenv
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: None)
     monkeypatch.setenv("WEB_HOST", "0.0.0.0")
     monkeypatch.delenv("AUTH_PASSWORD", raising=False)
     with pytest.raises(RuntimeError, match="禁止使用默认口令"):
