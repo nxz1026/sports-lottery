@@ -348,13 +348,19 @@ def test_enrich_main_writes_back_and_returns_zero(monkeypatch, capsys):
 # --- M6S：按名配对（修 analyses 位置错配，线上实证 2026-09-11） -------------
 
 def _load_batch_pipeline(monkeypatch):
-    """注入假 ai.llm_client 后加载 ai.batch_pipeline（零 requests/LLM 依赖）。"""
-    import types
-    fake_llm = types.ModuleType("ai.llm_client")
-    fake_llm.generate = lambda *a, **k: {"analyses": []}
-    monkeypatch.setitem(sys.modules, "ai.llm_client", fake_llm)
-    monkeypatch.delitem(sys.modules, "ai.batch_pipeline", raising=False)
+    """取得 ai.batch_pipeline，并默认把 generate 换成零依赖假实现。
+
+    **不要** delitem(sys.modules, "ai.batch_pipeline") 后重新 import：那会造出第二个
+    模块对象，而 monkeypatch teardown 只把**旧的**对象还原进 sys.modules，于是
+    `sys.modules["ai.batch_pipeline"]` 与 `ai.batch_pipeline`（包属性）永久分叉。
+    后果：别处按字符串路径的 monkeypatch（本文件 test_enrich_main_* 用的
+    `"ai.batch_pipeline.analyse_batch"`）会打到其中一个对象上，而 web.enrich.main()
+    的 `from ai.batch_pipeline import analyse_batch` 拿到另一个对象 —— patch 静默失效、
+    真实 LLM 被调用。本文件单独跑时不会暴露，只有别处先导入过该模块才触发。
+    """
     import ai.batch_pipeline as bp
+
+    monkeypatch.setattr(bp, "generate", lambda *a, **k: {"analyses": []}, raising=False)
     return bp
 
 

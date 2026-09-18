@@ -59,7 +59,13 @@ def ai_status() -> dict:
 
 
 def ai_details() -> dict:
-    """富化明细（按比赛英文名），条目含 ai_score/ai_summary/league/source。"""
+    """富化明细（按分数降序），条目含 ai_score/ai_summary/league/source。
+
+    ``match`` 取落盘时保留的中文显示名 ``name``，**不能**取字典键：键自 2026-09-18
+    起是稳定主键 ``联赛|主队英文|客队英文``（见 _score_key），直接当比赛名会把
+    明细页显示成 `nba|Detroit Pistons|Boston Celtics`。历史条目没有 name 字段，
+    回退到键（那时键就是中文名）。
+    """
     try:
         scores = _load_ai_scores()
     except Exception as exc:
@@ -70,7 +76,7 @@ def ai_details() -> dict:
         if not isinstance(value, dict):
             continue
         items.append({
-            "match": match,
+            "match": value.get("name") or match,
             "ai_score": value.get("ai_score"),
             "ai_summary": value.get("ai_summary", ""),
             "ai_notes": value.get("ai_notes", ""),
@@ -100,9 +106,41 @@ def _day_items(day: date) -> tuple[list[dict], dict[str, int]]:
     return items, counts
 
 
+def _score_key(league: str, home_en: str, away_en: str) -> str:
+    """AI 分数稳定主键：``联赛|主队英文原名|客队英文原名``。
+
+    必须与 ``ai/feedback_loop.py::score_key`` 保持一致。此处**故意复制**而非 import：
+    契约 §5（见模块 docstring）规定 web 层绝不 import scripts/ 与 ai/，只读持久化产物。
+    """
+    home_en = (home_en or "").strip()
+    away_en = (away_en or "").strip()
+    if not home_en or not away_en:
+        return ""
+    return f"{(league or '').strip()}|{home_en}|{away_en}"
+
+
+def _lookup_score(prediction: dict, scores: dict) -> dict | None:
+    """按稳定主键查分，回退历史中文名键。
+
+    英文原名是数据源原始标识符，中文名是 to_cn() 派生显示值（LLM 富化时会把它
+    误写成别的队），故新数据一律以英文主键落盘；旧数据的键是中文名，仍需可读。
+    """
+    league = prediction.get("league") or ""
+    candidates = [
+        _score_key(league, prediction.get("home_en", ""), prediction.get("away_en", "")),
+        prediction.get("match", ""),
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        value = scores.get(candidate)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
 def _joined_item(prediction: dict, scores: dict) -> dict:
-    match = prediction.get("match", "")
-    value = scores.get(match)
+    value = _lookup_score(prediction, scores)
     joined = isinstance(value, dict) and value.get("league", "") == prediction.get("league")
     item = {key: prediction.get(key) for key in ("match", "home", "away", "league", "kickoff_utc", "direction", "stars", "confidence_score", "predicted_score")}
     item["ai_matched"] = joined

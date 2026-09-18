@@ -273,7 +273,16 @@ scripts/
 
 ## Dashboard AI 日报与分数榜
 
-Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合生成，只复用已有预测字段、`ai_summary` 和 `ai_notes`，不生成新闻、赛果或收益结论。AI 分数榜仅按有限数值 `ai_score` 排序，明确标注“非投注热度”；预测与 AI 记录必须通过比赛名称和联赛 exact match 关联，未关联项不补分。
+Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合生成，只复用已有预测字段、`ai_summary` 和 `ai_notes`，不生成新闻、赛果或收益结论。AI 分数榜仅按有限数值 `ai_score` 排序，明确标注“非投注热度”；预测与 AI 记录必须通过**稳定主键**和联赛 exact match 关联，未关联项不补分。
+
+**AI 分数的匹配主键（2026-09-18 起）**：`联赛|主队英文原名|客队英文原名`，例如 `epl|Brentford FC|Chelsea FC`。
+
+- 为什么不用中文名：中文名是 `core/i18n.to_cn()` 的**派生显示值**（LLM 翻译 + 缓存）。同一个 LLM 在富化时会把译名“纠正”成别的队 —— 实测 `西班牙人 vs 埃尔切` 回成 `西班牙人 vs 阿根廷`、`勒芒 vs 洛里昂` 回成 `洛森 vs 洛里昂`、`法兰克福 vs 弗赖堡` 回成 `法兰克福 vs 德累斯顿`，**21 条里只有 14 条精确照抄**。按名字配对时这些条目会静默丢分（实测一次富化 68 条只写回 48 条，日志仅报 `wrote 48`）。改用英文原名后精确照抄 5/5。
+- LLM 配对改用**不透明整数 `id`**（`_batch_id`），不再要求模型照抄任何名字；并按 id 对漏答条目重试。实测 68/68 全部写回，`ai_matched_count` 由 45/60 提升到 **60/60**。
+- 历史条目仍以中文名为键，读侧（`_lookup_score`）先查稳定主键、再回退中文键，**不丢历史数据**。`ai_details` 返回的 `match` 取落盘时保留的中文显示名 `name`，不是字典键。
+- 契约 §5 规定 web 层不得 import `scripts/`、`ai/`，故 `web/services/ai.py::_score_key` 是**故意复制**的实现，有单测（`test_web_score_key_matches_engine_score_key`）保证两侧一致。
+
+**已知缺陷**：`ai/feedback_loop.py::adjust_prediction` 的 docstring 声称 factor 为 0.7–1.3、`ai_score=100 → boost 30%`，但实现是 `0.7 + 0.3*(ai_score/100)`，取值仅 0.7–1.0 —— **AI 反馈回路只能降低信心、永远无法提高**。测试 `test_adjust_prediction_factor_range_is_one_directional` 固化了当前实际行为，修实现还是修文档需单独决策（改实现会改变所有预测的信心值）。
 
 新增鉴权接口：`GET /api/v1/ai/daily`、`GET /api/v1/ai/ranking`。缺少或损坏 AI 文件时返回降级状态，不影响预测主流程。
 

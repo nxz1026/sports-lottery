@@ -40,7 +40,10 @@ def generate(
 
     # Resolve from env/params
     api_key = api_key or os.environ.get("LLM_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
-    api_base = api_base or os.environ.get("LLM_API_BASE", "https://api.agnes-ai.cn/v1")
+    # 默认地址必须与 .env 的 LLM_API_BASE 同源：旧默认 api.agnes-ai.cn 已废弃，
+    # 一旦 .env 缺 LLM_API_BASE 就会静默回落到废地址，而 _call_openai 出错时只返回 {}
+    # （不抛异常），表现为"富化全部条目未评分"，极难排查。
+    api_base = api_base or os.environ.get("LLM_API_BASE", "https://apihub.agnes-ai.com/v1")
     model = model or os.environ.get("LLM_MODEL") or "agnes-2.5-flash"
 
     if not api_key:

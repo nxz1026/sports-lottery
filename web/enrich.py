@@ -38,6 +38,11 @@ def collect_items() -> list[dict]:
             match = pred.get("match", "")
             items.append({
                 "name": match,
+                # 英文原名：AI 分数的稳定主键（见 ai/feedback_loop.py::score_key）。
+                # 中文名是 to_cn() 的派生显示值，LLM 会把它"纠正"成别的队
+                # （实测 '埃尔切'→'阿根廷'、'勒芒'→'洛森'），不能作匹配键。
+                "home_en": pred.get("home_en", ""),
+                "away_en": pred.get("away_en", ""),
                 "league": league_key,
                 "date_found": "",
                 "direction": pred.get("direction", "?"),

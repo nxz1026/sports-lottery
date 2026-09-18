@@ -79,6 +79,10 @@ def _prediction(game: dict[str, Any], ratings: dict[str, float], now: datetime) 
     result["home"] = _display_name(home)
     result["away"] = _display_name(away)
     result["match"] = f"{result['home']} vs {result['away']}"
+    # 英文原名是 The Odds API 的原始标识符，必须保留：AI 分数的稳定主键是
+    # league|home_en|away_en（见 ai/feedback_loop.py::score_key）。中文名只用于显示。
+    result["home_en"] = home
+    result["away_en"] = away
     result["kickoff_date"] = _kickoff_date(game, now)
     result["spread_pred"] = result.get("spread_prediction")
     result["total_pred"] = result.get("total_prediction")

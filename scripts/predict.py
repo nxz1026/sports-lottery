@@ -156,6 +156,12 @@ def _generate_predictions(
             pred["match"] = match["name"]
             pred["home"] = match.get("home", "")
             pred["away"] = match.get("away", "")
+            # 英文原名是数据源的原始标识符，必须一路带到预测产物里：
+            # 中文名是 to_cn() 的派生显示值，LLM 富化时会被模型"纠正"成别的队
+            # （实测 '埃尔切'→'阿根廷'、'勒芒'→'洛森'、'弗赖堡'→'德累斯顿'），
+            # 拿它当跨运行/跨源的匹配主键必然丢数据。中文仍用于显示。
+            pred["home_en"] = match.get("home_en", "")
+            pred["away_en"] = match.get("away_en", "")
             # Apply AI feedback adjustment (按联赛隔离，P4)
             if ai_adjustments:
                 pred = adjust_prediction(pred, ai_adjustments)
