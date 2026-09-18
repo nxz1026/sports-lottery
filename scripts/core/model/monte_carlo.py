@@ -40,6 +40,7 @@ def monte_carlo_champion(
     n_simulations: int = 10000,
     rho: float = 0.2,
     tournament_type: str = "world_cup",
+    initial_standings: dict[str, dict[str, int]] | None = None,
 ) -> dict[str, Any]:
     logger.info(f"Starting Monte Carlo simulation: {n_simulations} iterations, type={tournament_type}")
 
@@ -50,16 +51,22 @@ def monte_carlo_champion(
     for f in fixtures:
         all_teams.add(f.get("home", ""))
         all_teams.add(f.get("away", ""))
+    # 播种积分榜里的球队即使不在剩余赛程中也要进榜（否则概率分母漏队）
+    for t in (initial_standings or {}):
+        all_teams.add(t)
 
     for team in all_teams:
         champion_counts[team] = 0
         round_reach_counts[team] = {}
 
     for sim in range(n_simulations):
-        _simulate_round(fixtures, team_strengths, rho, tournament_type, sim, n_simulations, champion_counts, round_reach_counts)
+        _simulate_round(fixtures, team_strengths, rho, tournament_type, sim, n_simulations,
+                        champion_counts, round_reach_counts, initial_standings)
 
+    # 保留 0 概率球队：冠军页要展示完整参赛队伍，而不是只列"模拟中赢过"的
+    # （此前 `if count > 0` 会把弱队整个滤掉，英超 20 队只显示 17 队）
     champion_probs = {team: round(count / n_simulations, 4)
-                      for team, count in champion_counts.items() if count > 0}
+                      for team, count in champion_counts.items()}
     champion_probs = dict(sorted(champion_probs.items(), key=lambda x: -x[1]))
 
     round_reach_probs: dict[str, dict[str, float]] = {}
@@ -94,6 +101,7 @@ def _simulate_round(
     n_simulations: int,
     champion_counts: dict[str, int],
     round_reach_counts: dict[str, dict[str, int]],
+    initial_standings: dict[str, dict[str, int]] | None = None,
 ) -> None:
     """模拟一轮锦标赛，原地聚合冠军与晋级轮次计数（随机数消耗顺序不变）。"""
     if sim % 2000 == 0 and sim > 0:
@@ -102,7 +110,7 @@ def _simulate_round(
     if tournament_type == "world_cup":
         result = simulate_world_cup(fixtures, team_strengths, rho)
     else:
-        result = simulate_league(fixtures, team_strengths, rho)
+        result = simulate_league(fixtures, team_strengths, rho, initial_standings)
 
     champion = result.get("champion")
     if champion:
@@ -398,8 +406,112 @@ def _simulate_knockout_sequential(
     return remaining_teams
 
 
-def simulate_league(fixtures: list[dict[str, Any]], team_strengths: dict[str, dict[str, float]], rho: float) -> dict[str, Any]:
+def build_league_standings(
+    finished_matches: list[dict[str, Any]],
+) -> dict[str, dict[str, int]]:
+    """从已结束比赛推导当前积分榜（points/gf/ga/gd）。
+
+    赛季中期做夺冠模拟必须播种既有积分：``simulate_league`` 只从传入的
+    fixtures 建表，若只喂剩余赛程，所有球队都从 0 分起步，冠军概率是错的。
+    """
     standings: dict[str, dict[str, int]] = {}
+    for m in finished_matches:
+        home = m.get("home") or ""
+        away = m.get("away") or ""
+        hg = m.get("home_goals")
+        ag = m.get("away_goals")
+        if not home or not away or hg is None or ag is None:
+            continue
+        for t in (home, away):
+            if t not in standings:
+                standings[t] = {"points": 0, "gf": 0, "ga": 0, "gd": 0}
+        standings[home]["gf"] += hg
+        standings[home]["ga"] += ag
+        standings[home]["gd"] += hg - ag
+        standings[away]["gf"] += ag
+        standings[away]["ga"] += hg
+        standings[away]["gd"] += ag - hg
+        if hg > ag:
+            standings[home]["points"] += 3
+        elif hg == ag:
+            standings[home]["points"] += 1
+            standings[away]["points"] += 1
+        else:
+            standings[away]["points"] += 3
+    return standings
+
+
+def derive_team_strengths(
+    finished_matches: list[dict[str, Any]],
+) -> dict[str, dict[str, float]]:
+    """从已结束比赛推导每队的进攻/防守强度与主客场期望进球。
+
+    乘性模型：``lambda_home = 联赛主场均进球 × 主队进攻 × 客队防守``。
+    样本不足（联赛总进球为 0）时返回空 dict，调用方回退到默认强度。
+    """
+    played: dict[str, int] = {}
+    scored: dict[str, int] = {}
+    conceded: dict[str, int] = {}
+    home_goals = away_goals = n_matches = 0
+
+    for m in finished_matches:
+        home = m.get("home") or ""
+        away = m.get("away") or ""
+        hg = m.get("home_goals")
+        ag = m.get("away_goals")
+        if not home or not away or hg is None or ag is None:
+            continue
+        n_matches += 1
+        home_goals += hg
+        away_goals += ag
+        played[home] = played.get(home, 0) + 1
+        played[away] = played.get(away, 0) + 1
+        scored[home] = scored.get(home, 0) + hg
+        scored[away] = scored.get(away, 0) + ag
+        conceded[home] = conceded.get(home, 0) + ag
+        conceded[away] = conceded.get(away, 0) + hg
+
+    if n_matches == 0 or (home_goals + away_goals) == 0:
+        return {}
+
+    league_home_avg = home_goals / n_matches
+    league_away_avg = away_goals / n_matches
+    league_avg = (home_goals + away_goals) / (2 * n_matches)
+
+    strengths: dict[str, dict[str, float]] = {}
+    for team, n in played.items():
+        if n == 0 or league_avg <= 0:
+            continue
+        attack = (scored.get(team, 0) / n) / league_avg
+        defence = (conceded.get(team, 0) / n) / league_avg
+        # 强度做温和收缩，避免小样本把极端值放大（n 越小越靠近 1.0）
+        shrink = n / (n + 6.0)
+        attack = 1.0 + (attack - 1.0) * shrink
+        defence = 1.0 + (defence - 1.0) * shrink
+        strengths[team] = {
+            "attack": round(attack, 4),
+            "defence": round(defence, 4),
+            "lambda_home": round(league_home_avg * attack * defence, 4),
+            "lambda_away": round(league_away_avg * attack * defence, 4),
+            "matches": n,
+        }
+    return strengths
+
+
+def simulate_league(
+    fixtures: list[dict[str, Any]],
+    team_strengths: dict[str, dict[str, float]],
+    rho: float,
+    initial_standings: dict[str, dict[str, int]] | None = None,
+) -> dict[str, Any]:
+    """模拟联赛剩余赛程，返回冠军。
+
+    ``initial_standings`` 为已赛部分的积分（见 ``build_league_standings``），
+    省略时全部球队从 0 分起步（等价于整季从头模拟）。
+    """
+    standings: dict[str, dict[str, int]] = {
+        t: dict(v) for t, v in (initial_standings or {}).items()
+    }
 
     for f in fixtures:
         home = f["home"]
@@ -410,8 +522,17 @@ def simulate_league(fixtures: list[dict[str, Any]], team_strengths: dict[str, di
         if away not in standings:
             standings[away] = {"points": 0, "gf": 0, "ga": 0, "gd": 0}
 
-        lh = team_strengths.get(home, {}).get("lambda_home", 1.5)
-        la = team_strengths.get(away, {}).get("lambda_away", 1.2)
+        # 有推导强度时用「联赛基准 × 主队进攻 × 客队防守」，否则回退默认
+        sh = team_strengths.get(home) or {}
+        sa = team_strengths.get(away) or {}
+        if sh.get("attack") is not None and sa.get("defence") is not None:
+            lh = sh.get("lambda_home", 1.5) * sa["defence"]
+        else:
+            lh = sh.get("lambda_home", 1.5)
+        if sa.get("attack") is not None and sh.get("defence") is not None:
+            la = sa.get("lambda_away", 1.2) * sh["defence"]
+        else:
+            la = sa.get("lambda_away", 1.2)
 
         hg, ag = simulate_match_dc(lh, la, rho)
 
@@ -443,4 +564,9 @@ def simulate_league(fixtures: list[dict[str, Any]], team_strengths: dict[str, di
     return {
         "champion": champion,
         "team_rounds": team_rounds,
+        "final_standings": [
+            {"team": t, "points": standings[t]["points"],
+             "gd": standings[t]["gd"], "gf": standings[t]["gf"]}
+            for t in sorted_teams
+        ],
     }

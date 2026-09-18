@@ -106,7 +106,8 @@ def _retry_request(req: urllib.request.Request, max_retries: int = 3, timeout: i
 FIFA_RANKINGS_API_URL = "https://api.football-data.org/v4/teams"
 
 
-def fetch_events(dates_str: str, league_key: str = "epl", data_source: str = "") -> list:
+def fetch_events(dates_str: str, league_key: str = "epl", data_source: str = "",
+                 whole_season: bool = False) -> list:
     """
     抽象数据源层：根据联赛配置获取比赛数据。
 
@@ -114,6 +115,10 @@ def fetch_events(dates_str: str, league_key: str = "epl", data_source: str = "")
         dates_str: 日期范围字符串 (YYYYMMDD-YYYYMMDD)
         league_key: 联赛键 (epl, laliga, bundesliga, seriea, ligue1, mls)
         data_source: 数据源 (espn, football-data, api-football)，空字符串=取 config 默认
+        whole_season: True 时取当前整季赛程而非日期区间。football-data 实测：
+            不传日期参数即返回本赛季全部（PL 380 场 = 40 已结束 + 340 未开赛）；
+            而传日期区间会跨赛季（±300 天拿到 310 场已结束，混入上赛季），
+            会污染积分榜播种。且区间 > 750 天会被源直接 400 拒绝。
 
     Returns:
         list: events 列表
@@ -124,10 +129,14 @@ def fetch_events(dates_str: str, league_key: str = "epl", data_source: str = "")
     effective_source = data_source or config["data_source"]
 
     if effective_source == "espn":
+        if whole_season:
+            logger.warning("espn 数据源不支持整季取数，退回日期区间")
         return fetch_espn(dates_str, config.get("espn_slug", "epl"))
     elif effective_source == "football-data":
-        return fetch_football_data(dates_str, config)
+        return fetch_football_data(dates_str, config, whole_season=whole_season)
     elif effective_source == "api-football":
+        if whole_season:
+            logger.warning("api-football 整季取数未接入，退回日期区间")
         # 并行获取 api-football + ESPN fallback
         espn_slug = config.get("espn_slug", "epl")
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -139,6 +148,8 @@ def fetch_events(dates_str: str, league_key: str = "epl", data_source: str = "")
             logger.info("api-football returned 0 events, using ESPN fallback")
             return fut_espn.result()
     else:
+        if whole_season:
+            logger.warning(f"{effective_source} 数据源不支持整季取数，退回日期区间")
         return fetch_espn(dates_str, config.get("espn_slug", "epl"))
 
 
@@ -170,10 +181,12 @@ def fetch_espn(dates_str: str, league_slug: str = "epl") -> list:
                 raise
 
 
-def fetch_football_data(dates_str: str, config: dict) -> list:
+def fetch_football_data(dates_str: str, config: dict, whole_season: bool = False) -> list:
     """
     从 football-data.org 获取数据。
     注意：需要 API key（环境变量 FOOTBALL_DATA_API_KEY）
+
+    ``whole_season=True`` 时不传日期参数，返回当前赛季全部比赛。
     """
     api_key = os.environ.get("FOOTBALL_DATA_API_KEY", "")
     league_id = config["league_id"]
@@ -193,7 +206,11 @@ def fetch_football_data(dates_str: str, config: dict) -> list:
     start_date = fmt_date(start_raw)
     end_date = fmt_date(end_raw)
 
-    url = f"https://api.football-data.org/v4/competitions/{league_id}/matches?dateFrom={start_date}&dateTo={end_date}"
+    if whole_season:
+        # 不传日期参数：football-data 返回当前赛季全部比赛（PL 实测 380 场）
+        url = f"https://api.football-data.org/v4/competitions/{league_id}/matches"
+    else:
+        url = f"https://api.football-data.org/v4/competitions/{league_id}/matches?dateFrom={start_date}&dateTo={end_date}"
 
     headers = {
         'User-Agent': 'LeaguePredict/4.1',

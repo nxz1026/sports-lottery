@@ -57,7 +57,7 @@ def _bk_reconcile_predictions(
     correct_dir = correct_score = correct_ou = total = 0
     details: list[dict[str, Any]] = []
     for p in preds:
-        r = actuals.get(p.get("match", ""))
+        r = actuals.get(_bk_stable_key(p))
         if not r:
             continue
         h_act, a_act = r
@@ -102,12 +102,12 @@ def reconcile_predictions(past_matches: list[dict[str, Any]], days: int = 7) -> 
     """将历史预测文件中的预测与当前实际赛果比对，返回回测统计。"""
     actuals: dict[str, tuple[int, int]] = {}
     for m in past_matches:
-        name = m.get("name", "")
+        key = _bk_stable_key(m)
         score = m.get("score", "")
-        if name and score and "-" in score:
+        if key and score and "-" in score:
             try:
                 h, a = score.split("-")
-                actuals[name] = (int(h), int(a))
+                actuals[key] = (int(h), int(a))
             except (ValueError, IndexError):
                 pass
     if not actuals:
@@ -130,10 +130,28 @@ def reconcile_predictions(past_matches: list[dict[str, Any]], days: int = 7) -> 
     }
 
 
+def _bk_stable_key(rec: dict[str, Any]) -> str:
+    """英文原名稳定主键（与 AI 打分链路同一约定）。
+
+    ``name`` / ``match`` 字段是 ``to_cn()`` 的翻译结果，而 i18n 表未覆盖的队名
+    会原样返回英文，于是同一场比赛在不同运行里可能一个中文、一个英文，
+    连接直接失败（实测 41 个 actuals 与 6 个 preds 键交集为 0）。
+    ``home_en`` / ``away_en`` 来自数据源 displayName，跨运行稳定。
+    """
+    h = (rec.get("home_en") or "").strip()
+    a = (rec.get("away_en") or "").strip()
+    if h and a:
+        return f"{h}|{a}"
+    return (rec.get("name") or rec.get("match") or "").strip()
+
+
 def _bk_collect_league_data(
     league_key: str, cutoff: float
 ) -> tuple[dict[str, tuple[int, int]], list[dict[str, Any]]]:
-    """收集指定联赛 historical past_matches 的 actuals 与去重后的 predictions。"""
+    """收集指定联赛 historical past_matches 的 actuals 与去重后的 predictions。
+
+    两侧一律用 ``_bk_stable_key`` 建键，保证中英混杂的显示名不会打断连接。
+    """
     actuals: dict[str, tuple[int, int]] = {}
     preds: list[dict[str, Any]] = []
     seen_pred: set[str] = set()
@@ -147,17 +165,17 @@ def _bk_collect_league_data(
         if data.get("league") != league_key:
             continue
         for m in data.get("past_matches", []):
-            name = m.get("name", "")
+            key = _bk_stable_key(m)
             score = m.get("score", "")
-            if name and score and "-" in score:
+            if key and score and "-" in score:
                 try:
                     h, a = score.split("-")
-                    actuals[name] = (int(h), int(a))
+                    actuals[key] = (int(h), int(a))
                 except (ValueError, IndexError):
                     pass
         for p in data.get("predictions", []):
-            key = p.get("match", "")
-            if key in seen_pred:
+            key = _bk_stable_key(p)
+            if not key or key in seen_pred:
                 continue
             seen_pred.add(key)
             preds.append(p)
@@ -178,7 +196,7 @@ def league_accuracy(league_key: str, days: int = 7) -> dict[str, Any] | None:
 
     correct_dir = correct_score = correct_ou = total = 0
     for p in preds:
-        r = actuals.get(p.get("match", ""))
+        r = actuals.get(_bk_stable_key(p))
         if not r:
             continue
         h_act, a_act = r

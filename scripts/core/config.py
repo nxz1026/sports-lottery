@@ -16,6 +16,7 @@ from core.constants import (                     # noqa: F401
     COUNTRY_CONFEDERATION,
     DC_RHO,
     DEFAULT_N_SIMULATIONS,
+    DEFAULT_PAST_DAYS,
     ESPN_MAX_RETRIES,
     ESPN_RETRY_DELAY_SECONDS,
     ESPN_TIMEOUT_SECONDS,

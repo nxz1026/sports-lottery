@@ -54,6 +54,13 @@ DC_RHO: float = 0.2
 # ── 蒙特卡洛参数 ──────────────────────────────────
 DEFAULT_N_SIMULATIONS: int = 10000
 
+# ── 取数窗口 ──────────────────────────────────────
+# 回看天数：预测窗口若只取「今天-明天」，past_matches 恒为空，会连带打死
+# 校准（calibration）、命中率（accuracy_summary）、对账（reconciliation）
+# 以及模型自身的 form/record 特征（无历史比赛可推导 → 回退中性值）。
+# 30 天可覆盖一个月的已结束比赛并带回比分；同一区间仍是一次 HTTP 请求。
+DEFAULT_PAST_DAYS: int = 30
+
 # ── 庄家水线常量（去水用）──────────────────────────
 BOOKMAKER_MARGIN: float = 1.07
 

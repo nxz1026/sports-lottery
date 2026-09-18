@@ -26,14 +26,16 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from core.config import (
-    LEAGUE_CONFIG, PREDICTIONS_DIR, DC_RHO, DEFAULT_N_SIMULATIONS
+    LEAGUE_CONFIG, PREDICTIONS_DIR, DC_RHO, DEFAULT_N_SIMULATIONS, DEFAULT_PAST_DAYS
 )
 from core.log import logger
 from core.data.fetch import fetch_events
 from core.rankings import fetch_fifa_rankings
 from core.data.parse import parse_events
 from core.model.poisson import fit_dc_rho
-from core.model.monte_carlo import monte_carlo_champion
+from core.model.monte_carlo import (
+    monte_carlo_champion, build_league_standings, derive_team_strengths
+)
 from core.calibration import build_calibration, compute_calibration_offset, load_historical_past_matches
 from core.backtest import reconcile_predictions, backtest_with_live_results
 from core.output import cleanup_old_files, save_results
@@ -60,12 +62,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-source", default="",
                         choices=["football-data", "espn", "api-football"],
                         help="Data source (default: per-league config)")
-    parser.add_argument("--monte-carlo", action="store_true", help="Run Monte Carlo simulation")
+    parser.add_argument("--monte-carlo", dest="monte_carlo", action="store_true",
+                        default=True,
+                        help="Run Monte Carlo simulation (default: on)")
+    parser.add_argument("--no-monte-carlo", dest="monte_carlo", action="store_false",
+                        help="Skip Monte Carlo simulation (冠军页将显示为空)")
     parser.add_argument("--n-simulations", type=int, default=DEFAULT_N_SIMULATIONS,
                         help="Monte Carlo iterations")
     parser.add_argument("--backtest", action="store_true", help="Run backtest after prediction")
     parser.add_argument("--cleanup", action="store_true", help="Clean old prediction/result files")
     parser.add_argument("--dates", help="Date range YYYYMMDD-YYYYMMDD")
+    parser.add_argument("--past-days", type=int, default=DEFAULT_PAST_DAYS,
+                        help="Days to look back for finished matches (feeds calibration/"
+                             "accuracy/reconciliation/form; default %d)" % DEFAULT_PAST_DAYS)
     parser.add_argument("--no-fetch", action="store_true", help="Use local cached data")
     parser.add_argument("--no-dc", action="store_true", help="Disable Dixon-Coles model")
     parser.add_argument("--update-rankings", action="store_true", help="Force refresh FIFA rankings from API")
@@ -136,9 +145,14 @@ def _generate_predictions(
     future: list, calibration_offset: dict | None, fifa_rankings: dict,
     host_country: str | None, use_dc: bool, fitted_rho: float,
     elo_ratings: dict[str, float], league_key: str,
-    ai_adjustments: dict | None = None,
+    ai_adjustments: dict | None = None, data_window: str = "",
 ) -> list[dict]:
-    """对每场未来比赛生成预测。"""
+    """对每场未来比赛生成预测。
+
+    ``data_window`` 只是把本次取数区间写进每条预测：API 层
+    (``web/routers/predictions.py``) 逐条暴露 ``data_window``，而它此前只在
+    输出顶层存在，导致今日页每条都显示「数据窗口 —」。
+    """
     ai_adjustments = ai_adjustments or {}
     predictions = []
     for match in future:
@@ -162,6 +176,12 @@ def _generate_predictions(
             # 拿它当跨运行/跨源的匹配主键必然丢数据。中文仍用于显示。
             pred["home_en"] = match.get("home_en", "")
             pred["away_en"] = match.get("away_en", "")
+            # 开球时间必须带进预测行：API 逐条暴露 kickoff_utc，而它此前只存在于
+            # past_matches/future 记录里，导致今日页足球 28/28 行「时间待定」，
+            # 前端「今天/明天」时间筛选恒为 0 场。
+            pred["kickoff_utc"] = match.get("kickoff_utc", "")
+            if data_window:
+                pred["data_window"] = data_window
             # Apply AI feedback adjustment (按联赛隔离，P4)
             if ai_adjustments:
                 pred = adjust_prediction(pred, ai_adjustments)
@@ -246,26 +266,86 @@ def _print_summary(predictions: list, calibration: dict, calibration_offset: dic
     print(f"{'='*60}", file=sys.stderr)
 
 
-def _annotate_monte_carlo(predictions: list, run_monte_carlo: bool, n_simulations: int, fitted_rho: float, tournament_type: str) -> dict | None:
-    """蒙特卡洛冠军概率并写回 predictions。返回冠军榜 dict（未启用/无数据时 None）。
+def _season_mc_inputs(league_key: str, data_source: str, now_utc) -> tuple[list, dict, dict]:
+    """取整季赛程，返回 (remaining_fixtures, initial_standings, team_strengths)。
+
+    一次请求覆盖整季（football-data 实测：不传日期参数即返回本赛季全部
+    380 场 = 40 已结束 + 340 未开赛，20 支球队齐全）：已结束比赛用于播种
+    当前积分榜并推导每队攻防强度，剩余赛程用于模拟。
+
+    旧实现只用「窗口内的 6 场」当 fixtures，等于拿 6 场球去推整个联赛的
+    夺冠概率，只能覆盖 12 支球队，语义不成立。
     """
-    # 6. Monte Carlo（可选）
-    monte_carlo_result = None
-    if run_monte_carlo and predictions:
-        team_strengths = {}
+    events = fetch_events("", league_key, data_source, whole_season=True)
+    past, future, _in_prog = parse_events(events, now_utc)
+
+    finished: list = []
+    for m in past:
+        score = m.get("score") or ""
+        if "-" not in score:
+            continue
+        try:
+            hg_s, ag_s = score.split("-")[:2]
+            hg, ag = int(hg_s), int(ag_s)
+        except (ValueError, IndexError):
+            continue
+        if not m.get("home") or not m.get("away"):
+            continue
+        finished.append({"home": m["home"], "away": m["away"],
+                         "home_goals": hg, "away_goals": ag})
+
+    remaining = [{"home": m.get("home", ""), "away": m.get("away", "")}
+                 for m in future if m.get("home") and m.get("away")]
+
+    logger.info(f"Season MC inputs: finished={len(finished)}, remaining={len(remaining)}")
+    return remaining, build_league_standings(finished), derive_team_strengths(finished)
+
+
+def _annotate_monte_carlo(predictions: list, run_monte_carlo: bool, n_simulations: int,
+                          fitted_rho: float, tournament_type: str,
+                          league_key: str = "", data_source: str = "", now_utc=None) -> dict | None:
+    """蒙特卡洛冠军概率。返回冠军榜 dict（未启用/无可用赛程时 None）。
+
+    优先用整季剩余赛程 + 当前积分榜播种；取数失败时退回窗口内赛程
+    （语义弱但不会让冠军页整个空掉）。
+    """
+    if not (run_monte_carlo and predictions):
+        return None
+
+    fixtures: list = []
+    initial_standings: dict = {}
+    team_strengths: dict = {}
+    try:
+        fixtures, initial_standings, team_strengths = _season_mc_inputs(
+            league_key, data_source, now_utc)
+    except Exception as exc:  # 取数/解析异常不应打断整个预测
+        logger.warning(f"整季赛程取数失败，回退窗口内赛程: {exc}")
+
+    if not fixtures:
+        # 回退：窗口内赛程（覆盖球队少，仅供降级展示）
+        logger.warning("整季剩余赛程为空，回退为窗口内赛程（冠军概率语义较弱）")
         for p in predictions:
-            home = p.get("home", "")
-            away = p.get("away", "")
-            if home:
-                team_strengths[home] = {"lambda_home": p.get("lambda_home", 1.5), "lambda_away": p.get("lambda_away", 1.2)}
-            if away:
-                team_strengths[away] = {"lambda_home": p.get("lambda_home", 1.5), "lambda_away": p.get("lambda_away", 1.2)}
-        fixtures = [{"home": p["home"], "away": p["away"]} for p in predictions if p.get("home") and p.get("away")]
-        monte_carlo_result = monte_carlo_champion(
-            fixtures, team_strengths, n_simulations=n_simulations,
-            rho=fitted_rho, tournament_type=tournament_type,
-        )
-        logger.info(f"Monte Carlo complete. Top champion: {list(monte_carlo_result['champion_probs'].items())[:3]}")
+            home, away = p.get("home", ""), p.get("away", "")
+            if not (home and away):
+                continue
+            fixtures.append({"home": home, "away": away})
+            for t in (home, away):
+                team_strengths.setdefault(t, {
+                    "lambda_home": p.get("lambda_home", 1.5),
+                    "lambda_away": p.get("lambda_away", 1.2),
+                })
+        initial_standings = {}
+
+    if not fixtures:
+        logger.warning("蒙特卡洛无可用赛程，跳过")
+        return None
+
+    monte_carlo_result = monte_carlo_champion(
+        fixtures, team_strengths, n_simulations=n_simulations,
+        rho=fitted_rho, tournament_type=tournament_type,
+        initial_standings=initial_standings,
+    )
+    logger.info(f"Monte Carlo complete. Top champion: {list(monte_carlo_result['champion_probs'].items())[:3]}")
     return monte_carlo_result
 
 
@@ -354,7 +434,8 @@ def _setup_league_run(league_key: str, args, now_utc, dates_str):
             _t_start, host_country, tournament_type, past, future, fifa_rankings, elo_ratings)
 
 
-def _compute_and_predict(past, future, league_key, fifa_rankings, host_country, use_dc, elo_ratings):
+def _compute_and_predict(past, future, league_key, fifa_rankings, host_country, use_dc, elo_ratings,
+                         data_window: str = ""):
     """校准、DC ρ 拟合与预测生成。返回 (calibration, calibration_offset, fitted_rho, predictions)。
     """
     # 3. 校准
@@ -373,6 +454,7 @@ def _compute_and_predict(past, future, league_key, fifa_rankings, host_country, 
     predictions = _generate_predictions(
         future, calibration_offset, fifa_rankings, host_country,
         use_dc, fitted_rho, elo_ratings, league_key, ai_adjustments,
+        data_window=data_window,
     )
     return calibration, calibration_offset, fitted_rho, predictions
 
@@ -421,10 +503,13 @@ def run_league(league_key: str, args, now_utc, dates_str, silent: bool = False) 
         return output
 
     # 3. 校准
-    calibration, calibration_offset, fitted_rho, predictions = _compute_and_predict(past, future, league_key, fifa_rankings, host_country, use_dc, elo_ratings)
+    calibration, calibration_offset, fitted_rho, predictions = _compute_and_predict(past, future, league_key, fifa_rankings, host_country, use_dc, elo_ratings, data_window=dates_str)
 
-    # 6. Monte Carlo（可选）
-    monte_carlo_result = _annotate_monte_carlo(predictions, run_monte_carlo, n_simulations, fitted_rho, tournament_type)
+    # 6. Monte Carlo（默认开启；用整季剩余赛程 + 当前积分榜播种）
+    monte_carlo_result = _annotate_monte_carlo(
+        predictions, run_monte_carlo, n_simulations, fitted_rho, tournament_type,
+        league_key=league_key, data_source=data_source, now_utc=now_utc,
+    )
 
     # 7. 构建输出
     output, accuracy_summary = _build_league_output(now_utc, dates_str, league_key, tournament_type, data_source, use_dc, fitted_rho, calibration, calibration_offset, past, predictions, _t_start, monte_carlo_result, args)
@@ -489,9 +574,12 @@ def main() -> None:
     if args.dates:
         dates_str = args.dates
     else:
-        d1 = now_bjt.strftime("%Y%m%d")
+        # 回看 past_days 天：窗口若只取「今天-明天」，past_matches 恒为空，
+        # 会连带打死校准、命中率、对账与模型 form/record 特征（见 constants.py）。
+        _past_days = max(0, int(getattr(args, "past_days", DEFAULT_PAST_DAYS)))
+        d0 = (now_bjt - timedelta(days=_past_days)).strftime("%Y%m%d")
         d2 = (now_bjt + timedelta(days=1)).strftime("%Y%m%d")
-        dates_str = f"{d1}-{d2}"
+        dates_str = f"{d0}-{d2}"
 
     if args.all:
         all_outputs = []

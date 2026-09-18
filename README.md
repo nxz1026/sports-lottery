@@ -81,8 +81,19 @@ P(home) = home_strength / sum
 ### 蒙特卡洛
 
 - 逐场 Poisson 采样, 10k 次完整赛季模拟
+- **联赛模式取「整季赛程 + 当前积分榜播种」**（2026-09-18 修复）：
+  - 取数走 `fetch_events(..., whole_season=True)`，football-data **不传日期参数**即返回
+    本赛季全部比赛（PL 实测 380 场 = 40 已结束 + 340 未开赛，20 队齐全）。
+  - 已结束比赛用于 `build_league_standings()` 播种积分榜、`derive_team_strengths()`
+    推导每队攻防强度（乘性模型 + 小样本收缩 `n/(n+6)`）；剩余赛程用于模拟。
+  - 播种积分榜与 football-data 官方 standings **逐队对账 20/20 完全一致**。
+  - ⚠️ 不要用日期区间代替：传区间会**跨赛季**（±300 天拿到 310 场已结束，混入上赛季），
+    且区间 > 750 天会被源直接 `400 Specified period must not exceed 750 days` 拒绝。
+  - 旧实现只用「预测窗口内的 6 场」当 fixtures，等于拿 6 场球推整个联赛的夺冠概率，
+    只能覆盖 12 支球队，语义不成立 —— 这也是冠军页长期为空的原因之一。
 - 淘汰赛: 标准 World Cup 对阵表 (A1vB2, C1vD2, ...)
 - 收敛诊断: std_error, 95% CI
+- `champion_probs` **保留 0 概率球队**，冠军页展示完整参赛队伍（此前英超 20 队只显示 17 队）
 
 ### ML 特征工程 (实验性)
 
@@ -121,9 +132,21 @@ https://140.83.62.161/dashboard/jc/
 当前能力：
 
 - 今日推荐、冠军概率、历史预测与数据源任务状态；
+- **多维可组合筛选**（2026-09-18 新增，纯前端 AND 组合，含命中条数与生效条件回显、一键重置）：
+  - 今日推荐：联赛（动态提取，多选）、开球时间（全部/有开球时间/今天/明天/未来3天/时间待定）、
+    星级 ≥1★…≥5★、信心分 ≥5%/10%/15%/20%、运动、玩法、关键词多词 AND；
+  - 竞彩盘口：联赛（从 `/api/jc/fixtures` 行动态提取，不写死白名单）+ 场次关键词搜索；
+  - 彩票开奖：彩种筛选（动态）+ 期数 10/20/50；
+  - ⚠️ 缺失值不当 0：`confidence_score` 为 `null` 的行（如 NBA）此前被 `Number(null)===0`
+    静默当成有效分 0，已改显式判空；奖池/设备数为 0 显示「未提供」而非 0。
 - **NBA 篮球**：与足球同在「今日推荐」，带主队胜率 `win_prob`、让分 `spread_pred`、总分 `total_pred`；顶部可按运动筛选（全部/足球/篮球）；
 - **竞彩盘口**（`view-jc`）：赛程盘口（每场 5 玩法）、传统足彩期次、回测基线、运维快照四个子面板；
 - **彩票开奖**（`view-lottery`）：超级大乐透 / 排列3 / 排列5 / 7星彩，按彩种分组、期号降序，号码串原样显示；
+  - 2026-09-18 新增**号码分组展示列**（大乐透 5+2、7星彩 6+1、排列3/5 平铺），
+    **原样列完整保留**；位数与规则不符时给 ⚠ 警告且不补齐，未收录彩种只原样展示不猜；
+  - 7星彩按 6+1 而非平铺 7 位：真实数据第 7 位会出现 `11`/`14`（如 26106 = `5 1 9 5 8 5 11`），
+    符合官方「前 6 位 0-9 + 特别号 0-14」规则；
+  - 每彩种显示统计摘要（本期数/最新期号/最新开奖日期/最早期号/分组规则）；
 - 串关工作台：选择赛事、结构化市场赔率可用时计算组合参考赔率；
 - 结构化 1X2 市场的隐含概率、比例去水概率、Edge 与 EV 展示；缺少完整市场数据时显示不可用，不使用置信度伪造赔率或价值；
 - 历史页展示来源已有的命中率、Brier、Log Loss、Hit Rate 与校准摘要；没有数据时不显示为 0；
@@ -214,11 +237,18 @@ python3 scripts/predict.py --league epl
 # 使用 football-data.org (历史数据)
 python3 scripts/predict.py --league epl --data-source football-data
 
-# 蒙特卡洛冠军模拟
-python3 scripts/predict.py --league epl --monte-carlo
+# 蒙特卡洛冠军模拟（2026-09-18 起**默认开启**，无需再加 --monte-carlo）
+python3 scripts/predict.py --league epl
+python3 scripts/predict.py --league epl --no-monte-carlo   # 显式关闭（冠军页将为空）
 
 # 指定日期范围
 python3 scripts/predict.py --league epl --dates 20250101-20250131
+
+# 取数窗口回看天数（默认 30）
+# 窗口只取「今天-明天」会让 past_matches 恒为空，连带打死校准/命中率/对账
+# 与模型 form/record 特征（无历史比赛可推导 → 回退中性值）
+python3 scripts/predict.py --league epl --past-days 30
+python3 scripts/predict.py --league epl --past-days 0    # 恢复旧行为（仅未来两天）
 
 # 回测
 python3 scripts/predict.py --league epl --backtest
@@ -303,6 +333,27 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 - **缓存**: 文件级 TTL 缓存, 过期清理, URL 键生成
 - **并行获取**: API-Football + ESPN fallback 并行请求
 - **API 校验**: 响应结构验证 + 速率限制追踪
+
+## v2 (2026-09-18) 缺陷修复：取数窗口 / 命中率连接键 / 蒙特卡洛
+
+真浏览器（Playwright + Chromium）逐页核对线上 Dashboard 后定位的三个 P0：
+
+- **P0-1 取数窗口写死「今天-明天」** → `past_matches` 恒为空（实测 `Past: 0`）。
+  连带打死**校准**（`no past matches to calibrate from`）、**命中率**、**对账**，
+  以及模型自身的 **form/record 特征**（日志原文：`form/records 数据源未提供且无历史比赛可推导，
+  状态/战绩信号回退为中性值`）。新增 `--past-days`（默认 30）：
+  修复后 `past=40` 且 40/40 带回比分，校准与 form 特征全部恢复。
+- **P0-1b 命中率/对账链路用中文显示名当连接键** → `name`/`match` 是 `to_cn()` 的派生值，
+  i18n 表未覆盖的队名会原样返回英文，同一场比赛可能一个中文一个英文
+  （实测 41 个 actuals 与 6 个 preds **键交集为 0**）。改用与 AI 打分链路同一约定的
+  **英文原名稳定主键** `home_en|away_en`（`backtest._bk_stable_key`），中文名仅用于显示。
+- **P0-2 蒙特卡洛输入只有预测窗口内的 6 场** → 等于拿 6 场球推整个联赛夺冠概率，
+  只能覆盖 12 支球队；且 `--monte-carlo` 是可选开关，自动刷新与 jobs API 都不传，
+  冠军页因此长期为空。改为**默认开启**（`--no-monte-carlo` 关闭）+ **整季赛程 + 积分榜播种**
+  （见「蒙特卡洛」节）；播种榜与官方 standings 逐队对账 **20/20 一致**。
+- **附带修复**：预测行此前不带 `kickoff_utc` / `data_window`（API 层逐条暴露但生产者不写），
+  导致今日页足球 28/28 行「时间待定」、「数据窗口 —」，前端时间筛选恒为 0 场；
+  彩票页号码分组展示；`Number(null)===0` 把 NBA 缺失信心分当 0；390px 视口两处既有横向溢出。
 
 ## v2 (2026-09-15) 变更日志
 - 新增 `scripts/derive/`（网格与五玩法派生，纯 stdlib）、`scripts/store/`、`scripts/ingest/`（落库与取数）、7 个常驻测试文件
