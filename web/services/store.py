@@ -212,3 +212,56 @@ def calibration_states() -> dict[str, dict]:
         if data is not None:
             states[league] = data
     return states
+
+
+def _stable_match_key(rec: dict) -> str:
+    """与 scripts/core/backtest._bk_stable_key 同语义的只读副本：
+    英文原名优先（home_en|away_en），回退 name/match 中文名。
+
+    web 侧不 import scripts（契约 §1：只读引擎产物 JSON）；连接键语义必须
+    与引擎侧一致，否则「待结算」计数与未来 accuracy 出数口径会漂移。
+    引擎侧改动本键规则时须同步这里（见 tests/test_p0_window_mc_stablekey.py
+    修复 B 注释）。
+    """
+    h = str(rec.get("home_en") or "").strip()
+    a = str(rec.get("away_en") or "").strip()
+    if h and a:
+        return f"{h}|{a}"
+    return str(rec.get("name") or rec.get("match") or "").strip()
+
+
+def pending_predictions_by_league() -> dict[str, int]:
+    """每联赛「已预测但尚未完赛」的预测场次（稳定键去重后）。
+
+    结算口径：某预测键（home_en|away_en 或 中文名）出现在任一历史文件
+    past_matches 中带有效比分（"x-y"）的记录里，即视为已结算。
+    用于页面空态提示（"N 场待结算，首场比赛结束后自动出数"），替代
+    accuracy 恒空时无信息量的 "—"。
+    """
+    settled: set[str] = set()
+    preds: dict[str, set[str]] = {}
+    for doc in load_prediction_docs():
+        league = doc["data"].get("league")
+        if not isinstance(league, str) or not league:
+            continue
+        bucket = preds.setdefault(league, set())
+        for m in doc["data"].get("past_matches") or []:
+            if not isinstance(m, dict):
+                continue
+            key = _stable_match_key(m)
+            score = str(m.get("score") or "")
+            if key and "-" in score:
+                try:
+                    h, a = score.split("-")[:2]
+                    int(h)
+                    int(a)
+                except ValueError:
+                    continue
+                settled.add(key)
+        for p in doc["data"].get("predictions") or []:
+            if not isinstance(p, dict):
+                continue
+            key = _stable_match_key(p)
+            if key:
+                bucket.add(key)
+    return {lg: len(keys - settled) for lg, keys in preds.items()}

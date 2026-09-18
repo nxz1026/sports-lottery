@@ -50,7 +50,7 @@ LEAGUE_CONFIG: dict[str, dict[str, object]] = {
         "data_source": "football-data",
         "league_id": "PD",
         "api_football_id": 140,
-        "espn_slug": "spa.1",
+        "espn_slug": "esp.1",
         "host_country": "Spain",
         "groups": False,
         "knockout": False,

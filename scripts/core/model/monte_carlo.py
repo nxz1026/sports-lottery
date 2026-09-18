@@ -557,9 +557,11 @@ def simulate_league(
 
     champion = sorted_teams[0] if sorted_teams else None
 
+    # 联赛是单循环积分制，没有"晋级轮次"概念。此前这里硬编码
+    # team_rounds[team] = ["season"]，导致 API 的 round_reach_probs.season
+    # 对每支球队恒为 1.0（3000/3000 次模拟都"到达 season"），语义空洞。
+    # 轮次晋级仅对锦标赛（world_cup 路径 _simulate_group_stage）有意义。
     team_rounds: dict[str, list[str]] = {}
-    for team in standings:
-        team_rounds[team] = ["season"]
 
     return {
         "champion": champion,

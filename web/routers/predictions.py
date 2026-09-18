@@ -224,7 +224,12 @@ def calibration(request: Request,
 @router.get("/accuracy")
 def accuracy(request: Request,
              _: None = Depends(require_auth)) -> dict:
-    """每联赛最新命中率（accuracy_summary 7d/30d；无数据 → 空 dict）。"""
+    """每联赛最新命中率（accuracy_summary 7d/30d；无数据 → 空 dict）。
+
+    ``pending``：每联赛「已预测但尚未完赛」的场次（稳定键去重）。
+    accuracy 恒空时页面用它在空态提示「N 场待结算」，替代无信息量的 "—"
+    （核查 P0-1：系统 09-17 才起每日预测，尚无被预测过的比赛完赛）。
+    """
     out: dict = {}
     for league, doc in store.latest_by_league().items():
         data = doc.get("data", {})
@@ -236,7 +241,7 @@ def accuracy(request: Request,
             "data_window": data.get("data_window"),
             **{k: v for k, v in acc.items() if isinstance(v, dict)},
         }
-    return {"leagues": out}
+    return {"leagues": out, "pending": store.pending_predictions_by_league()}
 
 
 @router.get("/accuracy/breakdown")

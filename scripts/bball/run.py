@@ -72,6 +72,21 @@ def _kickoff_date(game: dict[str, Any], now: datetime) -> str:
         return now.astimezone(BJT).date().isoformat()
 
 
+def _kickoff_utc(game: dict[str, Any]) -> str:
+    """开球时刻的 UTC ISO 串（与足球预测的 kickoff_utc 同一形态，Z 结尾）。
+
+    此前只落盘日期（kickoff_date），页面「开球时间」筛选与详情行拿不到时刻，
+    NBA 32 场全部归入「时间待定」。commence_time 是 The Odds API 的完整
+    ISO 时刻，原样转 UTC 落盘；解析失败留空串（页面 kickInfo 会走
+    kickoff_date 兜底，行为与旧版一致）。
+    """
+    raw = str(game.get("commence_time", ""))
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return ""
+
+
 def _prediction(game: dict[str, Any], ratings: dict[str, float], now: datetime) -> dict:
     home, away = game.get("home_team", ""), game.get("away_team", "")
     odds_home, _odds_away, spread, total = parse_odds(game, home)
@@ -84,6 +99,7 @@ def _prediction(game: dict[str, Any], ratings: dict[str, float], now: datetime) 
     result["home_en"] = home
     result["away_en"] = away
     result["kickoff_date"] = _kickoff_date(game, now)
+    result["kickoff_utc"] = _kickoff_utc(game)
     result["spread_pred"] = result.get("spread_prediction")
     result["total_pred"] = result.get("total_prediction")
     return result
@@ -148,6 +164,16 @@ def run(args: argparse.Namespace) -> dict:
         predictions = [_prediction(g, ratings, now) for g in future if g.get("home_team") and g.get("away_team")]
         output = {"league": "nba", "sport": "basketball", "generated_at": now.astimezone(BJT).isoformat(),
                   "data_window": _window(now), "predictions": predictions}
+    # 元数据对齐足球预测（predict.py 的输出带 status/data_source/tournament_type）：
+    # 此前 NBA 文件缺这三个字段，/api/v1/history 与 prediction-metadata 里 nba
+    # 整列 status=null，页面「历史运行信息」无法标注运行状态。
+    if args.backtest:
+        output.setdefault("status", "ok")
+    else:
+        # 休赛期前瞻 0 场（无未来比赛）标 no_future_matches，与足球预测同词表
+        output.setdefault("status", "ok" if output.get("predictions") else "no_future_matches")
+    output.setdefault("data_source", "the-odds")
+    output.setdefault("tournament_type", "league")
     _save(output, now.astimezone(BJT))
     return output
 

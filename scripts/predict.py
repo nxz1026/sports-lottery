@@ -86,6 +86,41 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+GHOST_MATCH_GRACE_HOURS = 3.0
+
+
+def _match_kickoff_utc(match: dict) -> float | None:
+    """解析 match.kickoff_utc（ISO 带 Z）为 Unix 时间戳；无/不可解析返回 None。"""
+    raw = str(match.get("kickoff_utc") or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _drop_ghost_future(future: list, now_utc) -> tuple[list, list]:
+    """剔除「开球时刻已早于 now-宽限，却被标为未开赛」的幽灵场次。
+
+    数据源（football-data 等）状态更新滞后时，完赛场次会以 SCHEDULED/TIMED
+    混进 future 列表，进而进入推荐与蒙特卡洛剩余赛程。开球时刻距今超过
+    GHOST_MATCH_GRACE_HOURS 的场次判为幽灵并剔除；开球时间缺失的场次保留
+    （无时刻可证伪，留给页面「时间待定」，不误删）。
+
+    返回 (保留的 future, 被剔除的幽灵场次)。
+    """
+    now_ts = now_utc.timestamp()
+    kept, dropped = [], []
+    for m in future:
+        kt = _match_kickoff_utc(m)
+        if kt is not None and (now_ts - kt) > GHOST_MATCH_GRACE_HOURS * 3600:
+            dropped.append(m)
+        else:
+            kept.append(m)
+    return kept, dropped
+
+
 def _fetch_and_parse(league_key: str, data_source: str, dates_str: str, now_utc, skip_fetch: bool) -> tuple[list, list, list, list]:
     """获取并解析赛事数据，返回 (events, past, future, in_prog)。"""
     if skip_fetch:
@@ -96,6 +131,14 @@ def _fetch_and_parse(league_key: str, data_source: str, dates_str: str, now_utc,
 
     logger.info(f"Got {len(events)} events")
     past, future, in_prog = parse_events(events, now_utc)
+    # 幽灵场次守卫：数据源状态滞后会把已完赛的比赛仍标为 SCHEDULED/TIMED
+    # （实测西甲「莱万特 vs 毕尔巴鄂竞技」开球 09-16T00:00Z，两天后才进入
+    # 今日推荐）。这类场次既不该出现在推荐里（比赛已结束），也不该进入
+    # 蒙特卡洛剩余赛程。按开球时刻距今超过宽限小时数剔除。
+    future, ghost_dropped = _drop_ghost_future(future, now_utc)
+    if ghost_dropped:
+        logger.warning(f"Dropped {ghost_dropped} ghost matches (kickoff in past but marked scheduled): "
+                       + ", ".join(m.get("name") or "?" for m in ghost_dropped))
     logger.info(f"Past: {len(past)}, Future: {len(future)}, In progress: {len(in_prog)}")
     save_results(past)
     return events, past, future, in_prog
@@ -278,6 +321,10 @@ def _season_mc_inputs(league_key: str, data_source: str, now_utc) -> tuple[list,
     """
     events = fetch_events("", league_key, data_source, whole_season=True)
     past, future, _in_prog = parse_events(events, now_utc)
+    # 幽灵场次守卫（同 _fetch_and_parse）：完赛仍被标未开赛的比赛不能混进剩余赛程
+    future, mc_ghosts = _drop_ghost_future(future, now_utc)
+    if mc_ghosts:
+        logger.warning(f"Season MC dropped {len(mc_ghosts)} ghost matches (kickoff in past but marked scheduled)")
 
     finished: list = []
     for m in past:
@@ -416,6 +463,30 @@ def _setup_league_run(league_key: str, args, now_utc, dates_str):
 
     # 1. 获取并解析赛事数据
     events, past, future, in_prog = _fetch_and_parse(league_key, data_source, dates_str, now_utc, skip_fetch)
+
+    # 1.2 ESPN 赔率富化（P0-2 修复）：默认 football-data 源不带赔率，
+    # 全部预测行 market.status=missing，今日推荐 KPI 与串关组合赔率恒「—」。
+    # 只有当预测行确实缺赔率、且联赛配置了 espn_slug、且数据源不是 ESPN 本身时才富化。
+    # ESPN 是公开 scoreboard（无 key 无配额），抓取失败非致命。
+    # ESPN scoreboard 的 dates 参数只接受单日 YYYYMMDD（区间会返回 0 场），
+    # 故按 future 实际开球日逐日抓取，避免为 30 天回看窗口付 30 次请求。
+    _odds_enriched = 0
+    if future and not skip_fetch and data_source != "espn":
+        espn_slug = league_config.get("espn_slug")
+        if espn_slug:
+            try:
+                from core.data.odds_enrich import enrich_soccer_odds
+                from core.data.fetch import fetch_espn
+                days = sorted({str(m.get("kickoff_utc"))[:10].replace("-", "")
+                               for m in future if m.get("kickoff_utc")})
+                espn_events: list = []
+                for day in days:
+                    espn_events.extend(fetch_espn(day, espn_slug))
+                _odds_enriched = enrich_soccer_odds(future, espn_events, now_utc)
+            except Exception as e:
+                logger.warning(f"ESPN odds enrichment failed (non-fatal): {e}")
+    if _odds_enriched:
+        logger.info(f"League {league_key}: ESPN odds enriched {_odds_enriched}/{len(future)} future matches")
 
     # 1.5 累计历史完赛记录（供线上 ML 训练 / calibration 跨运行累计，P5）
     try:

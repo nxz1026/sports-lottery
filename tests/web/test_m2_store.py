@@ -187,3 +187,84 @@ def test_bjt_today_is_aware_date(data_dir):
     d = store_mod.bjt_today()
     assert isinstance(d, date)
     assert d == datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8))).date()
+
+# ── pending_predictions_by_league（核查 P0-1 待结算计数）────────────────────
+
+def test_pending_counts_unsettled_predictions_only(data_dir):
+    """已预测且已有赛果的场次不计入 pending；未结算的计入。"""
+    _write_json(data_dir / "predictions" / "prediction_20260918.json", {
+        "league": "epl",
+        "generated_at": "2026-09-18T17:00:00+08:00",
+        "predictions": [
+            {"match": "阿森纳 vs 切尔西", "home_en": "Arsenal FC", "away_en": "Chelsea FC"},
+            {"match": "热刺 vs 利物浦", "home_en": "Tottenham Hotspur", "away_en": "Liverpool FC"},
+        ],
+        "past_matches": [],
+    })
+    _write_json(data_dir / "predictions" / "prediction_20260919.json", {
+        "league": "epl",
+        "generated_at": "2026-09-19T09:00:00+08:00",
+        "predictions": [
+            {"match": "曼城 vs 曼联", "home_en": "Manchester City", "away_en": "Manchester United"},
+        ],
+        "past_matches": [
+            {"home_en": "Arsenal FC", "away_en": "Chelsea FC", "score": "3-0"},
+        ],
+    })
+    pending = store_mod.pending_predictions_by_league()
+    # 阿森纳键已被 09-19 文件的赛果结算；热刺/曼城未结算
+    assert pending == {"epl": 2}
+
+
+def test_pending_dedupes_same_match_across_runs(data_dir):
+    """同一场次多次预测（重跑留痕）只计 1 场待结算。"""
+    for name in ("prediction_20260918.json", "prediction_20260919.json"):
+        _write_json(data_dir / "predictions" / name, {
+            "league": "laliga",
+            "generated_at": "2026-09-18T08:00:00+08:00",
+            "predictions": [
+                {"match": "巴萨 vs 皇马", "home_en": "Barcelona", "away_en": "Real Madrid"},
+            ],
+            "past_matches": [],
+        })
+    assert store_mod.pending_predictions_by_league() == {"laliga": 1}
+
+
+def test_pending_invalid_score_not_settled(data_dir):
+    """past_matches 比分非法（无 '-' 或非数字）不算结算。"""
+    _write_json(data_dir / "predictions" / "prediction_20260919.json", {
+        "league": "epl",
+        "generated_at": "2026-09-19T09:00:00+08:00",
+        "predictions": [
+            {"match": "A vs B", "home_en": "A FC", "away_en": "B FC"},
+        ],
+        "past_matches": [
+            {"home_en": "A FC", "away_en": "B FC", "score": "unknown"},
+        ],
+    })
+    assert store_mod.pending_predictions_by_league() == {"epl": 1}
+
+
+def test_pending_falls_back_to_chinese_name_key(data_dir):
+    """无英文名的老文件：中文名键两侧一致即视为结算（与引擎侧同语义）。"""
+    _write_json(data_dir / "predictions" / "prediction_20260721.json", {
+        "league": "csl",
+        "generated_at": "2026-07-21T11:00:00+08:00",
+        "predictions": [
+            {"match": "上海海港 vs 山东泰山"},
+        ],
+        "past_matches": [],
+    })
+    _write_json(data_dir / "predictions" / "prediction_20260722.json", {
+        "league": "csl",
+        "generated_at": "2026-07-22T11:00:00+08:00",
+        "predictions": [],
+        "past_matches": [
+            {"name": "上海海港 vs 山东泰山", "score": "1-1"},
+        ],
+    })
+    assert store_mod.pending_predictions_by_league() == {"csl": 0}
+
+
+def test_pending_empty_dir(data_dir):
+    assert store_mod.pending_predictions_by_league() == {}

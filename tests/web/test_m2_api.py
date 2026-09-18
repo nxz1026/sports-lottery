@@ -275,6 +275,19 @@ def test_accuracy_merges_summary(client, tmp_path):
     assert epl["30d"]["score_accuracy"] == 0.28
 
 
+def test_accuracy_includes_pending_settlement_counts(client, tmp_path):
+    """核查 P0-1：accuracy 恒空时页面要能提示「N 场待结算」。
+
+    fixture 里两联赛各 1 场预测、无对应赛果 → pending 各 1。
+    """
+    _seed_fixture_data(tmp_path)
+    _login(client)
+    res = client.get("/api/v1/accuracy")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["pending"] == {"epl": 1, "laliga": 1}
+
+
 def test_accuracy_breakdown_projects_source_metrics_without_ci(client, tmp_path):
     _seed_fixture_data(tmp_path)
     _login(client)

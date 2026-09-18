@@ -29,7 +29,22 @@ def _recent_job_stats() -> dict:
                 "created_at": row.get("created_at"),
                 "finished_at": row.get("finished_at"),
             }
-    return {"by_status": counts, "last": last}
+    # 核查 P2-10：by_status 计数在页面原本无法溯源（3 个 timeout、1 个 failed
+    # 从何而来无从查起）。追加最近 10 条作业明细供「数据源与任务」渲染任务表，
+    # 字段与 jobs/{id} 端点同一来源，不含敏感值。
+    items = []
+    for row in jobs.list_jobs(limit=10):
+        items.append({
+            "id": row.get("id"),
+            "status": row.get("status"),
+            "trigger": row.get("trigger"),
+            "script": row.get("script"),
+            "created_at": row.get("created_at"),
+            "finished_at": row.get("finished_at"),
+            "exit_code": row.get("exit_code"),
+            "error": (str(row.get("error"))[:120] if row.get("error") else None),
+        })
+    return {"by_status": counts, "last": last, "items": items}
 
 
 @router.get("/sources/status")

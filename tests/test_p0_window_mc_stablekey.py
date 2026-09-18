@@ -493,3 +493,135 @@ def test_fix_c_fetch_events_whole_season_unknown_source_falls_back(monkeypatch):
                                     data_source="the-odds", whole_season=True)
     assert events == []
     assert calls == ["20260820-20260919"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# A-1：命中率跨文件结算（day-N 预测 + day-N+1 赛果 → 自动出数）
+# 线上背景：2026-09-18 核查时 /api/v1/accuracy 恒空。根因不是连接键，而是
+# 「被预测过的比赛还没完赛」——actuals 全在 08-21~09-14（旧赛果），preds 全在
+# 09-18/19（未开赛），交集天然为 0。本测试锁死跨文件结算链路：预测文件里的
+# predictions 与次日文件 past_matches 按 home_en|away_en 连接后必须出数。
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_a1_cross_file_settlement_produces_accuracy(monkeypatch, tmp_path):
+    """day-N 预测文件 + day-N+1 带赛果文件 → league_accuracy 出数。"""
+    import core.backtest as bt
+
+    # day-N（09-18）：预测了布伦特福德 vs 切尔西（当时未开赛）
+    day_n = tmp_path / "prediction_2026-09-18_17_epl.json"
+    day_n.write_text(json.dumps({
+        "league": "epl",
+        "past_matches": [],  # 当日文件里没有这场比赛的赛果
+        "predictions": [{
+            "home": "布伦特福德", "away": "切尔西",
+            "home_en": "Brentford FC", "away_en": "Chelsea FC",
+            "match": "布伦特福德 vs 切尔西",
+            "direction": "布伦特福德 胜", "predicted_score": "2-1",
+            "over_under": "Over 2.5",
+        }],
+    }, ensure_ascii=False), encoding="utf-8")
+
+    # day-N+1（09-19）：比赛完赛，赛果 2-1 进入新文件的 past_matches
+    day_n1 = tmp_path / "prediction_2026-09-19_09_epl.json"
+    day_n1.write_text(json.dumps({
+        "league": "epl",
+        "past_matches": [{
+            "home": "布伦特福德", "away": "切尔西",
+            "home_en": "Brentford FC", "away_en": "Chelsea FC",
+            "score": "2-1",
+        }],
+        "predictions": [],  # 新预测与本测试无关
+    }, ensure_ascii=False), encoding="utf-8")
+
+    monkeypatch.setattr(bt, "PREDICTIONS_DIR", tmp_path)
+
+    acc = bt.league_accuracy("epl", days=7)
+    assert acc is not None, "跨文件结算必须出数（day-N 预测 × day-N+1 赛果）"
+    assert acc["reconciled"] == 1
+    assert acc["direction_accuracy"] == 1.0
+    assert acc["score_accuracy"] == 1.0
+    assert acc["over_under_accuracy"] == 1.0
+
+
+def test_a1_unsettled_predictions_return_none(monkeypatch, tmp_path):
+    """预测尚未完赛（无对应赛果）→ 返回 None，页面显示待结算而非假 0%。"""
+    import core.backtest as bt
+
+    f = tmp_path / "prediction_2026-09-18_17_epl.json"
+    f.write_text(json.dumps({
+        "league": "epl",
+        "past_matches": [],
+        "predictions": [{
+            "home_en": "Brentford FC", "away_en": "Chelsea FC",
+            "direction": "布伦特福德 胜", "predicted_score": "2-1",
+            "over_under": "Over 2.5",
+        }],
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(bt, "PREDICTIONS_DIR", tmp_path)
+
+    assert bt.league_accuracy("epl", days=7) is None
+
+
+def test_a1_wrong_direction_counts_as_miss(monkeypatch, tmp_path):
+    """方向猜错必须计入分母（防止只统计命中的偏差）。"""
+    import core.backtest as bt
+
+    (tmp_path / "prediction_2026-09-18_17_epl.json").write_text(json.dumps({
+        "league": "epl", "past_matches": [],
+        "predictions": [{
+            "home": "布伦特福德", "away": "切尔西",
+            "home_en": "Brentford FC", "away_en": "Chelsea FC",
+            "direction": "布伦特福德 胜", "predicted_score": "2-1",
+            "over_under": "Over 2.5",
+        }],
+    }, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "prediction_2026-09-19_09_epl.json").write_text(json.dumps({
+        "league": "epl", "past_matches": [{
+            "home_en": "Brentford FC", "away_en": "Chelsea FC", "score": "0-2",
+        }], "predictions": [],
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(bt, "PREDICTIONS_DIR", tmp_path)
+
+    acc = bt.league_accuracy("epl", days=7)
+    assert acc is not None
+    assert acc["reconciled"] == 1
+    assert acc["direction_accuracy"] == 0.0
+    assert acc["score_accuracy"] == 0.0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# C-1：联赛模式 round_reach_probs 语义空洞修复
+# 线上背景：simulate_league 硬编码 team_rounds[team]=["season"]，API 的
+# round_reach_probs.season 对每队恒为 1.0（3000/3000），联赛本无轮次概念。
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_c1_simulate_league_returns_empty_team_rounds():
+    from core.model.monte_carlo import simulate_league
+
+    fixtures = [{"home": "A", "away": "B"}, {"home": "B", "away": "C"}]
+    strengths = {
+        "A": {"lambda_home": 1.8, "lambda_away": 1.0},
+        "B": {"lambda_home": 1.4, "lambda_away": 1.2},
+        "C": {"lambda_home": 1.2, "lambda_away": 1.4},
+    }
+    result = simulate_league(fixtures, strengths, rho=0.2)
+    assert result["team_rounds"] == {}, "联赛模式不应再输出恒 1.0 的 season 轮次"
+    assert result["champion"] in {"A", "B", "C"}
+
+
+def test_c1_monte_carlo_league_round_reach_empty_but_champion_intact():
+    from core.model.monte_carlo import monte_carlo_champion
+
+    fixtures = [{"home": "A", "away": "B"}, {"home": "B", "away": "C"},
+                {"home": "C", "away": "A"}]
+    strengths = {
+        "A": {"lambda_home": 1.8, "lambda_away": 1.0},
+        "B": {"lambda_home": 1.4, "lambda_away": 1.2},
+        "C": {"lambda_home": 1.2, "lambda_away": 1.4},
+    }
+    out = monte_carlo_champion(fixtures, strengths, n_simulations=200,
+                               tournament_type="league")
+    assert out["round_reach_probs"] == {}
+    assert set(out["champion_probs"]) == {"A", "B", "C"}
+    assert abs(sum(out["champion_probs"].values()) - 1.0) < 1e-6
+    assert out["simulation_count"] == 200
