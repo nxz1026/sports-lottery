@@ -55,4 +55,5 @@ def files_for_batch(root: Path, marker: Path,
 
 
 def read_lines(path: Path) -> list[dict]:
-    return [json.loads(s) for s in open(path, encoding="utf-8") if s.strip()]
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(s) for s in f if s.strip()]

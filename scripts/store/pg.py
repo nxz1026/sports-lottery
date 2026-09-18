@@ -52,5 +52,7 @@ def read_conn(role: str = "ro") -> Iterator[psycopg.Connection]:
     try:
         yield conn
     finally:
-        conn.rollback()
-        conn.close()
+        try:
+            conn.rollback()
+        finally:
+            conn.close()

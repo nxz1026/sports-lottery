@@ -6,7 +6,8 @@ from core.log import logger
 
 
 def _count_lines(path: Path) -> int:
-    return sum(1 for s in open(path, encoding="utf-8") if s.strip())
+    with open(path, encoding="utf-8") as f:
+        return sum(1 for s in f if s.strip())
 
 
 def body_hash(p: Path) -> str:

@@ -191,10 +191,11 @@ def results_by_bjt_date(day: date) -> list[dict]:
     out: list[dict] = []
     for d in (day, day - timedelta(days=1)):
         for m in results_for_date(d.isoformat()):
-            key = m.get("id", "")
-            if not key or key not in seen:
-                if key:
-                    seen.add(key)
+            # 无 id 的行也要参与去重：用整条记录的稳定指纹兜底，避免同一场
+            # 比赛在两天文件里都缺 id 时被重复导出（真实数据 id 恒非空，此为边界保护）。
+            key = m.get("id") or json.dumps(m, sort_keys=True, ensure_ascii=False, default=str)
+            if key not in seen:
+                seen.add(key)
                 out.append(m)
     return out
 

@@ -90,10 +90,10 @@ def _retry_request(req: urllib.request.Request, max_retries: int = 3, timeout: i
     _timeout = timeout or ESPN_TIMEOUT_SECONDS
     for attempt in range(1, max_retries + 1):
         try:
-            resp = urllib.request.urlopen(req, timeout=_timeout)
-            _last_resp_headers.clear()
-            _last_resp_headers.update(dict(resp.headers))
-            return json.loads(resp.read())
+            with urllib.request.urlopen(req, timeout=_timeout) as resp:
+                _last_resp_headers.clear()
+                _last_resp_headers.update(dict(resp.headers))
+                return json.loads(resp.read())
         except Exception as e:
             logger.warning(f"Request attempt {attempt}/{max_retries} failed: {type(e).__name__}: {e}")
             if attempt < max_retries:
@@ -164,8 +164,8 @@ def fetch_espn(dates_str: str, league_slug: str = "epl") -> list:
                 'User-Agent': 'python-requests/2.31',
                 'Accept-Encoding': 'gzip'
             })
-            resp = urllib.request.urlopen(req, timeout=ESPN_TIMEOUT_SECONDS)
-            data = json.loads(gzip.decompress(resp.read()))
+            with urllib.request.urlopen(req, timeout=ESPN_TIMEOUT_SECONDS) as resp:
+                data = json.loads(gzip.decompress(resp.read()))
             data = _validate_api_response(data, "ESPN", required_keys=["events"])
 
             return data.get("events", [])
@@ -328,8 +328,8 @@ def update_fifa_rankings() -> dict:
     try:
         logger.info(f"Fetching FIFA rankings from API: {FIFA_RANKINGS_API_URL}")
         req = urllib.request.Request(FIFA_RANKINGS_API_URL, headers=headers)
-        resp = urllib.request.urlopen(req, timeout=ESPN_TIMEOUT_SECONDS)
-        data = json.loads(resp.read())
+        with urllib.request.urlopen(req, timeout=ESPN_TIMEOUT_SECONDS) as resp:
+            data = json.loads(resp.read())
 
         rankings = {}
         for team in data.get("teams", []):

@@ -242,8 +242,8 @@ def _bk_fetch_api_actuals(
     }
     url = f"https://v3.football.api-sports.io/fixtures?dateFrom={start_date}&dateTo={end_date}"
     req = urllib.request.Request(url, headers=headers)
-    resp = urllib.request.urlopen(req, timeout=ESPN_TIMEOUT_SECONDS)
-    data = json.loads(resp.read())
+    with urllib.request.urlopen(req, timeout=ESPN_TIMEOUT_SECONDS) as resp:
+        data = json.loads(resp.read())
 
     actual_index: dict[tuple[str, str], dict[str, Any]] = {}
     for fixture in data.get("response", []):
@@ -339,8 +339,8 @@ def _bk_fetch_fd_actuals(
         "User-Agent": "LeaguePredict/4.1",
         "X-Auth-Token": api_key,
     })
-    resp = urllib.request.urlopen(req, timeout=ESPN_TIMEOUT_SECONDS)
-    data = json.loads(resp.read())
+    with urllib.request.urlopen(req, timeout=ESPN_TIMEOUT_SECONDS) as resp:
+        data = json.loads(resp.read())
 
     actual_index: dict[tuple[str, str], dict[str, Any]] = {}
     for m in data.get("matches", []):

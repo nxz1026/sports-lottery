@@ -58,9 +58,9 @@ def update_ratings(ratings: dict[str, float], completed: list[dict]) -> int:
         scores = game.get("scores", {})
         if not isinstance(scores, dict):
             continue
-        home_score = scores.get(home, 0)
-        away_score = scores.get(away, 0)
-        if home and away and home_score and away_score:
+        home_score = scores.get(home)
+        away_score = scores.get(away)
+        if home and away and home_score is not None and away_score is not None:
             _update_match(ratings, home, away, home_score > away_score)
             updated += 1
     return updated
