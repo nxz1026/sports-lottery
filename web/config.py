@@ -73,9 +73,10 @@ DAILY_TRIGGER_LIMIT: int = _env_int("PREDICT_DAILY_LIMIT", 80)
 # 同一天惰性自动刷新至多一次（predictions/today 缺数据时兜底）。
 AUTO_REFRESH_DAILY: bool = os.getenv("AUTO_REFRESH_DAILY", "1") in ("1", "true", "True")
 
-# --- apscheduler 可选件（默认关，避免 Hobby 平台常驻 cron 消耗配额）-----
-ENABLE_CRON: bool = os.getenv("ENABLE_CRON", "false") in ("1", "true", "True")
-CRON_HOUR: int = _env_int("CRON_HOUR", 9)  # BJT 小时，每日一次
+# 定时预测不在进程内调度，改由 systemd 统一接管：
+#   ops/league-daily-predict.timer  → 每日 09:00 Asia/Shanghai（显式时区）
+# 旧的 ENABLE_CRON / CRON_HOUR（apscheduler 进程内 cron）已移除：它不传 timezone，
+# 在 UTC 宿主上实际 09:00 UTC（=17:00 BJT）触发，且服务重启后要重算，实测 0 次成功触发。
 
 # --- M3 数据目录（web/.data/ 下，gitignore 已排除）-----------------------
 DATA_DIR: Path = BASE_DIR / "web" / ".data"
@@ -109,8 +110,6 @@ def env_summary() -> dict:
         "cors_origins": CORS_ORIGINS,
         "predict_timeout_seconds": PREDICT_TIMEOUT_SECONDS,
         "daily_trigger_limit": DAILY_TRIGGER_LIMIT,
-        "enable_cron": ENABLE_CRON,
-        "cron_hour": CRON_HOUR,
     }
 
 

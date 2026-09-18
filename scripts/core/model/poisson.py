@@ -8,6 +8,12 @@ from typing import Any
 from core.log import logger
 from core.config import THRESHOLDS
 
+# 钳位告警去重标记。tau_correction 是热路径：Monte Carlo 每场、每次模拟、
+# 每个比分格点都会调它（实测 3000 次模拟 × 340 场 × 11×11 格点）。逐次 warning
+# 会让单次 `--all` 产出 285MB / 330 万行日志，把作业拖到 600s 超时（I/O 拖慢）。
+# 信号本身有价值（说明 ρ 与 λ 组合越界），故保留首次、抑制后续。
+_tau_clamp_warned = False
+
 
 def poisson_confidence_interval(lam: float, confidence: float = 0.95) -> tuple[float, float]:
     if lam <= 0:
@@ -44,8 +50,12 @@ def tau_correction(home_goals: int, away_goals: int, lambda_h: float, lambda_a: 
         return 1.0
     # 安全钳位：防止 rho/λ 组合导致负概率
     if tau < 0:
-        logger.warning(f"tau_correction clamped to 0: tau={tau:.4f} (h={home_goals},a={away_goals},"
-                       f"λ_h={lambda_h:.2f},λ_a={lambda_a:.2f},ρ={rho:.3f})")
+        global _tau_clamp_warned
+        if not _tau_clamp_warned:
+            _tau_clamp_warned = True
+            logger.warning(f"tau_correction clamped to 0: tau={tau:.4f} (h={home_goals},a={away_goals},"
+                           f"λ_h={lambda_h:.2f},λ_a={lambda_a:.2f},ρ={rho:.3f})"
+                           f" —— 后续同类钳位已抑制（热路径，逐次记录会淹没日志）")
     return max(0.0, tau)
 
 

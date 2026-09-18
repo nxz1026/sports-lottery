@@ -30,12 +30,27 @@ router = APIRouter(prefix="/api/v1", tags=["jobs"])
 
 # 参数白名单（契约 §1.1 安全子集）：固定取值域校验，杜绝任意字符串注入 argv。
 # frozenset：只需成员测试，不需要 key→value 映射。
+# ⚠️ 不含 --all：它在上面已有显式分支（且需排在 --league 之前），
+# 放进来会被追加第二次，实测 {"all":true} → ['--all','--all']。
 _FLAG_ARGS: tuple[str, ...] = (
-    "--all", "--monte-carlo", "--no-dc", "--no-ml", "--dashboard",
+    "--monte-carlo", "--no-dc", "--no-ml", "--dashboard",
 )
 
 # value 型参数：key → 合法取值集合（None 表示单独正则/类型校验）。
 _DATASOURCE_VALUES: frozenset[str] = frozenset({"football-data", "espn", "api-football", ""})
+
+
+# 作业来源标记白名单。timer 由 ops/league-daily-predict.timer 传入，
+# 用于在 Dashboard「数据源与任务」页把定时作业与手动作业区分开。
+# auto 是 /jobs/auto/refresh 惰性刷新的内部标记（直接调 jobs.trigger_predict 传入）。
+# 白名单外一律按 manual 处理（不报 400）：来源标记是观测字段，不该让请求失败。
+_ALLOWED_TRIGGERS = ("manual", "timer", "cron", "auto")
+
+
+def _pop_trigger(params: dict) -> str:
+    """取出 trigger 标记并从 params 移除（否则会被 _validate_args 当未知参数拒掉）。"""
+    raw = params.pop("trigger", "manual")
+    return raw if raw in _ALLOWED_TRIGGERS else "manual"
 
 
 def _validate_args(params: dict) -> list[str]:
@@ -107,10 +122,11 @@ def _job_view_detail(job: dict, jid: str) -> dict:
 def jobs_predict(body: dict | None,
                  _: None = Depends(require_auth)) -> JSONResponse:
     """提交预测任务（队列语义：返回 202 + job；并发时 409 + already_running）。"""
-    params = body or {}
+    params = dict(body or {})
+    trigger = _pop_trigger(params)
     argv = _validate_args(params)
     try:
-        job, reason = jobs.trigger_predict(argv, trigger="manual")
+        job, reason = jobs.trigger_predict(argv, trigger=trigger)
     except LockTimeout:
         raise errors.ApiError("lock_busy", "系统繁忙，请稍后再试", http_status=503)
     if reason == "quota_exhausted":
@@ -164,9 +180,11 @@ def jobs_predict_bball(body: dict | None,
     与足球预测共用配额计数器与并发守卫：两者不能同时跑（409），避免同一小时内
     两个引擎争抢同一批上游配额。需要 ODDS_API_KEY；未配置时任务会以 exit 2 失败。
     """
-    argv = _validate_bball_args(body or {})
+    params = dict(body or {})
+    trigger = _pop_trigger(params)
+    argv = _validate_bball_args(params)
     try:
-        job, reason = jobs.trigger_bball(argv, trigger="manual")
+        job, reason = jobs.trigger_bball(argv, trigger=trigger)
     except LockTimeout:
         raise errors.ApiError("lock_busy", "系统繁忙，请稍后再试", http_status=503)
     if reason == "quota_exhausted":
@@ -185,14 +203,16 @@ def jobs_predict_bball(body: dict | None,
 
 
 @router.post("/jobs/ai-enrich", status_code=202)
-def jobs_ai_enrich(_: None = Depends(require_auth)) -> JSONResponse:
-    """提交 AI 摘要重生成任务（python -m web.enrich，无 body 参数）。
+def jobs_ai_enrich(body: dict | None = None,
+                   _: None = Depends(require_auth)) -> JSONResponse:
+    """提交 AI 摘要重生成任务（python -m web.enrich，argv 固定为空）。
 
     语义与 /jobs/predict 一致：202 + job / 409 already_running / 429 quota_exhausted。
-    配额与 predict 共享同一计数器。
+    配额与 predict 共享同一计数器。body 只接受可选的 trigger 来源标记。
     """
+    trigger = _pop_trigger(dict(body or {}))
     try:
-        job, reason = jobs.trigger_ai_enrich(trigger="manual")
+        job, reason = jobs.trigger_ai_enrich(trigger=trigger)
     except LockTimeout:
         raise errors.ApiError("lock_busy", "系统繁忙，请稍后再试", http_status=503)
     if reason == "quota_exhausted":

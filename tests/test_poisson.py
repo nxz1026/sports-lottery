@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 import math
+import sys
 import unittest
+from pathlib import Path
+
+# 本文件此前依赖其它测试文件把 scripts/ 塞进 sys.path 的副作用：
+# 整目录跑能过、单跑 `pytest tests/test_poisson.py` 直接 ModuleNotFoundError。
+REPO_ROOT = Path(__file__).resolve().parent.parent
+for _p in (str(REPO_ROOT), str(REPO_ROOT / "scripts")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from core.model.poisson import (
     dixon_coles_match_probs,
@@ -173,3 +182,49 @@ class TestFitDcRho(unittest.TestCase):
         matches = [{"result": "2-0"} for _ in range(25)]
         rho = fit_dc_rho(matches)
         self.assertIsInstance(rho, float)
+
+
+class TestTauClampWarnOnce(unittest.TestCase):
+    """回归：钳位告警曾在热路径逐次记录。
+
+    tau_correction 被 Monte Carlo 每场 × 每次模拟 × 每个比分格点调用，
+    逐次 logger.warning 实测让单次 `--all` 产出 285MB / 330 万行日志，
+    I/O 把作业拖到 600s 超时。现只记首次。
+    """
+
+    def setUp(self) -> None:
+        import core.model.poisson as pm
+        self.pm = pm
+        self._saved = pm._tau_clamp_warned
+        pm._tau_clamp_warned = False
+
+    def tearDown(self) -> None:
+        self.pm._tau_clamp_warned = self._saved
+
+    def test_clamp_still_returns_zero(self) -> None:
+        """钳位行为本身不变：tau<0 时返回 0。"""
+        # h=1,a=1 时 tau = 1 - rho*λ_h*λ_a；取 rho=1.0, λ=2 → 1-4 = -3 < 0
+        self.assertEqual(tau_correction(1, 1, 2.0, 2.0, rho=1.0), 0.0)
+
+    def test_warns_only_once(self) -> None:
+        """连续大量钳位只产生一条 warning。"""
+        from unittest import mock
+        with mock.patch.object(self.pm.logger, "warning") as w:
+            for _ in range(500):
+                tau_correction(1, 1, 2.0, 2.0, rho=1.0)
+            self.assertEqual(w.call_count, 1, "热路径钳位告警必须只记首次")
+        self.assertTrue(self.pm._tau_clamp_warned)
+
+    def test_no_warning_when_not_clamped(self) -> None:
+        """不触发钳位时不应有任何告警（也不能把标记置位）。"""
+        from unittest import mock
+        with mock.patch.object(self.pm.logger, "warning") as w:
+            tau_correction(1, 1, 2.0, 2.0, rho=0.01)  # 1-0.04 > 0
+            tau_correction(3, 2, 2.0, 2.0, rho=1.0)   # 非四类特例，直接返回 1.0
+            self.assertEqual(w.call_count, 0)
+        self.assertFalse(self.pm._tau_clamp_warned)
+
+    def test_other_cells_unaffected(self) -> None:
+        """非特例格点恒为 1.0，不受钳位逻辑影响。"""
+        self.assertEqual(tau_correction(2, 0, 2.0, 2.0, rho=1.0), 1.0)
+        self.assertEqual(tau_correction(0, 2, 2.0, 2.0, rho=1.0), 1.0)

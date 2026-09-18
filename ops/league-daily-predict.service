@@ -1,0 +1,16 @@
+[Unit]
+Description=league-v2 每日全量预测（足球全联赛 + NBA + AI 富化）
+Documentation=https://github.com/nxz1026/league-predict
+# 依赖常驻的 dashboard 服务：作业的配额/并发守卫与执行器都在它进程内
+After=league-dashboard.service
+Requires=league-dashboard.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/league-v2/repo
+EnvironmentFile=/home/ubuntu/league-v2/repo/.env
+# 三个作业串行等待，单作业上限 3600s（脚本内 JOB_TIMEOUT），整体给足余量
+TimeoutStartSec=14400
+# 失败不重试：下一次定时触发自然会重来；避免瞬时重试叠加配额消耗
+ExecStart=/home/ubuntu/league-v2/repo/ops/league-daily-predict.sh

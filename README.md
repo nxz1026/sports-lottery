@@ -212,6 +212,59 @@ GET /api/jc/lottery         各彩种最近 N 期开奖（超级大乐透 85 / �
 - `POST /api/v1/jobs/ai-enrich` 跑 `python -m web.enrich` 生成中文 AI 摘要（LLM 走 agnes-ai，OpenAI 兼容）。
 - 每日配额共享计数：`predict` / `predict-bball` / `ai-enrich` 共用同一计数器与并发守卫，同时只允许一个预测类任务运行（并发 409）。容器 scale-to-zero，结果 JSON 不跨冷启持久（冷启回退 git 种子）。
 
+### 定时运行（systemd timer，2026-09-18 重建）
+
+**本机自动化一共三条，职责不重叠：**
+
+| 机制 | 载体 | 频率 | 干什么 |
+|---|---|---|---|
+| Dashboard 常驻服务 | `league-dashboard.service`（systemd，`Restart=on-failure`） | 常驻 | 提供 `/dashboard/jc/` 全部 API |
+| 竞彩数据采集 | 用户 crontab `*/10 * * * *` | 每 10 分钟 | 跑 `jc-ingest-run.sh` 落库 `fact.jc_*` |
+| **每日全量预测** | `league-daily-predict.timer`（systemd） | 每日 **09:00 Asia/Shanghai** | 足球全联赛 + NBA + AI 富化 |
+
+**为什么从进程内 apscheduler 换成 systemd timer**（旧实现实测 0 次成功触发）：
+
+1. **时区差 8 小时**：宿主 systemd 本地时区是 `Etc/UTC`。旧代码
+   `BackgroundScheduler(timezone="Asia/Shanghai")` + `CronTrigger(hour=9, minute=0)` 看着对，
+   但**显式传入的 CronTrigger 自带时区、会覆盖调度器默认值**，实测落到 `Etc/UTC`
+   → `next_run = 09:00:00+00:00`（= 17:00 BJT），与代码注释和 `CRON_HOUR` 文档声称的
+   「每日 09:00 BJT」差 8 小时。对照实验：加 `timezone='Asia/Shanghai'` 才是 `09:00+08:00`。
+2. **只跑英超**：旧 cron 传 `argv=[]`，而 `predict.py` 的 `--league` 默认值是 `epl`
+   → 每日只刷新英超，其余 4 个足球联赛恒不更新（其注释却写着「全联赛」）。
+   惰性刷新路径 `/jobs/auto/refresh` 早就显式传了 `["--all"]` 并留了注释，cron 路径被漏掉。
+3. **不含 NBA 与 AI 富化**：旧 cron 只触发 `predict`。
+4. **服务重启即丢**：进程内调度每次重启都要重算，而本机一天重启 11 次，极易错过触发点。
+
+**新实现**（`ops/` 三个文件，unit 需 `sudo install -m 644` 到 `/etc/systemd/system/`）：
+
+- `ops/league-daily-predict.timer` — `OnCalendar=*-*-* 09:00:00 Asia/Shanghai`（**时区必须显式写**）
+  + `Persistent=true`（错过的触发在开机后补跑一次）。
+- `ops/league-daily-predict.service` — `Type=oneshot`，`After/Requires=league-dashboard.service`。
+- `ops/league-daily-predict.sh` — **走 HTTP API 而不是直调 CLI**：配额守卫
+  （`PREDICT_DAILY_LIMIT`，默认 80）与并发守卫（`active_job`）都在 `web/services/jobs.py` 里，
+  直调 `scripts/predict.py` 会绕过它们、与页面上的手动任务撞车吃光配额。
+  三个作业**共享同一并发守卫**，因此脚本**串行**执行：发一个 → 轮询 `/jobs/{id}` 到终态 → 发下一个。
+  作业体：`{"all":true}`（足球 5 联赛）、`{"ahead_days":90}`（NBA，休赛期默认 1 天会得 0 场）、AI 富化。
+
+**观测**：三个作业端点都接受可选的 `trigger` 字段（白名单 `manual`/`timer`/`cron`/`auto`，
+白名单外回落 `manual` 且不报 400），timer 传 `timer`，于是在 Dashboard「数据源与任务」页
+可与手点的作业区分——定时任务跑没跑可以自证。此前该字段被硬编码成 `manual`。
+
+```bash
+# 查下次触发时刻（应显示 01:00 UTC = 09:00 BJT）
+systemctl list-timers league-daily-predict.timer
+
+# 手动触发一次（等价于等到 09:00）
+sudo systemctl start league-daily-predict.service
+journalctl -u league-daily-predict.service -n 50 --no-pager
+
+# 校验 OnCalendar 的时区解释
+systemd-analyze calendar "*-*-* 09:00:00 Asia/Shanghai"
+```
+
+> 旧的环境变量 `ENABLE_CRON` / `CRON_HOUR` 已随进程内调度一并移除（`web/services/cron.py` 删除、
+> `web/lifecycle.py` 不再启动调度器），避免两套调度并存重复消耗配额。
+
 **落盘文件名（2026-09-18 修复）**：预测文件为 `prediction_<YYYY-MM-DD_HH>_<league>.json`，联赛后缀不可省。时间戳只有小时精度，而 `--all` 会在同一次运行里依次跑完全部联赛、篮球与足球又共用同一 `PREDICTIONS_DIR`——不带后缀时同小时的多次运行会写同一个文件、互相覆盖，只剩最后一个联赛（实测 5 个联赛 22 场被静默覆盖）。归并侧 `store.latest_by_league()` 读 JSON 里的 `league` 字段、不解析文件名。
 - API-Football EPL（league id `39`）实测：2024 赛季返回 380 场，伤停接口返回数据，`/fixtures/lineups` 返回 2 队阵容；免费档不支持 2025 赛季和 H2H 的 `last` 参数，客户端需省略该参数。免费额度为每日 100 次、每分钟 10 次，客户端有缓存与配额保护。
 

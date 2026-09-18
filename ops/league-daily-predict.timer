@@ -1,0 +1,14 @@
+[Unit]
+Description=每日 09:00 (Asia/Shanghai) 触发 league-v2 全量预测
+Documentation=https://github.com/nxz1026/league-predict
+
+[Timer]
+# 必须显式写时区：宿主 systemd 的本地时区是 Etc/UTC，
+# 不写则 09:00 会被解释成 09:00 UTC（= 17:00 BJT），差 8 小时。
+OnCalendar=*-*-* 09:00:00 Asia/Shanghai
+# 错过的触发在开机/唤醒后补跑一次（服务重启频繁，靠它兜底）
+Persistent=true
+Unit=league-daily-predict.service
+
+[Install]
+WantedBy=timers.target
