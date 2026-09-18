@@ -187,6 +187,39 @@ GET /api/jc/lottery         各彩种最近 N 期开奖（超级大乐透 85 / �
 
 数据限制：当前预测摘要本身不携带稳定的 API-Football fixture/team ID，因此 Dashboard 不把外部伤停、首发或 H2H 猜测拼接到比赛上。API-Football EPL enrichment 客户端已完成真实接口验证，但默认由 `API_FOOTBALL_ENRICH_ENABLED=0` 关闭；启用后仍须先完成 fixture/team ID 保留与唯一映射。预测概率校准分桶当前不可用；校准摘要是实际赛果分布/修正信息，不等同于可靠性曲线或 ECE。
 
+### 认证与隔离（2026-09-18）
+
+`/dashboard/jc/` 使用**独立应用认证**，与 Nginx 的 Basic Auth **完全隔离**，避免体彩用户用 Nginx 账号登录后进入其它业务：
+
+- **Nginx 层**：`/dashboard/jc/` 三处 location（`= /dashboard/jc/`、`/dashboard/jc/api/`、`= /dashboard/jc/login`）均 `auth_basic off`，从全局 Basic Auth 剥离。Nginx Basic Auth 只保护 `/` `/dashboard/` `/resume/` `/stock/` `/admin/` 等其它业务。
+- **体彩应用层**：`web/auth.py::require_auth` 强制校验 `lp_session` cookie（单账号 session）。登录账号来自 `AUTH_USERNAME` / `AUTH_PASSWORD`（在 `.env`，已 gitignore 不入库），签发 `lp_session` cookie，前端遇 `401` 自动跳 `/dashboard/jc/login`。
+- **生产验证**：体彩账号登录后只能访问 `/dashboard/jc/`；`/` `/dashboard/` `/resume/` `/admin/` 对体彩用户一律 `401`（仍由 Nginx Basic Auth 保护）。
+
+> ⚠️ 体彩账号目前是单账号（生产当前为 `a`/`a`）。**正式对外前务必在 `.env` 改为强口令**（改后重启 `league-dashboard.service`）；若 8077 直连端口对外暴露，则绕过 Nginx 后只剩应用层单账号保护。
+
+### 多用户方案（规划中，暂未实现）
+
+当前为**单账号** session（`AUTH_USERNAME`/`AUTH_PASSWORD`）。用户明确后续需**多用户**（不同人不同账号）。暂不做，仅记录方案供落地：
+
+**目标**：体彩 Dashboard 支持多个注册用户独立登录、互不串号，且不引入额外 Nginx Basic Auth。
+
+**可选方案（由简到繁）**：
+
+1. **方案 A：内置用户表 + 账号密码登录（推荐）**
+   - 新建 `users` 表（schema 建议 `app`），存 `username`（unique）、`password_hash`（argon2id/bcrypt，绝不存明文）、`display_name`、`role`、`created_at`、`enabled`。
+   - 会话从"内存/DB 无状态会话"升级为 `session_token → user_id` 关联；`require_auth` 从校验 cookie 令牌升级为解析出 `user_id`。
+   - 登录页加"注册"入口（或由管理员预置账号）；登录/登出/改密路由改由 `users` 表驱动。
+   - 优点：改动可控、无额外部署依赖、天然支持禁用/角色。
+   - 改动点：`web/auth.py`、`web/session_store.py`、登录前端、新增 `users` 迁移 SQL。
+
+2. **方案 B：OAuth2 / 第三方登录**
+   - 接 GitHub/微信等 OIDC；用户跳转授权后回调。适合公开对外、不想自维护密码的场景，但需外部账号体系与 redirect_uri 配置，复杂度高于 A。
+
+3. **方案 C：多租户/业务隔离**（若未来体彩按商户各自运营）
+   - 在方案 A 之上加 `tenant_id` 维度，预测/跟单数据按租户隔离。工作量最大，建议仅当确有分店/独立运营需求时再做。
+
+**推荐落地顺序**：先方案 A（单用户表 + 强口令 + 角色），验证顺畅后再评估是否需要 B/C。详见 `docs/web/DASHBOARD_DEPLOY.md` 部署约定；本次仅记录规划，不做实现。
+
 部署与验证详情见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
 
 ## 运行与部署
