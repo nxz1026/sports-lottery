@@ -110,7 +110,7 @@ def daily_image(_: None = Depends(require_auth)) -> dict:
     只合并"已预测且队名可匹配"的场次；无预测的场次仅含 odd 层。
     """
     from store import jc_view
-    from web.services.team_match import build_rows
+    from web.services.team_match import build_rows, nba_rows
     from web.services import store as web_store
 
     fixture_rows = jc_view.fixtures_on(None)
@@ -120,8 +120,13 @@ def daily_image(_: None = Depends(require_auth)) -> dict:
         for lg, doc in latest.items()
     }
     rows = build_rows(fixture_rows, pred_by_league)
+    # NBA 表：从 latest['nba'] 产出行（足篮各自用可用列，不强求同列）
+    nba_predictions = (latest.get("nba") or {}).get("data", {}).get("predictions", [])
+    nba = nba_rows(nba_predictions)
     return {
-        "rows": rows,
+        "rows": rows,          # 足球表（保留键名，前端已用 d.rows）
+        "football": rows,      # 别名，等同 rows
+        "nba": nba,            # NBA 表
         "date": web_store.bjt_today().isoformat(),
         "match_note": ("仅展示有模型预判且队名可匹配的在售场次；"
                        "odd 层取官方 had 赔率最低项，算法层为模型方向/星级/波胆。"),
