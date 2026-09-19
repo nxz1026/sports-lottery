@@ -99,7 +99,7 @@ def algo_suggestion(pred: dict) -> dict:
     """从预测条目抽算法层关键信息。
 
     direction 是"主队 胜(接近)"或"客队 胜"；stars 如 "2-star"。
-    提取：主/客倾向 + 星级 + 波胆比分（predicted_score 如 "1-0"）。
+    提取：主/客倾向 + 星级 + 波胆比分 + 综合评分(0-100) + 比分top2 + 算法加权。
     """
     direction = str(pred.get("direction") or "")
     stars = str(pred.get("stars") or "")
@@ -116,12 +116,52 @@ def algo_suggestion(pred: dict) -> dict:
         side = "主胜"
     else:
         side = "客胜"
-    return {
+    out = {
         "pick": side,
         "stars": n_star,
         "score": str(pred.get("predicted_score") or ""),
         "direction": direction,
     }
+    # 综合评分：confidence_score(0~1) → 0~100，缺失则 None
+    conf = pred.get("confidence_score")
+    out["rating"] = round(conf * 100) if isinstance(conf, (int, float)) else None
+    # 比分 top2：poisson_top3 取前 2 个 score；缺失回退 predicted_score
+    top3 = pred.get("poisson_top3") or []
+    out["top2"] = [str(x.get("score") or "") for x in top3 if x.get("score")][:2]
+    # 算法加权：reasoning_factors 主/平/客真实概率，取最高项为加权倾向
+    rf = pred.get("reasoning_factors") or {}
+    h, d, a = (rf.get("home_ml_true_prob"), rf.get("draw_true_prob"),
+               rf.get("away_ml_true_prob"))
+    if all(isinstance(v, (int, float)) for v in (h, d, a)):
+        probs = [("主胜", float(h)), ("平", float(d)), ("客胜", float(a))]
+        out["weighted"] = max(probs, key=lambda x: x[1])[0]
+    return out
+
+
+def nba_rows(predictions: list[dict]) -> list[dict]:
+    """从 NBA 预测产出行（每日一图篮球表）。
+
+    每行：对阵、胜负倾向、让分推荐、大小分推荐、胜分差、波胆比分。
+    输入为 store.latest_by_league()["nba"]["data"]["predictions"]。
+    只展示有用玩法的场次；空列表返回 []。
+    """
+    rows = []
+    for p in predictions or []:
+        home = str(p.get("home") or "")
+        away = str(p.get("away") or "")
+        if not home or not away:
+            continue
+        rows.append({
+            "home": home,
+            "away": away,
+            "match": f"{home} vs {away}",
+            "direction": str(p.get("direction") or ""),
+            "spread_pred": p.get("spread_prediction"),
+            "total_pred": p.get("total_prediction"),
+            "margin": p.get("predicted_margin"),
+            "score": p.get("predicted_score"),
+        })
+    return rows
 
 
 # --- 主合并 --------------------------------------------------------------
@@ -163,6 +203,9 @@ def build_rows(fixture_rows: list[dict], pred_by_league: dict[str, list[dict]]) 
         plays = m["plays"]
         had = plays.get("had") or plays.get("hhad") or {}
         home, away = m["home_cn"], m["away_cn"]
+        # 让球线：hhad 玩法的 goal_line
+        hhad = plays.get("hhad") or {}
+        goal_line = str(hhad.get("goal_line") or "")
         # 匹配预测
         best = None
         for e, lg in pred_index:
@@ -176,7 +219,8 @@ def build_rows(fixture_rows: list[dict], pred_by_league: dict[str, list[dict]]) 
             "away_cn": away,
             "kickoff_bj": m.get("kickoff_bj"),
             "had": had,
-            "hhad": plays.get("hhad") or {},
+            "hhad": hhad,
+            "goal_line": goal_line,
             "matched": best is not None,
         }
         if best is not None:

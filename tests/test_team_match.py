@@ -103,3 +103,56 @@ def test_build_rows_matches_via_alias():
     assert rows and rows[0]["matched"] is True
     assert rows[0]["algo"]["pick"] == "客胜"
     assert rows[0]["algo"]["stars"] == 3
+
+
+def test_algo_rating_top2_weighted():
+    r = tm.algo_suggestion({
+        "direction": "佛罗伦萨 胜", "stars": "2-star",
+        "predicted_score": "1-0", "home": "佛罗伦萨",
+        "confidence_score": 0.486,
+        "poisson_top3": [
+            {"score": "1-0", "prob": 0.125}, {"score": "2-1", "prob": 0.086},
+            {"score": "0-1", "prob": 0.078}],
+        "reasoning_factors": {"home_ml_true_prob": 0.577, "draw_true_prob": 0.182,
+                              "away_ml_true_prob": 0.242},
+    })
+    assert r["rating"] == 49          # round(0.486*100)
+    assert r["top2"] == ["1-0", "2-1"]  # 取前2个比分
+    assert r["weighted"] == "主胜"      # 主胜0.577 最高
+
+
+def test_algo_rating_missing_fields():
+    r = tm.algo_suggestion({"direction": "A 平", "stars": "0-star",
+                            "predicted_score": "1-1", "home": "A"})
+    assert r["rating"] is None
+    assert r["top2"] == []
+    assert "weighted" not in r
+
+
+def test_build_rows_adds_goal_line():
+    fixtures = [
+        {"match_num": 7006, "league_cn": "意甲", "home_cn": "佛罗伦萨",
+         "away_cn": "那不勒斯", "kickoff_bj": "09-20 02:45",
+         "play_type": "hhad", "options": {"goal_line": "-1", "h": "4.0"}},
+        {"match_num": 7006, "league_cn": "意甲", "home_cn": "佛罗伦萨",
+         "away_cn": "那不勒斯", "kickoff_bj": "09-20 02:45",
+         "play_type": "had", "options": {"h": "3.02", "d": "3.20", "a": "2.06"}},
+    ]
+    rows = tm.build_rows(fixtures, {"seriea": []})
+    assert rows[0]["goal_line"] == "-1"
+
+
+def test_nba_rows_builds_table():
+    rows = tm.nba_rows([
+        {"home": "底特律活塞", "away": "波士顿凯尔特人",
+         "direction": "底特律活塞 胜", "spread_prediction": None,
+         "total_prediction": None, "predicted_margin": 3.1,
+         "predicted_score": "114-110"},
+        {"home": "", "away": "X"},  # 空队名应跳过
+    ])
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["match"] == "底特律活塞 vs 波士顿凯尔特人"
+    assert r["margin"] == 3.1
+    assert r["score"] == "114-110"
+    assert tm.nba_rows([]) == []
