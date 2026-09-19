@@ -15,6 +15,7 @@ web = [
     "pydantic>=2.7",
     "python-dotenv>=1.0",
     "loguru>=0.7",
+    "qrcode>=8.0",
 ]
 
 [tool.fastapi]

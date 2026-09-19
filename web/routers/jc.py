@@ -95,3 +95,64 @@ def lottery(per_type: str = "20", _: None = Depends(require_auth)) -> dict:
         raise HTTPException(status_code=400, detail="per_type must be 1..100")
     from store import jc_view
     return _envelope("lottery", jc_view.lottery_draws(n))
+
+
+@router.get("/daily-image")
+def daily_image(_: None = Depends(require_auth)) -> dict:
+    """每日一图数据：竞彩盘口在售场次 × 模型算法层预判（只读合并）。
+
+    数据源：
+      - 盘口在售场次/odd 层：from store import jc_view → fixtures_on()
+      - 算法层预判：store.latest_by_league() 各联赛最新 predictions
+    合并逻辑在 web.services.team_match.build_rows（纯函数，单测覆盖）。
+
+    返回 {"rows": [...], "date": "YYYY-MM-DD", "generated_at": ...}。
+    只合并"已预测且队名可匹配"的场次；无预测的场次仅含 odd 层。
+    """
+    from store import jc_view
+    from web.services.team_match import build_rows
+    from web.services import store as web_store
+
+    fixture_rows = jc_view.fixtures_on(None)
+    latest = web_store.latest_by_league()
+    pred_by_league = {
+        lg: (doc.get("data") or {}).get("predictions", [])
+        for lg, doc in latest.items()
+    }
+    rows = build_rows(fixture_rows, pred_by_league)
+    return {
+        "rows": rows,
+        "date": web_store.bjt_today().isoformat(),
+        "match_note": ("仅展示有模型预判且队名可匹配的在售场次；"
+                       "odd 层取官方 had 赔率最低项，算法层为模型方向/星级/波胆。"),
+    }
+
+
+@router.get("/qr")
+def daily_qr(url: str = "", _: None = Depends(require_auth)) -> dict:
+    """每日一图角落二维码：链接到本 Dashboard web 界面。
+
+    前端把自身 location.href 作为 url 查询参数传入（默认缺省则用固定入口）。
+    返回 SVG data URL（纯 python qrcode + SvgPathImage，无 pillow）。url 视为只读目标入码，
+    校验为 http(s) 上下文避免 javascript: 等注入。
+    """
+    import base64 as _b64
+    import io as _io
+    import urllib.parse as _up
+    import qrcode
+    import qrcode.image.svg
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://140.83.62.161/dashboard/jc/"
+    else:
+        url = _up.unquote(url)
+
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=6, border=1)
+    qr.add_data(url)
+    qr.make()
+    img = qr.make_image(image_factory=qrcode.image.svg.SvgPathImage)
+    buf = _io.BytesIO()
+    img.save(buf)
+    svg = buf.getvalue().decode("utf-8")
+    b64 = _b64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return {"qr_data_url": f"data:image/svg+xml;base64,{b64}", "url": url}
