@@ -134,16 +134,18 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   }
   // 表格头
   const cols=[
-    {k:"league",l:"联赛",w:170},{k:"no",l:"场次",w:90},{k:"team",l:"对阵",w:280},
-    {k:"handicap",l:"让球",w:70},{k:"pick",l:"推荐",w:120},{k:"score",l:"比分",w:170},
+    {k:"league",l:"联赛",w:150},{k:"no",l:"场次",w:62},{k:"team",l:"对阵",w:238},
+    {k:"handicap",l:"让球",w:56},{k:"pick",l:"推荐",w:92},{k:"score",l:"比分",w:112},{k:"haf",l:"半全场",w:190},
   ];
-  const labels=["联赛","场次","对阵","让球","推荐","比分"];
+  const labels=["联赛","场次","对阵","让球","推荐","比分","半全场"];
+  const hafCols=cols.reduce((a,c)=>a+c.w,0); // 校验不越界可用
   trHead(ctx,y,W,cols,labels); y+=ROW;
   rows.forEach(r=>{
     const algo=r.algo||{};
     const hdcap=(r.goal_line!=null&&r.goal_line!=="")?String(r.goal_line):"—";
-    const scoreTxt=(r.matched&&algo.top2&&algo.top2.length)?algo.top2.join(" / "):(r.matched&&algo.score?algo.score:"—");
-    trRow(ctx,y,W,cols,[r.league_cn||"",String(r.match_num||""),`${r.home_cn||""} vs ${r.away_cn||""}`,hdcap,recTxt(r),scoreTxt],r.matched);
+    const scoreTxt=(r.matched&&algo.top2&&algo.top2.length)?algo.top2.join("/"):(r.matched&&algo.score?algo.score:"—");
+    const hafPick=(r.haf_model&&r.haf_model.pick)?r.haf_model.pick:"—";
+    trRow(ctx,y,W,cols,[r.league_cn||"",String(r.match_num||""),`${r.home_cn||""}vs${r.away_cn||""}`,hdcap,recTxt(r),scoreTxt,hafPick],r.matched);
     y+=ROW;
   });
   // 底部红横幅（无 slogan，仅合规 + 二维码）
