@@ -324,6 +324,16 @@ def build_rows(fixture_rows: list[dict], pred_by_league: dict[str, list[dict]]) 
                 hh = poisson_hhad(best.get("lambda_home"), best.get("lambda_away"), goal_line)
                 if hh:
                     row["hhad_model"] = hh
+            # 半全场一等预测：官方 haf 的让球线（缺省用 hhad 线），λ 齐才算
+            haf_plays = (plays.get("haf") or {})
+            haf_line = str(haf_plays.get("goalLine")
+                           or haf_plays.get("goalLineValue")
+                           or haf_plays.get("goal_line")
+                           or (goal_line if goal_line != "" else "0"))
+            from web.services.haf import compute_haf as _compute_haf
+            hf = _compute_haf(best.get("lambda_home"), best.get("lambda_away"), haf_line)
+            if hf:
+                row["haf_model"] = hf
         row["odd"] = odd_suggestion(had)
         rows.append(row)
     return rows
