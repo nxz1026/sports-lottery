@@ -258,39 +258,83 @@ _NEWS_CACHE: dict = {}
 
 @router.get("/daily-news")
 def daily_news(sport: str = "football", _: None = Depends(require_auth)) -> dict:
-    """一条当前彩票种类相关的实时短讯（LLM 生成 + 按 (日期,sport) 缓存，不阻塞页面）。
+    """每日一图今日资讯（LLM 生成 + 按 (日期,sport) 缓存）。
 
-    短讯由 LLM 依据今日在售赛事/近期赛果合成一句 ≤60 字客观短讯；LLM 失败回退占位，
-    绝不编造赛果/收益。图上不嵌正文，由页面作为独立短讯条展示，避免打乱图片版式。
+    返回两条 LLM 生成文本（前端 Promise.race 300s 等，超时走占位）：
+      news        实时要闻（≤78 字 / 3 行，每行 ≤26 字，\\n 分隔）
+      pick_reason 今日精选推荐理由（≤60 字；精选为 0 条时为空字符串）
+    LLM 失败/超时/字段缺失 → news/pick_reason 回退占位，**绝不编造赛果/收益**。
     """
     from web.services import store as web_store
     today = web_store.bjt_today().isoformat()
     key = (today, sport)
     hit = _NEWS_CACHE.get(key)
-    if hit and hit.get("text"):
+    if hit and (hit.get("news") or hit.get("pick_reason")):
         return hit
     label = "竞彩篮球" if sport == "basketball" else "竞彩足球"
     context = _news_context(sport)
+    picks_ctx = _picks_context(sport, limit=2)
     prompt = (
-        "你是体彩资讯助手。基于下面『今日在售赛事』写一句关于" + label + "的今日看点短讯。"
-        "必须严格满足：①直接提到今天的实际球队或对阵（从上下文取，禁止泛化/编造）；"
-        "②一句话、≤38字、客观、无感叹号、不谈收益、不预测具体赛果；"
-        "③要能放进彩票图上一个固定宽度的一行横幅，太长会被截断，务必简洁。"
-        '只输出 JSON {"text":"..."}。\n今日在售赛事：\n' + context
+        "你是体彩资讯助手。基于下面『今日在售赛事』与『精选候选』，生成两条短文：\n"
+        "① news：今日资讯短讯。必须严格满足：每行 ≤26 字、共 3 行（用 \\n 分隔）、"
+        "总计 ≤78 字；直接提到今天的实际球队或对阵（从上下文取，禁止泛化/编造）；"
+        "客观、无感叹号、不谈收益、不预测具体赛果；不要太长（要能放进图上固定宽度 3 行横幅）。\n"
+        "② pick_reason：今日精选候选的推荐理由，一句话 ≤60 字。"
+        "如果精选候选为空 → 返回空字符串。客观陈述模型方向/信心，不预测具体赛果。\n"
+        "只输出严格 JSON：{\"news\":\"line1\\nline2\\nline3\",\"pick_reason\":\"...\"}\n\n"
+        f"今日在售赛事：\n{context}\n\n"
+        f"精选候选（前 2 条）：\n{picks_ctx}\n"
     )
-    text = ""
+    news = ""
+    pick_reason = ""
     try:
         from ai import llm_client
-        res = llm_client.generate(prompt)
-        text = str((res or {}).get("text") or "").strip()
+        res = llm_client.generate(prompt) or {}
+        news = str(res.get("news") or "").strip()
+        pick_reason = str(res.get("pick_reason") or "").strip()
     except Exception:
-        text = ""
-    if not text:
-        text = (f"{label}暂无在售赛事，数据同步中"
+        pass
+    if not news:
+        news = (f"{label}暂无在售赛事，数据同步中"
                 if sport == "basketball" else f"{label}今日有多场五大联赛在售，详情见下表")
-    out = {"sport": sport, "date": today, "text": text[:50]}
+    if not pick_reason:
+        pick_reason = ""
+    out = {"sport": sport, "date": today, "news": news[:78], "pick_reason": pick_reason[:60]}
     _NEWS_CACHE[key] = out
     return out
+
+
+def _picks_context(sport: str, limit: int = 2) -> str:
+    """精选候选的 LLM 上下文（场次号 + 对阵 + 官方让球线 + 模型方向）；无精选则空串。"""
+    if sport != "football":
+        return ""
+    try:
+        from web.services.team_match import build_rows as _br
+        from web.services import store as _ws
+        from store import jc_view as _jv
+        today = _ws.bjt_today()
+        fixture_rows = _jv.fixtures_on(today.isoformat()) or []
+        pred_by_league = {
+            lg: (doc.get("data") or {}).get("predictions", []) or []
+            for lg, doc in (_ws.latest_by_league() or {}).items()
+        }
+        rows = _br(fixture_rows, pred_by_league)
+        rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
+        matched = [r for r in rows if r.get("matched") and r.get("algo")]
+        matched.sort(key=lambda r: -(r.get("algo", {}).get("stars") or 0))
+        picks = matched[:limit]
+        if not picks:
+            return ""
+        out = []
+        for p in picks:
+            algo = p.get("algo") or {}
+            out.append(
+                f"{p.get('match_num')} {p.get('home_cn') or '?'} vs {p.get('away_cn') or '?'}"
+                f"（让球 {p.get('goal_line') or '—'}）→ 模型方向 {algo.get('direction') or '?'}"
+            )
+        return "\n".join(out)
+    except Exception:
+        return ""
 
 
 def _news_context(sport: str) -> str:
