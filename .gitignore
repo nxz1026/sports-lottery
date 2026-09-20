@@ -65,3 +65,7 @@ deploy/
 # 篮球引擎运行时产物（种子文件保持追踪）
 data/nba_elo.json
 scripts/bball_data/
+
+# 运行期中间件（predict/backtest 产物；历史训练样本已并入 references/historical_past_matches.json）
+scripts/predictions/*.json
+scripts/results/*.json

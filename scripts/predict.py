@@ -660,6 +660,58 @@ def _refresh_ml_models(league_key=None, max_age_days: float = 1.0, base_dir=None
     return out
 
 
+def _cleanup_intermediate(days: int = 7) -> dict:
+    """方案甲：删除运行期中间件（>days 天），保留训练所需数据。
+
+    中间件＝运行期 json：scripts/predictions/*.json、scripts/results/*.json、
+    scripts/references/ 下除训练必需外的 json（含 .calibration_state*）。
+    始终保留（训练/参照必需，>days 天也不删）：references/historical_past_matches.json、
+    references/ml_model_*.json、references/team_translations.json。
+    返回 {predictions,results,references} 各自删除数。
+    """
+    from pathlib import Path
+    import os
+    import time as _t
+    from core.config import FOOTBALL_DIR
+    cutoff = _t.time() - days * 86400
+    base = Path(FOOTBALL_DIR)
+    removed = {"predictions": 0, "results": 0, "references": 0}
+
+    def _prot_references(name: str) -> bool:
+        return (name == "historical_past_matches.json"
+                or name.startswith("ml_model_")
+                or name == "team_translations.json")
+
+    for sub in ("predictions", "results"):
+        d = base / sub
+        if not d.is_dir():
+            continue
+        for f in d.iterdir():
+            try:
+                if f.is_file() and f.suffix == ".json" and f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    removed[sub] += 1
+                    logger.info(f"清理中间件 {sub}/{f.name}")
+            except OSError:
+                continue
+    rd = base / "references"
+    if rd.is_dir():
+        for f in rd.iterdir():
+            try:
+                if (f.is_file() and f.suffix == ".json"
+                        and not _prot_references(f.name)
+                        and f.stat().st_mtime < cutoff):
+                    f.unlink()
+                    removed["references"] += 1
+                    logger.info(f"清理中间件 references/{f.name}")
+            except OSError:
+                continue
+    total = sum(removed.values())
+    if total:
+        logger.info(f"中间件清理完成：删除 {total} 个 >{days} 天文件 {removed}")
+    return removed
+
+
 def main() -> None:
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -708,6 +760,13 @@ def main() -> None:
             _refresh_ml_models(args.league)
         except Exception as _e:
             logger.warning(f"ML refresh failed for {args.league}: {_e}")
+
+    # 运行期中间件清理（方案甲）：保留训练所需数据；--backtest 跳过（不删回测基线输入）。
+    if not getattr(args, "backtest", False):
+        try:
+            _cleanup_intermediate(days=7)
+        except Exception as _e:
+            logger.warning(f"中间件清理失败: {_e}")
 
 
 if __name__ == "__main__":
