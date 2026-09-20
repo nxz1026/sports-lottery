@@ -75,7 +75,9 @@ def test_bad_instruction_rejected_by_savepoint_good_rows_survive(conn, monkeypat
 
     monkeypatch.setattr(jc_issue_write, "upsert_issue_instruction", f)
     ret = _run(cur, topic)
-    assert ret["ups"] == ret["lines"] - 1  # 坏的是第一条 ⇒ 好指令条数 = 总行数 - 1
+    # P0-COLLECT2 续：jc_issue 一行 envelope ⇒ parent + N children，每条独立 savepoint；首条坏 ⇒ 总成功数
+    # = 所有 envelope 展开后调用 writer 的总次数 - 1；ops.ingest_log.rejected 按 envelope line 1 记一条。
+    assert ret["ups"] == calls["n"] - 1
     rej, ups, ok = cur.execute(
         "select rejected, rows_ups, ok from ops.ingest_log where topic=%s and src_file=%s "
         "order by id desc limit 1", [topic, f"{topic}/{FILES[topic].name}"]).fetchone()

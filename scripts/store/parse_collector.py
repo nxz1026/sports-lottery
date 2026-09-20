@@ -68,11 +68,30 @@ PARSERS: dict[str, Any] = {"jczq_offer": parse_jczq_offer, "jczq_result": parse_
 
 
 def parse_line(env: dict) -> dict | None:
-    """外壳行 → 规范行：kind="error" 返回 None（错误行只留 stg）；未知 topic / 结构坏一律 raise。"""
+    """外壳行 → 规范行：kind="error" 返回 None（错误行只留 stg）；未知 topic / 结构坏一律 raise。
+    P0-COLLECT2：jc_issue / jc_issue_result 返回 list[dict]（parent+children）⇒ 仅取 parent（向下兼容）；
+    children 改由 parse_lines_all(env) → list[dict|None] 一并返回。"""
     if env.get("kind") == "error":
         return None
     topic = env.get("topic")
     if topic not in PARSERS:
         raise ValueError(f"未知 topic {topic!r}")
     parse = PARSERS[topic]
-    return parse(env["payload"], env.get("snap_ts")) if topic == "jczq_offer" else parse(env["payload"])
+    parsed = parse(env["payload"], env.get("snap_ts")) if topic == "jczq_offer" else parse(env["payload"])
+    if isinstance(parsed, list):
+        return parsed[0] if parsed else None
+    return parsed
+
+
+def parse_lines_all(env: dict) -> list[dict | None]:
+    """外壳行 → 全部规范行（parent + children），jc_issue/jc_issue_result 返回多行；其它单行 ⇒ [单]。"""
+    if env.get("kind") == "error":
+        return [None]
+    topic = env.get("topic")
+    if topic not in PARSERS:
+        raise ValueError(f"未知 topic {topic!r}")
+    parse = PARSERS[topic]
+    parsed = parse(env["payload"], env.get("snap_ts")) if topic == "jczq_offer" else parse(env["payload"])
+    if isinstance(parsed, list):
+        return parsed or [None]
+    return [parsed]

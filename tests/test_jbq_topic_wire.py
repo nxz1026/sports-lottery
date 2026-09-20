@@ -21,8 +21,9 @@ class FakeCur:
 def wire(monkeypatch):
     calls, cur = {}, FakeCur()
     monkeypatch.setattr(jc_topic, "read_lines", lambda p: list(calls["lines"]))
-    monkeypatch.setattr(jc_topic, "parse_line",
-                        lambda env: calls["parse"].pop(0) if calls["parse"] else None)
+    # P0-COLLECT2 续：_load_saved 改用 parse_lines_all 拉平；legacy parse_line 仍保留供旧测试用。
+    monkeypatch.setattr(jc_topic, "parse_lines_all",
+                        lambda env: [calls["parse"].pop(0)] if calls["parse"] else [None])
     monkeypatch.setattr(jc_topic.jbq_result_write, "upsert_jbq_result_instruction",
                         lambda c, ins, h, f: calls.setdefault("writer", []).append((ins, h, f)) or 1)
     calls["mp"] = monkeypatch
@@ -58,7 +59,7 @@ def test_valueerror_rollback_and_reject(wire):
     result = _run(cur, calls, "jclq_result", [{"src_hash": "h1"}, {"src_hash": "h2"}], [ins, ins])
     assert cur.sql[:4] == [("savepoint jbq", None), ("rollback to savepoint jbq", None),
                            ("savepoint jbq", None), ("release savepoint jbq", None)]
-    assert cur.sql[-1][1][4].obj == [{"line": 1, "reason": "未知写指令目标表"}]
+    assert cur.sql[-1][1][4].obj == [{"line": 1, "reason": "fact.no:未知写指令目标表"}]
     assert cur.sql[-1][1][5] is False
     assert result["ups"] == 1
 
