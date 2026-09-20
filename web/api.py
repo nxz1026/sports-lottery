@@ -29,6 +29,7 @@ from web.routers.predictions import router as predictions_router
 from web.routers.sources import router as sources_router
 from web.routers.combo import router as combo_router
 from web.routers.haf import router as haf_router
+from web.routers.lottery_api import router as lottery_api_router
 from web.lifecycle import lifespan
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
         app.include_router(ai_router)
     app.include_router(combo_router)
     app.include_router(haf_router)
+    app.include_router(lottery_api_router)
     return app
 
 
