@@ -124,7 +124,7 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 ### 采集端代码与数据对齐文档（索引）
 
 竞彩官方数据链路分两层，代码均在仓库内：
-- **取数（国内采集机）**：`collector.py`（根目录）——只做取官方 JSON → 落 JSONL → 打包推送；契约 v1.3，仅 stdlib，不连 DB。子命令：`--probe` / `--collect <topic>` / `--collect-all` / `--push`。
+- **取数（国内采集机）**：`collector-cn/collector.py`（子目录，契约 v1.3，仅 stdlib，不连 DB）——取官方 JSON → 落 JSONL → tar 流式推 oracle（league key-only）。子命令：`--probe` / `--collect <topic>` / `--collect-all` / `--push-batch <topic>...`。
 - **入库（本机 oracle，NDORACLE）**：`scripts/ingest/`——`collector_pull.py`（拉包）、`jc_load.py` / `jc_write.py` / `jc_read.py` / `jc_topic.py`（表读写）、`jc_odds_write.py` / `jc_issue_write.py` / `jbq_result_write.py`（玩法/期次/结果写）、`jc_manifest.py`、`run_backfill.py`、`quota.py`；解析层 `scripts/store/parse_collector.py` + `parse_jczq.py`。
 
 数据对齐/契约文档在 `docs/project/`：
@@ -711,12 +711,12 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 
 ## 国内采集机（cn-collector，v1.3 契约）
 
-本仓库 `collector-cn/` 子目录是 `collector-cn` 分支的全量内容（v1.3 契约采集机）。
+本仓库 `collector-cn/` 子目录是国内采集机（cn-collector）的代码根（v1.3 契约，独立工具：取官方 JSON → 落 JSONL → 推远端，仅 stdlib，不连 DB）。
 完整说明见 `collector-cn/README.md`（运行环境、计划任务、远端通道、节奏、契约、红线）。
 
-- 代码根 = 本仓库根目录（`collector.py` 等），Windows 机器 `ND-PC-WIN` 直接 checkout 本分支
-- 计划任务 5 个：`collector_offer_10m`（2026-09-17 起**每 1 小时**，原 10 分钟）+ 4 个 daily 档（0930/1530/2130/2330，8 topic 含 `jc_odds_history`）
-- 落港：`ssh oracle`（`ubuntu@140.83.62.161`）→ `/srv/league-staging/incoming/cn-collector/`（topic 子目录 + `.done` 清单）
+- 代码根 = `collector-cn/` 子目录；Windows 机器 `ND-PC-WIN` 本地运行副本 = `E:\2026Workplace\Code\collector-cn`（与本子目录同内容，git 跟踪在本仓库）
+- 计划任务 5 个：`collector_offer_10m`（2026-09-17 起 10 分钟→1h，2026-09-21 再降为**每 2 小时**）+ 4 个 daily 档（0930/1530/2130/2330，8 topic 含 `jc_odds_history`）；全部 BootTrigger+LogonTrigger+漏档补跑
+- 推送：`ssh oracle-league`（`league@140.83.62.161`，专用 keypair，受限 shell tar 流式白名单）→ `/srv/league-staging/incoming/cn-collector/`（topic 子目录 + `.done` 清单，属主 league:league）；`ssh oracle`（ubuntu）仅运维
 - `.done` 行格式：`topic/<file>.jsonl\t<rowcount>\t<sha256>`（相对路径必带 `topic/` 前缀）
 - 契约版本：v1.3（2026-09-16 升级：`topic/` 前缀修复 + `jc_odds_history` topic + 8-topic daily 批）
 - 服务端篮彩赛果链路已接通（2026-09-17）：`jclq_result` → `parse_jclq_result` → `fact.jbq_result`；`jclq_offer` 仍因契约未冻结而保持不解析。

@@ -1,13 +1,3 @@
-# 数据产物（不入库）——collector-cn
-out/
-out.tar.gz
-probe/raw/
-probe/probe_results.json
-probe/probe_pack.tar.gz
-probe/probe_*.tar.gz
-collector.status.json
-logs/
-
 # Python
 __pycache__/
 *.pyc
@@ -72,3 +62,6 @@ scripts/results/*.json
 
 # AI 分析产物（ai_analyze 异步 job 输出）
 predictions/ai_analysis/
+
+# collector runtime lock
+.collector.lock

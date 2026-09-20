@@ -1,0 +1,11 @@
+# 国内采集机数据产物（不入库）
+out/
+out.tar.gz
+logs/
+probe/raw/
+probe/probe_results.json
+probe/probe_pack.tar.gz
+probe/probe_*.tar.gz
+collector.status.json
+.collector.lock
+__pycache__/
