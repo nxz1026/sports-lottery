@@ -146,6 +146,14 @@ def combo_eval(request: Request,
         raise HTTPException(status_code=400, detail="legs 最多 32 条")
 
     joint_prob = payload.get("joint_prob")
+    if joint_prob is not None:
+        try:
+            jp = float(joint_prob)
+            if jp < 0.0 or jp > 1.0:
+                raise HTTPException(status_code=400, detail="joint_prob 必须在 [0, 1]")
+            joint_prob = jp
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="joint_prob 必须是数字")
     try:
         stake = float(payload.get("stake", 2.0))
     except (TypeError, ValueError):
