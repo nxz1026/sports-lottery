@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>竞彩智荐 · 每日一图</title>
+<style>
+  body{margin:0;font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#eef2ee;color:#1c1c1c}
+  .bar{display:flex;align-items:center;gap:12px;padding:12px 18px;background:#c62828;color:#fff;position:sticky;top:0;z-index:5;flex-wrap:wrap}
+  .bar h1{font-size:18px;margin:0;font-weight:700}
+  .bar .grow{flex:1}
+  .btn{background:#fff;color:#c62828;border:0;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;font-size:14px}
+  .btn.ghost{background:transparent;color:#fff;border:1px solid #fff}
+  .btn.on{background:#ffe082;color:#c62828}
+  #wrap{padding:12px 18px 40px;overflow:auto}
+  canvas{display:block;margin:0 auto;background:#dcebe0;box-shadow:0 2px 12px rgba(0,0,0,.25);border-radius:4px}
+  .empty{max-width:640px;margin:60px auto;text-align:center;background:#fff;padding:48px 36px;border-radius:10px;box-shadow:0 3px 14px rgba(0,0,0,.12)}
+  .empty h2{color:#c62828;margin:0 0 12px}
+  .empty p{color:#666;font-size:15px;line-height:1.7}
+  .footnote{text-align:center;color:#999;font-size:12px;padding:6px 0 26px}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>竞彩智荐 · 每日一图</h1>
+  <span id="sub" style="font-size:13px;opacity:.9">加载中…</span>
+  <div class="grow"></div>
+  <button class="btn" data-sport="football">⚽ 足球</button>
+  <button class="btn" data-sport="basketball">🏀 篮球</button>
+  <button class="btn ghost" id="download">⬇ 下载 PNG</button>
+  <button class="btn ghost" onclick="window.close()">关闭</button>
+</div>
+<div id="wrap">
+  <div id="canvasHost"></div>
+</div>
+<div class="footnote">由统计模型自动生成 · 仅供信息参考 · 不构成投注建议 · 18 周岁以下禁止购彩</div>
+
+<script>
+"use strict";
+/* ===== 数据获取（复用 lp_session cookie，同源）=====
+ * 应用在公网 Nginx 挂 /dashboard/jc/ 前缀，本机 8077 是根路径：从前缀推导 API 基址。 */
+const _idx=location.pathname.indexOf("/static/");
+const _PREFIX=location.pathname.slice(0,_idx<0?0:_idx);   // "" 或 "/dashboard/jc"
+const API_BASE=_PREFIX+"/api/jc/";
+async function api(path){
+  const r=await fetch(API_BASE+path,{credentials:"same-origin"});
+  if(r.status===401){ location.href=(_PREFIX||"")+"/login"; throw new Error("未登录"); }
+  if(!r.ok){ const e=await r.json().catch(()=>({message:r.statusText})); throw new Error(e.message||"请求失败"); }
+  return r.json();
+}
+/* ===== 命中率渲染辅助 ===== */
+function hitTxt(st){ const h=(st&&st.hit)||{}; return h.available?("命中 "+h.hit+"/"+h.n):(h.note||"数据积累中"); }
+/* 截断进图要闻：固定一行宽度，超长截断不撑破排版 */
+function fitNews(t){ t=String(t||"今日暂无要闻").replace(/\s+/g," ").trim(); return t.length<=48?t:t.slice(0,48)+"…"; }
+function recTxt(r){
+  // 一等让球预测优先（模型在官方让球线上的让球三向：让胜/让平/让负）
+  if(r.hhad_model&&r.hhad_model.pick) return r.hhad_model.pick;
+  const algo=r.algo||{}, odd=r.odd||{};
+  const side=(r.matched&&algo.pick)?algo.pick:(odd.pick||"");
+  if(!side) return "—";
+  const s=({主胜:"胜",客胜:"负",平:"平"}[side])||side;
+  const hasLine=r.goal_line!=null&&r.goal_line!==""&&r.goal_line!=="0";
+  return hasLine?("让"+s):s;
+}
+function leagueColor(lg){
+  const s=String(lg||"");
+  if(s.indexOf("英超")>=0||s.indexOf("英格兰超级")>=0)return "#7b1fa2";
+  if(s.indexOf("西甲")>=0||s.indexOf("西班牙甲级")>=0)return "#e65100";
+  if(s.indexOf("德甲")>=0||s.indexOf("德国甲级")>=0)return "#c62828";
+  if(s.indexOf("意甲")>=0||s.indexOf("意大利甲级")>=0)return "#2e7d32";
+  if(s.indexOf("法甲")>=0||s.indexOf("法国甲级")>=0)return "#1565c0";
+  return "#757575";
+}
+function starsTxt(n){return "★".repeat(n>0?Math.min(n,5):0)||"—"}
+function loadSvg(url){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=url})}
+
+/* ===== 足球每日一图 ===== */
+async function drawFootball(rows,date,qr,qrurl,stats,news){
+  const canvas=document.createElement("canvas");
+  canvas.id="dailyCanvas"; const ctx=canvas.getContext("2d");
+  const W=900, HEAD=150, NB=38, ROW=44, FOOT=150;
+  canvas.width=W;
+  const matched=rows.filter(r=>r.matched);
+  // 高度：头部 + 实时要闻条 + 精选横条 + 表格 + 页脚
+  canvas.height=HEAD+NB+30+ROW*rows.length+FOOT;
+  const g=ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0,"#3f9d63"); g.addColorStop(0.35,"#7cc48a"); g.addColorStop(1,"#3f9d63");
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,canvas.height);
+  // 顶部红色横幅 + 命中率行
+  ctx.fillStyle="#c62828"; ctx.globalAlpha=.94;
+  ctx.roundRect(0,0,W,HEAD,0); ctx.fill(); ctx.globalAlpha=1;
+  ctx.fillStyle="#fff"; ctx.textAlign="center";
+  ctx.font="bold 40px 'PingFang SC','Microsoft YaHei',sans-serif";
+  ctx.fillText("竞彩智荐 · 每日赛事分析", W/2, 44);
+  ctx.font="17px 'PingFang SC'"; ctx.fillStyle="#ffe082";
+  ctx.fillText(`五大联赛在售 ${stats.on_sale||0} · 可推荐 ${stats.recommend||0} · 命中率：${hitTxt(stats)}`, W/2, 72);
+  ctx.font="14px 'PingFang SC'"; ctx.fillStyle="#fff";
+  ctx.fillText(`${date} · 模型多维度预测 · 不构成投注建议`, W/2, 100);
+  ctx.font="13px 'PingFang SC'"; ctx.fillStyle="#fff";
+  ctx.fillText("范围：NBA + 五大联赛 · 非五大联赛场次不纳入每日推荐", W/2, 124);
+  let y=HEAD;
+  // 实时要闻条（固定高度进图，文案截断保证不撑破排版）
+  ctx.fillStyle="#fff4d6"; ctx.fillRect(0,y,W,NB);
+  ctx.fillStyle="#c62828"; ctx.font="bold 14px 'PingFang SC','Microsoft YaHei'";
+  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+NB-13);
+  ctx.fillStyle="#6b5412"; ctx.font="14px 'PingFang SC'";
+  ctx.fillText(fitNews(news), 152, y+NB-13);
+  y+=NB;
+  // 精选横条（顶部强调推荐）
+  const picks=rows.filter(r=>r.matched&&r.algo).sort((a,b)=>(b.algo.stars||0)-(a.algo.stars||0));
+  ctx.fillStyle="#fff"; ctx.strokeStyle="#c62828";
+  ctx.fillRect(0,y-10,W,30); ctx.strokeRect(0,y-10,W,30);
+  ctx.fillStyle="#c62828"; ctx.font="bold 15px 'PingFang SC','Microsoft YaHei'";
+  ctx.fillText("◆ 今日精选", 16, y+10);
+  ctx.fillStyle="#1c1c1c"; ctx.font="14px 'PingFang SC'";
+  const parts=picks.slice(0,5).map(p=>`${p.match_num} ${(p.home_cn||"").slice(0,8)} vs ${(p.away_cn||"").slice(0,8)} → ${recTxt(p)}`);
+  ctx.fillText(parts.length?parts.join("　"):"暂无精选（模型预判积累中）", 118, y+10);
+  y+=26;
+  // 表格头
+  const cols=[
+    {k:"league",l:"联赛",w:170},{k:"no",l:"场次",w:90},{k:"team",l:"对阵",w:280},
+    {k:"handicap",l:"让球",w:70},{k:"pick",l:"推荐",w:120},{k:"score",l:"比分",w:170},
+  ];
+  const labels=["联赛","场次","对阵","让球","推荐","比分"];
+  trHead(ctx,y,W,cols,labels); y+=ROW;
+  rows.forEach(r=>{
+    const algo=r.algo||{};
+    const hdcap=(r.goal_line!=null&&r.goal_line!=="")?String(r.goal_line):"—";
+    const scoreTxt=(r.matched&&algo.top2&&algo.top2.length)?algo.top2.join(" / "):(r.matched&&algo.score?algo.score:"—");
+    trRow(ctx,y,W,cols,[r.league_cn||"",String(r.match_num||""),`${r.home_cn||""} vs ${r.away_cn||""}`,hdcap,recTxt(r),scoreTxt],r.matched);
+    y+=ROW;
+  });
+  // 底部红横幅（无 slogan，仅合规 + 二维码）
+  ctx.fillStyle="#c62828"; ctx.globalAlpha=.94;
+  ctx.fillRect(0,canvas.height-FOOT,W,FOOT); ctx.globalAlpha=1;
+  ctx.fillStyle="#fff"; ctx.textAlign="left"; ctx.font="bold 20px 'PingFang SC','Microsoft YaHei'";
+  ctx.fillText("长按识别二维码，查看完整分析", 30, canvas.height-FOOT+34);
+  ctx.font="14px 'PingFang SC'"; ctx.fillStyle="#ffe082";
+  ctx.fillText(qrurl||"", 30, canvas.height-FOOT+58);
+  ctx.textAlign="right"; ctx.fillStyle="#fff"; ctx.font="bold 16px 'PingFang SC'";
+  ctx.fillText("理性购彩 · 量力而行", W-30, canvas.height-FOOT+34);
+  if(qr){ try{ const im=await loadSvg(qr); const qs=80, qx=W-qs-30, qy=canvas.height-FOOT+60; ctx.drawImage(im,qx,qy,qs,qs);}catch(e){} }
+  return canvas;
+}
+/* ===== NBA 每日一图 ===== */
+async function drawNba(rows,date,qr,qrurl,stats,news){
+  const canvas=document.createElement("canvas");
+  canvas.id="dailyCanvas"; const ctx=canvas.getContext("2d");
+  const W=900, HEAD=120, NB=38, ROW=44, FOOT=150;
+  canvas.width=W; canvas.height=HEAD+NB+ROW*rows.length+FOOT;
+  const g=ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0,"#3f9d63"); g.addColorStop(0.35,"#7cc48a"); g.addColorStop(1,"#3f9d63");
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,canvas.height);
+  ctx.fillStyle="#1b5e20"; ctx.globalAlpha=.94;
+  ctx.roundRect(0,0,W,HEAD,0); ctx.fill(); ctx.globalAlpha=1;
+  ctx.fillStyle="#fff"; ctx.textAlign="center";
+  ctx.font="bold 40px 'PingFang SC','Microsoft YaHei',sans-serif";
+  ctx.fillText("竞彩智荐 · NBA 篮球每日分析", W/2, 46);
+  ctx.font="17px 'PingFang SC'"; ctx.fillStyle="#cddc39";
+  ctx.fillText(`${date} · 赛事 ${stats.on_sale||0} 场 · 命中率：${hitTxt(stats)}`, W/2, 78);
+  ctx.font="14px 'PingFang SC'"; ctx.fillStyle="#fff";
+  ctx.fillText("让分/大小分为模型预测，仅供信息参考 · 不构成投注建议", W/2, 104);
+  let y=HEAD;
+  // 实时要闻条（固定高度进图，文案截断保证不撑破排版）
+  ctx.fillStyle="#fff8e1"; ctx.fillRect(0,y,W,NB);
+  ctx.fillStyle="#1b5e20"; ctx.font="bold 14px 'PingFang SC','Microsoft YaHei'";
+  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+NB-13);
+  ctx.fillStyle="#6b5412"; ctx.font="14px 'PingFang SC'";
+  ctx.fillText(fitNews(news), 152, y+NB-13);
+  y+=NB;
+  const cols=[
+    {k:"no",l:"编号",w:70},{k:"team",l:"对阵",w:300},{k:"spread",l:"让分预测",w:130},
+    {k:"total",l:"大小分预测",w:150},{k:"margin",l:"胜分差",w:140},{k:"pick",l:"推荐",w:110},
+  ];
+  trHead(ctx,y,W,cols,["编号","对阵","让分预测","大小分预测","胜分差","推荐"]); y+=ROW;
+  rows.forEach((r,i)=>{
+    const sp=r.spread_pred!=null?`${r.spread_pred>=0?"主让":"客"}${Math.abs(r.spread_pred)}`:"—";
+    const tl=r.total_pred!=null?String(r.total_pred):"—";
+    const mg=r.margin!=null?(r.margin>=0?`主胜${r.margin}`:`客胜${Math.abs(r.margin)}`):"—";
+    trNbaRow(ctx,y,W,cols,[String(i+1),`${r.home||""} vs ${r.away||""}`,sp,tl,mg,r.direction||"—"]);
+    y+=ROW;
+  });
+  ctx.fillStyle="#1b5e20"; ctx.globalAlpha=.94;
+  ctx.fillRect(0,canvas.height-FOOT,W,FOOT); ctx.globalAlpha=1;
+  ctx.fillStyle="#fff"; ctx.textAlign="left"; ctx.font="bold 20px 'PingFang SC','Microsoft YaHei'";
+  ctx.fillText("长按识别二维码，查看完整分析", 30, canvas.height-FOOT+34);
+  ctx.font="14px 'PingFang SC'"; ctx.fillStyle="#cddc39";
+  ctx.fillText(qrurl||"", 30, canvas.height-FOOT+58);
+  ctx.textAlign="right"; ctx.fillStyle="#fff"; ctx.font="bold 16px 'PingFang SC'";
+  ctx.fillText("理性购彩 · 量力而行", W-30, canvas.height-FOOT+34);
+  if(qr){ try{ const im=await loadSvg(qr); const qs=80, qx=W-qs-30, qy=canvas.height-FOOT+60; ctx.drawImage(im,qx,qy,qs,qs);}catch(e){} }
+  return canvas;
+}
+function trHead(ctx,y,W,cols,labels){
+  ctx.fillStyle="#c62828"; ctx.fillRect(0,y,W,44);
+  ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.font="bold 15px 'PingFang SC','Microsoft YaHei'";
+  let cx=0; cols.forEach((c,i)=>{ ctx.fillText(labels[i],cx+c.w/2,y+29); cx+=c.w; });
+}
+function trRow(ctx,y,W,cols,cells,matched){
+  ctx.fillStyle=matched?"#ffffff":"#eef4ee"; ctx.fillRect(0,y,W,44);
+  let cx=0; ctx.textAlign="center";
+  cols.forEach((c,i)=>{
+    if(c.k==="league"){
+      ctx.fillStyle=leagueColor(cells[i]); ctx.fillRect(cx,y,c.w,44);
+      ctx.fillStyle="#fff"; ctx.font="bold 15px 'PingFang SC'"; ctx.fillText(cells[i],cx+c.w/2,y+29); ctx.font="15px 'PingFang SC'";
+    } else if(c.k==="team"){
+      ctx.textAlign="left"; ctx.fillStyle="#1c1c1c"; ctx.font="15px 'PingFang SC'";
+      ctx.fillText(cells[i],cx+8,y+29); ctx.textAlign="center";
+    } else if(c.k==="pick"){
+      ctx.fillStyle=matched?"#c62828":"#999"; ctx.font=matched?"bold 16px 'PingFang SC'":"15px 'PingFang SC'";
+      ctx.fillText(cells[i],cx+c.w/2,y+29); ctx.font="15px 'PingFang SC'";
+    } else if(c.k==="score"){
+      ctx.fillStyle=matched?"#1c1c1c":"#999"; ctx.font="14px 'PingFang SC'"; ctx.fillText(cells[i],cx+c.w/2,y+29);
+    } else {
+      ctx.fillStyle=matched?"#1c1c1c":"#999"; ctx.fillText(cells[i],cx+c.w/2,y+29);
+    }
+    ctx.strokeStyle="#1a5c2a33"; ctx.strokeRect(cx,y,c.w,44); cx+=c.w;
+  });
+}
+function trNbaRow(ctx,y,W,cols,cells){
+  ctx.fillStyle="#e8f5e9"; ctx.fillRect(0,y,W,44);
+  let cx=0; ctx.textAlign="center";
+  cols.forEach((c,i)=>{
+    if(c.k==="team"){ ctx.textAlign="left"; ctx.fillStyle="#1b5e20"; ctx.font="15px 'PingFang SC'"; ctx.fillText(cells[i],cx+14,y+29); ctx.textAlign="center"; }
+    else if(c.k==="pick"){ ctx.fillStyle="#1b5e20"; ctx.font="bold 15px 'PingFang SC'"; ctx.fillText(cells[i],cx+c.w/2,y+29); ctx.font="15px 'PingFang SC'"; }
+    else { ctx.fillStyle="#1c1c1c"; ctx.fillText(cells[i],cx+c.w/2,y+29); }
+    ctx.strokeStyle="#1a5c2a33"; ctx.strokeRect(cx,y,c.w,44); cx+=c.w;
+  });
+}
+/* ===== 主流程 ===== */
+let SPORT = new URLSearchParams(location.search).get("sport")||"football";
+let CURDATE = "";
+let CANVAS=null;
+function setSport(s){ SPORT=s; Array.from(document.querySelectorAll('[data-sport]')).forEach(b=>b.classList.toggle("on",b.dataset.sport===s)); load(); }
+async function load(){
+  const host=document.getElementById("canvasHost");
+  document.getElementById("sub").textContent="加载中…";
+  host.innerHTML="";
+  try{
+    // 实时要闻先进图：与图片数据并行取，取不到用占位（不阻塞出图）
+    const [d,newsRes] = await Promise.all([
+      api("daily-image?sport="+encodeURIComponent(SPORT)),
+      api("daily-news?sport="+encodeURIComponent(SPORT)).catch(()=>({text:""}))
+    ]);
+    const news=newsRes.text||"今日暂无要闻";
+    CURDATE=d.date||"";
+    document.getElementById("sub").textContent=`${d.date || ""} · ${d.sport==="basketball"?"NBA 篮球":"竞彩足球"}`;
+    if(!d.available){ host.innerHTML='<div class="empty"><h2>还没有今天的图</h2><p>'+(d.note||"暂无在售赛事")+'</p></div>'; document.getElementById("download").style.display="none"; return; }
+    const q=await api("qr?url="+encodeURIComponent(location.href)).catch(()=>({}));
+    CANVAS = SPORT==="basketball" ? await drawNba(d.rows||[],d.date,q.qr_data_url||"",q.url||"",d.stats||{},news)
+                                  : await drawFootball(d.rows||[],d.date,q.qr_data_url||"",q.url||"",d.stats||{},news);
+    host.appendChild(CANVAS);
+    document.getElementById("download").style.display="";
+  }catch(e){
+    host.innerHTML='<div class="empty"><h2>生成失败</h2><p>'+(e.message||"请稍后重试")+'</p></div>';
+  }
+}
+document.getElementById("download").addEventListener("click",()=>{
+  if(!CANVAS) return;
+  const a=document.createElement("a");
+  a.download=`竞彩智荐_每日一图_${SPORT}_${CURDATE||new Date().toISOString().slice(0,10)}.png`;
+  a.href=CANVAS.toDataURL("image/png"); a.click();
+});
+document.querySelectorAll('[data-sport]').forEach(b=>b.addEventListener("click",()=>setSport(b.dataset.sport)));
+setSport(SPORT);
+</script>
+</body>
+</html>

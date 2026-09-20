@@ -60,7 +60,7 @@ def test_build_rows_combines_fixture_and_prediction():
          "play_type": "had", "options": {"h": "3.02", "d": "3.20", "a": "2.06"}},
         {"match_num": 7006, "league_cn": "意甲", "home_cn": "佛罗伦萨",
          "away_cn": "那不勒斯", "kickoff_bj": "09-20 02:45",
-         "play_type": "hhad", "options": {"goal_line": "-1", "h": "4.0", "d": "3.2", "a": "1.8"}},
+         "play_type": "hhad", "options": {"goalLine": "-1", "goalLineValue": "-1.00", "h": "4.0", "d": "3.2", "a": "1.8"}},
         # 无预测的一场比赛（如日职），matched=False
         {"match_num": 7003, "league_cn": "日职", "home_cn": "大阪钢巴",
          "away_cn": "神户胜利船", "kickoff_bj": "09-20 16:00",
@@ -133,7 +133,7 @@ def test_build_rows_adds_goal_line():
     fixtures = [
         {"match_num": 7006, "league_cn": "意甲", "home_cn": "佛罗伦萨",
          "away_cn": "那不勒斯", "kickoff_bj": "09-20 02:45",
-         "play_type": "hhad", "options": {"goal_line": "-1", "h": "4.0"}},
+         "play_type": "hhad", "options": {"goalLine": "-1", "goalLineValue": "-1.00", "h": "4.0"}},
         {"match_num": 7006, "league_cn": "意甲", "home_cn": "佛罗伦萨",
          "away_cn": "那不勒斯", "kickoff_bj": "09-20 02:45",
          "play_type": "had", "options": {"h": "3.02", "d": "3.20", "a": "2.06"}},
@@ -156,3 +156,45 @@ def test_nba_rows_builds_table():
     assert r["margin"] == 3.1
     assert r["score"] == "114-110"
     assert tm.nba_rows([]) == []
+
+
+def test_poisson_hhad_probs_sum_to_one_and_pick_valid():
+    hh = tm.poisson_hhad(1.6, 0.9, "-1")
+    assert hh is not None
+    assert hh["line"] == "-1"
+    probs = hh["probs"]
+    assert set(probs) == {"让胜", "让平", "让负"}
+    assert abs(sum(probs.values()) - 1.0) < 1e-3
+    assert hh["pick"] in probs
+    # 主让 1 球且主队进攻强：让负（主队让球后不赢）概率应高于让胜（需净胜 2+）
+    assert probs["让负"] > probs["让胜"]
+
+
+def test_poisson_hhad_main_handicap_favors_home_cover():
+    # 主受让 1 球（line=+1）：主队赢球概率（让胜）显著更高
+    hh = tm.poisson_hhad(1.6, 0.9, "+1")
+    assert hh["probs"]["让胜"] > hh["probs"]["让负"]
+
+
+def test_poisson_hhad_returns_none_on_bad_input():
+    assert tm.poisson_hhad(None, 1.0, "-1") is None
+    assert tm.poisson_hhad(1.0, 0.0, "-1") is None
+    assert tm.poisson_hhad(1.0, 1.0, "abc") is None
+
+
+def test_build_rows_attaches_hhad_model():
+    fixtures = [
+        {"match_num": 7100, "league_cn": "意甲", "home_cn": "佛罗伦萨",
+         "away_cn": "那不勒斯", "kickoff_bj": "09-20 02:45",
+         "play_type": "hhad", "options": {"goalLine": "-1", "goalLineValue": "-1.00"}},
+    ]
+    pred_by_league = {
+        "seriea": [{"home": "佛罗伦萨", "away": "那不勒斯", "direction": "佛罗伦萨 胜",
+                    "lambda_home": 1.8, "lambda_away": 0.8, "predicted_score": "2-0"}],
+    }
+    rows = tm.build_rows(fixtures, pred_by_league)
+    assert rows[0]["hhad_model"]["line"] == "-1"
+    assert rows[0]["hhad_model"]["pick"] in ("让胜", "让平", "让负")
+    # 缺 λ 的预测不产 hhad_model（不编数）
+    rows2 = tm.build_rows(fixtures, {"seriea": [{"home": "佛罗伦萨", "away": "那不勒斯"}]})
+    assert "hhad_model" not in rows2[0]

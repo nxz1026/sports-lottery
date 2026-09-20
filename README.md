@@ -130,7 +130,7 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 | 玩法 | 代码键 | 覆盖 | 依据字段 |
 |------|:---:|:---:|------|
 | 胜平负（含单关/过关）| `had` | ✅ 完整 | `direction` + `reasoning_factors.home/draw/away_true_prob` |
-| 让球胜平负 | `hhad` | ⚠️ 部分 | `predicted_margin` 可推导，但当前多为 `null`（净胜球派生未接）|
+| 让球胜平负 | `hhad` | ✅ 一等预测 | 官方 `goalLine` 下用 λh/λa 独立泊松重算让胜/让平/让负三向（`web/services/team_match.poisson_hhad` → 行内 `hhad_model`）|
 | 比分 | `crs` | ✅ 完整 | `predicted_score` + `poisson_top3` |
 | 总进球数 | `ttg` | ✅ 可推导 | `lambda_home+lambda_away` 泊松推出档位分布 |
 | 半全场 | `haf` | ❌ 暂不能 | 只有全场 lambda，无上半场独立模型 |
@@ -144,7 +144,7 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 | 大小分 | ✅ 完整 | `total_prediction` |
 | 胜分差 | ✅ 完整 | `predicted_margin` |
 
-**缺口（待补：hhad 让球字段多为 null；haf 半全场结构缺失）** —— 均不扩大需求，仅记录，待按需展开。
+**缺口（待补：haf 半全场结构缺失；NBA 让分/大小分上游盘口线仅在有赔率时可用）** —— 均不扩大需求，仅记录，待按需展开。
 
 ## 预测模型
 
@@ -181,10 +181,15 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 - **ML 翻转**：仅当 ML 三向概率**最高项**与基本层最高项**不同**，且 ML 置信度（winner−margin）≥ 阈值（如 0.6）时才翻转；否则以基本层为准。
 - **AI 翻转**：仅当 `ai_score` ≥ 80 且基本层处于**无方向/平局模糊态**时才参考 AI 方向；否则 AI 只调信心/星级。
 
-**现状缺口（开工待补）：**
+**三段机制落地现状：**
 - 基本算法恒开（✅ 当前默认全开）。
-- ML 层当前 `ml_model_used=False`（默认未启用）——训练数据流水线 / 模型产物未就绪，待补训练流水线。
-- AI 层当前 `ai_score_used=None`（未接）——需 enrich job 写回 ai_scores.json 并在读取链路生效。
+- ML 层：训练流水线已就绪（`python3 scripts/predict.py --train-ml` → 落盘
+  `scripts/references/ml_model_{league}.json`）。样本 ≥ `min_train_samples`(30) 的联赛启用
+  `ml_model_used=True` 并按 `blend_weight`(0.15) 融合；样本不足的联赛如实跳过、回退规则基线。
+  当前已训练启用：epl / laliga / seriea / ligue1（bundesliga 历史样本 28<30、nba 休赛期，跳过）。
+- AI 层：已接通。enrich job 写回 `predictions/ai_scores.json`（稳定键 `league|home_en|away_en`，
+  回退中文名），`predict.py` 经 `ai.feedback_loop.adjust_prediction` 应用
+  信心因子 `0.7+0.3×ai_score/100`，预测产物记录 `ai_adjusted` / `ai_score_used` / `ai_adjustment_factor`。
 
 ### 信号融合公式
 
