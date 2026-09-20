@@ -76,6 +76,13 @@ _LOTTERY_SQL = """select game_num, game_name, issue_no, draw_date, status,
                    where rn <= %(per_type)s
                    order by game_num, issue_no desc"""
 
+_ISSUE_MATCH_SQL = """select i.game_num, i.issue_no, m.seq, m.gm_match_id, m.league_cn,
+        m.home_cn, m.away_cn, m.start_date, m.is_drawn, m.cz_score, m.official_result
+   from fact.jc_issue i
+   join fact.jc_issue_match m on m.game_num = i.game_num and m.issue_no = i.issue_no
+  where i.game_num = %(game_num)s and i.issue_no = %(issue_no)s
+  order by m.seq"""
+
 
 def _fetch(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """单次只读查询：ro 连接 SELECT-only；任何异常 → 记日志返回 []（页面降级但不 5xx）。"""
@@ -106,6 +113,21 @@ def issues(limit: int = 20) -> list[dict[str, Any]]:
     """传统足彩期次 + 开奖；limit 由调用方保证 ≤200，本层仅钳制到 [1, 200]。"""
     limit = max(1, min(int(limit), 200))
     return _fetch(_ISSUE_SQL, {"limit": limit})
+
+
+def issue_matches(game_num: str = "90", issue_no: str | None = None) -> list[dict[str, Any]]:
+    """某一传统足彩期的逐场对阵（fact.jc_issue_match 一式）；issue_no 缺省 → 最新一期。
+
+    返回 [{game_num, issue_no, seq, gm_match_id, league_cn, home_cn, away_cn, start_date,
+           is_drawn, cz_score, official_result}]；无数据返回 []。
+    """
+    if issue_no is None:
+        row = _fetch("select i.issue_no from fact.jc_issue i where i.game_num = %(g)s "
+                     "order by i.draw_at desc nulls last, i.issue_no desc limit 1", {"g": game_num})
+        if not row:
+            return []
+        issue_no = row[0]["issue_no"]
+    return _fetch(_ISSUE_MATCH_SQL, {"game_num": game_num, "issue_no": issue_no})
 
 
 def backtest_summary() -> list[dict[str, Any]]:
