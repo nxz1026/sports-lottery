@@ -183,6 +183,11 @@ document.addEventListener("click",e=>{const b=e.target.closest("[data-retry]");i
 document.addEventListener("click",e=>{
   const b=e.target.closest('[data-action="daily-image"]');
   // 每日一图改为新标签页打开（整页展示足球/篮球两张图 + 各自下载），不再用弹框。
-  if(b){ window.open("/static/dailyimage.html?sport=football","_blank"); }
+  // dashboard.html 与 dailyimage.html 同属一个静态挂载点（nginx /dashboard/jc/static/ -> /static/）。
+  // 用当前页目录推导目标路径，避免写死域名根前缀导致 404。
+  if(b){
+    const dir=location.pathname.slice(0, location.pathname.lastIndexOf("/")+1);
+    window.open(dir+"static/dailyimage.html?sport=football","_blank");
+  }
 });
 </script></body></html>
