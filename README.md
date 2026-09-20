@@ -121,6 +121,22 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 | **ESPN** | 有限 (DraftKings) | MLS, 中超, 国际赛 | 无限制 | 降级回退 |
 | **The Odds API** | 博彩公司 h2h/让分/大小分 | NBA（`basketball_nba` active） | 免费 ~500 次/月（header `x-requests-remaining` 可查）| NBA（`the-odds`，付费源默认关闭，见 D9；当前 .env `LEAGUE_SOURCE_ODDS_API=on` 但执行链路未接 allow_paid 闸门）|
 
+### 采集端代码与数据对齐文档（索引）
+
+竞彩官方数据链路分两层，代码均在仓库内：
+- **取数（国内采集机）**：`collector.py`（根目录）——只做取官方 JSON → 落 JSONL → 打包推送；契约 v1.3，仅 stdlib，不连 DB。子命令：`--probe` / `--collect <topic>` / `--collect-all` / `--push`。
+- **入库（本机 oracle，NDORACLE）**：`scripts/ingest/`——`collector_pull.py`（拉包）、`jc_load.py` / `jc_write.py` / `jc_read.py` / `jc_topic.py`（表读写）、`jc_odds_write.py` / `jc_issue_write.py` / `jbq_result_write.py`（玩法/期次/结果写）、`jc_manifest.py`、`run_backfill.py`、`quota.py`；解析层 `scripts/store/parse_collector.py` + `parse_jczq.py`。
+
+数据对齐/契约文档在 `docs/project/`：
+- `国内采集机实施文档-v1.md`（契约单一真源 §5：9 键外壳 / snap_ts / src_hash / 官方键名不许清洗）
+- `回传-契约v1.1指令.md`、`回传-验收v1.1第1批.md`（第一批验收）
+- `探针核对报告-v1.1-20260915.md`（探针对照/核对）
+- `契约v1.4-盘口全历史.md`、`回传-盘口历史-v1.md`（盘口历史契约）
+- `待审-竞彩球队对照.md`、`待审-seed_jc_team_alias_sporttery.sql`（球队身份/别名对齐）
+- DB schema：`docs/db/schema_v2_draft.sql` + `infra_p0_*.sql` 分片
+
+**堵点记录（2026-09-20）**：`fact.jc_issue_match`（14场/任九/4场进球当期对阵）= 0 行，奖期真实票面对阵未入库。
+
 ### 玩法覆盖清单（接口基线：5 大联赛 + NBA）
 
 预测服务对竞彩玩法的覆盖现状（作为接口层向业务层暴露的基线——业务层只读这份清单对应的数据，不在业务层重算覆盖）：
@@ -133,7 +149,7 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 | 让球胜平负 | `hhad` | ✅ 一等预测 | 官方 `goalLine` 下用 λh/λa 独立泊松重算让胜/让平/让负三向（`web/services/team_match.poisson_hhad` → 行内 `hhad_model`）|
 | 比分 | `crs` | ✅ 完整 | `predicted_score` + `poisson_top3` |
 | 总进球数 | `ttg` | ✅ 可推导 | `lambda_home+lambda_away` 泊松推出档位分布 |
-| 半全场 | `haf` | ❌ 暂不能 | 只有全场 lambda，无上半场独立模型 |
+| 半全场 | `haf` | ✅ 一等预测 | 全场 `lambda_home/away` ×0.45 拆上半场率，联合遍历九宫格（`web/services/haf.py compute_haf` → 行内 `haf_model` + `/api/v1/haf` 端点）|
 
 **🏀 竞彩篮球（NBA）**
 
@@ -144,7 +160,7 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 | 大小分 | ✅ 完整 | `total_prediction` |
 | 胜分差 | ✅ 完整 | `predicted_margin` |
 
-**缺口（待补：haf 半全场结构缺失；NBA 让分/大小分上游盘口线仅在有赔率时可用）** —— 均不扩大需求，仅记录，待按需展开。
+**缺口（待补：奖期 14场/任九 票面对阵未入库；NBA 让分/大小分上游盘口线仅在有赔率时可用）** —— 均不扩大需求，仅记录，待按需展开。半全场 haf 已用全场λ×0.45 独立泊松近似（不含上半场让球，仅全场让球线）。
 
 ## 预测模型
 
@@ -291,6 +307,7 @@ https://140.83.62.161/dashboard/jc/
   - 7星彩按 6+1 而非平铺 7 位：真实数据第 7 位会出现 `11`/`14`（如 26106 = `5 1 9 5 8 5 11`），
     符合官方「前 6 位 0-9 + 特别号 0-14」规则；
   - 每彩种显示统计摘要（本期数/最新期号/最新开奖日期/最早期号/分组规则）；
+  - 2026-09-20 新增**数字彩工具**卡片组：① 奖级判定（命中判定、非金额）② 复式成本 ③ 胆拖注数 ④ 描述统计（近 N 期开奖频次/奇偶/热门号）——调 `/api/v1/lottery/*`；
 - 串关工作台：选择赛事、结构化市场赔率可用时计算组合参考赔率；
 - 结构化 1X2 市场的隐含概率、比例去水概率、Edge 与 EV 展示；缺少完整市场数据时显示不可用，不使用置信度伪造赔率或价值；
 - 历史页展示来源已有的命中率、Brier、Log Loss、Hit Rate 与校准摘要；没有数据时不显示为 0；
@@ -312,6 +329,16 @@ GET /api/v1/backtest
 GET /api/v1/prediction-metadata
 GET /api/v1/ai/daily
 GET /api/v1/ai/ranking
+GET /api/v1/ai/status
+GET /api/v1/ai/analyze?date=YYYY-MM-DD     AI 异步分析结果（逐场解读/胆材叙事/开奖复盘，只读）
+POST /api/v1/jobs/ai-analyze               AI 分析异步 job（与 predict 共享配额）
+POST /api/v1/combo/eval                    串关 EV（legs 或 selections+match_num 装配）
+GET  /api/v1/haf?home=&away=&line=         半全场九宫格一等预测
+POST /api/v1/haf                          {home,away,line} 或 {match_num,line}
+GET /api/v1/lottery/prize?game&ticket&draw 数字彩命中判定（非金额）
+GET /api/v1/lottery/cost?game&front&back   大乐透复式成本
+GET /api/v1/lottery/dantuo?dan&tuo&choose  胆拖注数
+GET /api/v1/lottery/stats?game&n           数字彩描述统计
 GET /api/v1/sources/status
 ```
 
@@ -323,6 +350,9 @@ GET /api/jc/issues          传统足彩期次 + 开奖（胜负游戏 90 / 任�
 GET /api/jc/backtest        各玩法 Brier / log-loss / argmax 命中率
 GET /api/jc/ops             联赛对齐度、采集主题到达情况、配额与拒收
 GET /api/jc/lottery         各彩种最近 N 期开奖（超级大乐透 85 / 排列3 35 / 排列5 350133 / 7星彩 04）
+GET /api/jc/gap              官方 SP 隐含概率 vs 模型概率错位榜（每日一报）
+GET /api/jc/movement         两时点盘口快照链（开盘 vs 临场，只列有变动的场）
+GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale）
 ```
 
 `/api/jc/lottery` 的彩种清单来自采集端 `lottery_draw` 主题，解析层无白名单——采集端补采新彩种后自动带出，无需改代码。`per_type` 钳制 1..100，越界返回 400。
