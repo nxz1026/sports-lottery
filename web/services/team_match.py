@@ -138,6 +138,38 @@ def algo_suggestion(pred: dict) -> dict:
     return out
 
 
+def poisson_hhad(lambda_home, lambda_away, line, max_goals: int = 10) -> dict | None:
+    """让球胜平负（hhad）一等预测：λh/λa 独立泊松在官方让球线下重算三向概率。
+
+    官方 goalLine 施加于主队（负=主让球，正=主受让）：调整后净胜 = 主进球 + line − 客进球。
+    >0 → 让胜；=0 → 让平；<0 → 让负。λ 或 line 非法 → None（不编数）。
+    """
+    try:
+        lh = float(lambda_home)
+        la = float(lambda_away)
+        ln = float(line)
+    except (TypeError, ValueError):
+        return None
+    if lh <= 0 or la <= 0:
+        return None
+    from math import exp, factorial
+    ph = [exp(-lh) * lh ** i / factorial(i) for i in range(max_goals + 1)]
+    pa = [exp(-la) * la ** j / factorial(j) for j in range(max_goals + 1)]
+    win = draw = lose = 0.0
+    for i in range(max_goals + 1):
+        for j in range(max_goals + 1):
+            p = ph[i] * pa[j]
+            diff = i + ln - j
+            if diff > 0:
+                win += p
+            elif diff == 0:
+                draw += p
+            else:
+                lose += p
+    probs = {"让胜": round(win, 4), "让平": round(draw, 4), "让负": round(lose, 4)}
+    return {"line": str(line), "pick": max(probs, key=lambda k: probs[k]), "probs": probs}
+
+
 def nba_rows(predictions: list[dict]) -> list[dict]:
     """从 NBA 预测产出行（每日一图篮球表）。
 
@@ -203,9 +235,12 @@ def build_rows(fixture_rows: list[dict], pred_by_league: dict[str, list[dict]]) 
         plays = m["plays"]
         had = plays.get("had") or plays.get("hhad") or {}
         home, away = m["home_cn"], m["away_cn"]
-        # 让球线：hhad 玩法的 goal_line
+        # 让球线：hhad 玩法的 options 用的是官方 camelCase 键 goalLine / goalLineValue，
+        # 兼容旧测试用的 snake_case goal_line（生产只认前者）。
         hhad = plays.get("hhad") or {}
-        goal_line = str(hhad.get("goal_line") or "")
+        goal_line = str(hhad.get("goalLine")
+                        or hhad.get("goalLineValue")
+                        or hhad.get("goal_line") or "")
         # 匹配预测
         best = None
         for e, lg in pred_index:
@@ -225,6 +260,11 @@ def build_rows(fixture_rows: list[dict], pred_by_league: dict[str, list[dict]]) 
         }
         if best is not None:
             row["algo"] = algo_suggestion(best)
+            # 让球胜平负一等预测：有 λ 与官方让球线才算（缺一不猜）
+            if goal_line != "":
+                hh = poisson_hhad(best.get("lambda_home"), best.get("lambda_away"), goal_line)
+                if hh:
+                    row["hhad_model"] = hh
         row["odd"] = odd_suggestion(had)
         rows.append(row)
     return rows

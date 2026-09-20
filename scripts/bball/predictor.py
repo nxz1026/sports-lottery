@@ -77,7 +77,7 @@ def predict_game(
     )
     home_score, away_score, margin, total = _score_projection(rh, ra, market_probability)
     confidence = abs(win_probability - 0.5) * 2
-    direction, stars, spread, total_pred = _bet_directions(
+    direction, stars, _spread_txt, _total_txt = _bet_directions(
         home, away, win_probability, confidence, margin, total, spread_line, total_line
     )
     odds_calibration = ""
@@ -88,6 +88,10 @@ def predict_game(
         "home": _to_cn(home), "away": _to_cn(away), "direction": direction,
         "stars": stars, "win_prob": round(win_probability, 3),
         "predicted_score": f"{home_score:.0f}-{away_score:.0f}",
-        "predicted_margin": round(margin, 1), "spread_prediction": spread,
-        "total_prediction": total_pred, "odds_calibration": odds_calibration,
+        "predicted_margin": round(margin, 1),
+        # 让分/大小分为模型投影（点）：不再依赖官方让分/大小线，休赛期也有值。
+        # spread_prediction：模型净胜分（正=主让），total_prediction：双方预测总得分。
+        "spread_prediction": round(margin, 1),
+        "total_prediction": round(total, 1),
+        "odds_calibration": odds_calibration,
     }

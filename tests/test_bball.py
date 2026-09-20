@@ -114,8 +114,10 @@ def test_predict_game_high_elo_home_predicts_home_win() -> None:
 
 def test_predict_game_handles_missing_market_fields() -> None:
     result = predict_game("Home", "Away", {}, None, None, None, None)
-    assert result["spread_prediction"] is None
-    assert result["total_prediction"] is None
+    # 让分/大小分是模型投影（数值），不依赖官方盘口线，任何场次都有值
+    assert isinstance(result["spread_prediction"], (int, float))
+    assert isinstance(result["total_prediction"], (int, float))
+    assert result["total_prediction"] > 0
 
 
 def test_predict_game_score_has_integer_pair_format() -> None:

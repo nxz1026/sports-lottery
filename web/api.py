@@ -33,6 +33,14 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 APP_TITLE = "league-predict Web Dashboard"
 APP_VERSION = "0.1.0"
 
+# scripts/（core 纯函数，如 core.backtest.league_accuracy）供 web 复用：
+# 追加到 sys.path 末尾（不前置），避免 scripts/ 下同名包遮蔽 web/、store/。
+import sys as _sys
+
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent / "scripts")
+if _SCRIPTS_DIR not in _sys.path:
+    _sys.path.append(_SCRIPTS_DIR)
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title=APP_TITLE, version=APP_VERSION, lifespan=lifespan)

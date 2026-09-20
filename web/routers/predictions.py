@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import date
 import math
+import time
 
 from fastapi import APIRouter, Depends, Request
 
@@ -221,20 +222,51 @@ def calibration(request: Request,
     return {"leagues": leagues}
 
 
+_ACC_CACHE: dict = {}
+_ACC_TTL = 600  # 秒：实时对账带缓存，避免每次请求重扫预测文件
+
+
+def _live_accuracy(league: str) -> dict | None:
+    """存量 accuracy_summary 缺失时，实时对账已结算赛果得真实命中率。
+
+    复用既有 core.backtest.league_accuracy（纯函数）；无已结算样本返回 None。
+    带 10 分钟缓存；异常降级为 None（绝不编数）。
+    """
+    now = time.time()
+    cached = _ACC_CACHE.get(league)
+    if cached and now - cached[0] < _ACC_TTL:
+        return cached[1]
+    result: dict | None = None
+    try:
+        from core.backtest import league_accuracy
+        windows: dict = {}
+        for days in (7, 30):
+            acc = league_accuracy(league, days=days)
+            if acc:
+                windows[f"{days}d"] = acc
+        result = windows or None
+    except Exception:
+        result = None
+    _ACC_CACHE[league] = (now, result)
+    return result
+
+
 @router.get("/accuracy")
 def accuracy(request: Request,
              _: None = Depends(require_auth)) -> dict:
     """每联赛最新命中率（accuracy_summary 7d/30d；无数据 → 空 dict）。
 
+    存量 ``accuracy_summary`` 缺失（如生成当刻尚无结算样本）时，回退为实时对账
+    （core.backtest.league_accuracy，结算赛果→方向命中率），保证"如实展示真实数据"。
     ``pending``：每联赛「已预测但尚未完赛」的场次（稳定键去重）。
-    accuracy 恒空时页面用它在空态提示「N 场待结算」，替代无信息量的 "—"
-    （核查 P0-1：系统 09-17 才起每日预测，尚无被预测过的比赛完赛）。
     """
     out: dict = {}
     for league, doc in store.latest_by_league().items():
         data = doc.get("data", {})
         acc = data.get("accuracy_summary")
-        if not isinstance(acc, dict):
+        if not isinstance(acc, dict) or not acc:
+            acc = _live_accuracy(league) or {}
+        if not acc:
             continue
         out[league] = {
             "generated_at": data.get("generated_at"),
