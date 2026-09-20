@@ -49,9 +49,9 @@ async function api(path){
   return r.json();
 }
 /* ===== 命中率渲染辅助 ===== */
-function hitTxt(st){ const h=(st&&st.hit)||{}; return h.available?("命中 "+h.hit+"/"+h.n):(h.note||"数据积累中"); }
-/* 截断进图要闻：固定一行宽度，超长截断不撑破排版 */
-function fitNews(t){ t=String(t||"今日暂无要闻").replace(/\s+/g," ").trim(); return t.length<=48?t:t.slice(0,48)+"…"; }
+function hitTxt(st){ const h=(st&&st.hit)||{}; if(!h.available) return h.note||"数据积累中"; return `历史 ${h.hit}/${h.n} (30天)`; }
+/* 实时要闻固定 3 行：原文 \n 分隔，每行 ≤26 字，总宽 ≤78 字，超长按行截断（最后一行用 …） */
+function fitNews3(t){ let lines=String(t||"今日暂无要闻").replace(/\s+/g," ").trim().split("\n"); lines=lines.slice(0,3).map(s=>s.length>26?s.slice(0,25)+"…":s); return lines.join("\n"); }
 function recTxt(r){
   // 一等让球预测优先（模型在官方让球线上的让球三向：让胜/让平/让负）
   if(r.hhad_model&&r.hhad_model.pick) return r.hhad_model.pick;
@@ -75,18 +75,23 @@ function starsTxt(n){return "★".repeat(n>0?Math.min(n,5):0)||"—"}
 function loadSvg(url){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=url})}
 
 /* ===== 足球每日一图 ===== */
-async function drawFootball(rows,date,qr,qrurl,stats,news){
+async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   const canvas=document.createElement("canvas");
   canvas.id="dailyCanvas"; const ctx=canvas.getContext("2d");
-  const W=900, HEAD=150, NB=38, ROW=44, FOOT=150;
+  const W=900, HEAD=150, NB=78, ROW=44, FOOT=150;
   canvas.width=W;
   const matched=rows.filter(r=>r.matched);
-  // 高度：头部 + 实时要闻条 + 精选横条 + 表格 + 页脚
-  canvas.height=HEAD+NB+30+ROW*rows.length+FOOT;
+  // 精选横条（≤2 条）+ LLM 推荐理由：高度按是否显示动态算
+  const picks=rows.filter(r=>r.matched&&r.algo).sort((a,b)=>(b.algo.stars||0)-(a.algo.stars||0));
+  const showPicks=picks.slice(0,2).map(p=>`${p.match_num} ${(p.home_cn||"").slice(0,8)}vs${(p.away_cn||"").slice(0,8)}→${recTxt(p)}`);
+  const showReason=showPicks.length && pickReason;
+  const picksBlockH = 26 + (showReason ? 22 : 0);
+  // 高度：头部 + 实时要闻条(3行) + 精选横条 + 推荐理由(?) + 表格 + 页脚
+  canvas.height=HEAD+NB+picksBlockH+ROW*rows.length+FOOT;
   const g=ctx.createLinearGradient(0,0,0,canvas.height);
   g.addColorStop(0,"#3f9d63"); g.addColorStop(0.35,"#7cc48a"); g.addColorStop(1,"#3f9d63");
   ctx.fillStyle=g; ctx.fillRect(0,0,W,canvas.height);
-  // 顶部红色横幅 + 命中率行
+  // 顶部红色横幅 + 历史命中率行
   ctx.fillStyle="#c62828"; ctx.globalAlpha=.94;
   ctx.roundRect(0,0,W,HEAD,0); ctx.fill(); ctx.globalAlpha=1;
   ctx.fillStyle="#fff"; ctx.textAlign="center";
@@ -99,23 +104,33 @@ async function drawFootball(rows,date,qr,qrurl,stats,news){
   ctx.font="13px 'PingFang SC'"; ctx.fillStyle="#fff";
   ctx.fillText("范围：NBA + 五大联赛 · 非五大联赛场次不纳入每日推荐", W/2, 124);
   let y=HEAD;
-  // 实时要闻条（固定高度进图，文案截断保证不撑破排版）
+  // 实时要闻条：固定 3 行（NB=78），原文 \n 分隔行渲染
   ctx.fillStyle="#fff4d6"; ctx.fillRect(0,y,W,NB);
   ctx.fillStyle="#c62828"; ctx.font="bold 14px 'PingFang SC','Microsoft YaHei'";
-  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+NB-13);
+  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+18);
   ctx.fillStyle="#6b5412"; ctx.font="14px 'PingFang SC'";
-  ctx.fillText(fitNews(news), 152, y+NB-13);
+  const newsLines=fitNews3(news).split("\n");
+  newsLines.forEach((ln,i)=>{ ctx.fillText(ln, 152, y+18+i*20); });
   y+=NB;
-  // 精选横条（顶部强调推荐）
-  const picks=rows.filter(r=>r.matched&&r.algo).sort((a,b)=>(b.algo.stars||0)-(a.algo.stars||0));
+  // 精选横条（≤2 条）+ LLM 推荐理由（按需）
   ctx.fillStyle="#fff"; ctx.strokeStyle="#c62828";
   ctx.fillRect(0,y-10,W,30); ctx.strokeRect(0,y-10,W,30);
   ctx.fillStyle="#c62828"; ctx.font="bold 15px 'PingFang SC','Microsoft YaHei'";
   ctx.fillText("◆ 今日精选", 16, y+10);
   ctx.fillStyle="#1c1c1c"; ctx.font="14px 'PingFang SC'";
-  const parts=picks.slice(0,5).map(p=>`${p.match_num} ${(p.home_cn||"").slice(0,8)} vs ${(p.away_cn||"").slice(0,8)} → ${recTxt(p)}`);
-  ctx.fillText(parts.length?parts.join("　"):"暂无精选（模型预判积累中）", 118, y+10);
+  if (showPicks.length){
+    ctx.fillText(showPicks.join("　"), 118, y+10);
+  } else {
+    ctx.fillText("暂无精选（模型预判积累中）", 118, y+10);
+  }
   y+=26;
+  // LLM 推荐理由（精选 ≥1 条时显示一行）
+  if (showReason){
+    ctx.fillStyle="#fff"; ctx.fillRect(0,y-10,W,28);
+    ctx.fillStyle="#5d4037"; ctx.font="italic 13px 'PingFang SC'";
+    ctx.fillText(`💡 ${pickReason}`, 16, y+10);
+    y+=22;
+  }
   // 表格头
   const cols=[
     {k:"league",l:"联赛",w:170},{k:"no",l:"场次",w:90},{k:"team",l:"对阵",w:280},
@@ -146,7 +161,7 @@ async function drawFootball(rows,date,qr,qrurl,stats,news){
 async function drawNba(rows,date,qr,qrurl,stats,news){
   const canvas=document.createElement("canvas");
   canvas.id="dailyCanvas"; const ctx=canvas.getContext("2d");
-  const W=900, HEAD=120, NB=38, ROW=44, FOOT=150;
+  const W=900, HEAD=120, NB=78, ROW=44, FOOT=150;
   canvas.width=W; canvas.height=HEAD+NB+ROW*rows.length+FOOT;
   const g=ctx.createLinearGradient(0,0,0,canvas.height);
   g.addColorStop(0,"#3f9d63"); g.addColorStop(0.35,"#7cc48a"); g.addColorStop(1,"#3f9d63");
@@ -161,12 +176,13 @@ async function drawNba(rows,date,qr,qrurl,stats,news){
   ctx.font="14px 'PingFang SC'"; ctx.fillStyle="#fff";
   ctx.fillText("让分/大小分为模型预测，仅供信息参考 · 不构成投注建议", W/2, 104);
   let y=HEAD;
-  // 实时要闻条（固定高度进图，文案截断保证不撑破排版）
+  // 实时要闻条：固定 3 行
   ctx.fillStyle="#fff8e1"; ctx.fillRect(0,y,W,NB);
   ctx.fillStyle="#1b5e20"; ctx.font="bold 14px 'PingFang SC','Microsoft YaHei'";
-  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+NB-13);
+  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+18);
   ctx.fillStyle="#6b5412"; ctx.font="14px 'PingFang SC'";
-  ctx.fillText(fitNews(news), 152, y+NB-13);
+  const newsLinesNba=fitNews3(news).split("\n");
+  newsLinesNba.forEach((ln,i)=>{ ctx.fillText(ln, 152, y+18+i*20); });
   y+=NB;
   const cols=[
     {k:"no",l:"编号",w:70},{k:"team",l:"对阵",w:300},{k:"spread",l:"让分预测",w:130},
@@ -232,23 +248,43 @@ let SPORT = new URLSearchParams(location.search).get("sport")||"football";
 let CURDATE = "";
 let CANVAS=null;
 function setSport(s){ SPORT=s; Array.from(document.querySelectorAll('[data-sport]')).forEach(b=>b.classList.toggle("on",b.dataset.sport===s)); load(); }
+/* fetch 加 timeout（300s = LLM 慢响应可接受上限），超时不阻塞出图 */
+function fetchWithTimeout(path, ms, opts){
+  return new Promise((resolve,reject)=>{
+    const ctl=new AbortController();
+    const t=setTimeout(()=>{ctl.abort();reject(new Error("timeout"));}, ms);
+    fetch(API_BASE+path, Object.assign({credentials:"same-origin",signal:ctl.signal}, opts||{}))
+      .then(r=>{ clearTimeout(t); resolve(r); })
+      .catch(e=>{ clearTimeout(t); reject(e); });
+  });
+}
 async function load(){
   const host=document.getElementById("canvasHost");
   document.getElementById("sub").textContent="加载中…";
   host.innerHTML="";
   try{
-    // 实时要闻先进图：与图片数据并行取，取不到用占位（不阻塞出图）
-    const [d,newsRes] = await Promise.all([
-      api("daily-image?sport="+encodeURIComponent(SPORT)),
-      api("daily-news?sport="+encodeURIComponent(SPORT)).catch(()=>({text:""}))
-    ]);
-    const news=newsRes.text||"今日暂无要闻";
+    // daily-image 优先（决定有无图）；daily-news 异步 300s 等，LLM 慢也无所谓
+    const d = await api("daily-image?sport="+encodeURIComponent(SPORT));
+    if(!d.available){ host.innerHTML='<div class="empty"><h2>还没有今天的图</h2><p>'+(d.note||"暂无在售赛事")+'</p></div>'; document.getElementById("download").style.display="none"; return; }
+    let newsObj={news:"",pick_reason:""};
+    try{
+      const r=await fetchWithTimeout("daily-news?sport="+encodeURIComponent(SPORT), 300000);
+      if(r.ok){
+        const j=await r.json();
+        newsObj.news=String(j.news||"");
+        newsObj.pick_reason=String(j.pick_reason||"");
+      }
+    }catch(_){ /* timeout/LLM 失败 → 占位 */ }
+    const news=newsObj.news || "今日暂无要闻";
+    const pickReason=newsObj.pick_reason;
     CURDATE=d.date||"";
     document.getElementById("sub").textContent=`${d.date || ""} · ${d.sport==="basketball"?"NBA 篮球":"竞彩足球"}`;
-    if(!d.available){ host.innerHTML='<div class="empty"><h2>还没有今天的图</h2><p>'+(d.note||"暂无在售赛事")+'</p></div>'; document.getElementById("download").style.display="none"; return; }
-    const q=await api("qr?url="+encodeURIComponent(location.href)).catch(()=>({}));
-    CANVAS = SPORT==="basketball" ? await drawNba(d.rows||[],d.date,q.qr_data_url||"",q.url||"",d.stats||{},news)
-                                  : await drawFootball(d.rows||[],d.date,q.qr_data_url||"",q.url||"",d.stats||{},news);
+    // QR 固定指向 Dashboard 主页（不是 dailyimage.html 自身）
+    const dashboardUrl=(_PREFIX||"")+"/";
+    const q=await api("qr?url="+encodeURIComponent(dashboardUrl)).catch(()=>({}));
+    CANVAS = SPORT==="basketball"
+      ? await drawNba(d.rows||[],d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news)
+      : await drawFootball(d.rows||[],d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news,pickReason);
     host.appendChild(CANVAS);
     document.getElementById("download").style.display="";
   }catch(e){
