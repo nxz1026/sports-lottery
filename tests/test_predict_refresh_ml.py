@@ -60,3 +60,48 @@ def test_refresh_ml_survives_train_failure(monkeypatch, tmp_path):
     monkeypatch.setattr("core.model.ml_model.train_league_model", boom)
     out = P._refresh_ml_models("epl", max_age_days=1.0, base_dir=tmp_path)
     assert out == {"epl": None}   # 异常被捕获，不抛穿
+
+
+def _mk_intermediate(tmp_path, files):
+    """files: {relpath: age_days} 在 FOOTBALL_DIR 结构下造文件。"""
+    for rel, age in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}", encoding="utf-8")
+        if age:
+            old = time.time() - age * 86400
+            os.utime(p, (old, old))
+    monkeypatch_need = None
+    return tmp_path
+
+
+def test_cleanup_intermediate_removes_old_preserves_training(tmp_path, monkeypatch):
+    files = {
+        "predictions/pred_old.json": 20,   # 旧中间件
+        "predictions/pred_new.json": 1,    # 新鲜
+        "results/result_old.json": 30,     # 旧
+        "references/historical_past_matches.json": 999,  # 训练必需
+        "references/ml_model_epl.json": 999,             # 训练必需
+        "references/team_translations.json": 999,        # 参照必需
+        "references/.calibration_state.json": 50,        # 旧中间件
+    }
+    for rel, age in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}", encoding="utf-8")
+        if age:
+            old = time.time() - age * 86400
+            os.utime(p, (old, old))
+    monkeypatch.setattr("core.config.FOOTBALL_DIR", str(tmp_path))
+    out = P._cleanup_intermediate(days=7)
+    assert out["predictions"] == 1
+    assert out["results"] == 1
+    assert (tmp_path / "predictions" / "pred_old.json").exists() is False
+    assert (tmp_path / "predictions" / "pred_new.json").exists() is True
+    assert (tmp_path / "results" / "result_old.json").exists() is False
+    # 训练/参照必需：无论多旧都保留
+    assert (tmp_path / "references" / "historical_past_matches.json").exists()
+    assert (tmp_path / "references" / "ml_model_epl.json").exists()
+    assert (tmp_path / "references" / "team_translations.json").exists()
+    # 旧校准状态被清
+    assert (tmp_path / "references" / ".calibration_state.json").exists() is False
