@@ -230,6 +230,44 @@ def jobs_ai_enrich(body: dict | None = None,
     return JSONResponse(status_code=202, content={"job": _job_view(job)})
 
 
+@router.post("/jobs/ai-analyze", status_code=202)
+def jobs_ai_analyze(body: dict | None = None,
+                    _: None = Depends(require_auth)) -> JSONResponse:
+    """提交 AI 分析任务（逐场解读/胆材叙事/开奖复盘）。
+
+    body 可选 {"date":"YYYY-MM-DD"}；缺省 = 今日 BJT。
+    异步执行：返回 202 + job，主预测链路不阻塞。
+    """
+    payload = dict(body or {})
+    raw_date = payload.get("date")
+    target_date = None
+    if raw_date:
+        try:
+            from datetime import date as _date
+            _date.fromisoformat(str(raw_date))
+        except ValueError:
+            raise errors.ApiError("bad_request", "date 必须 YYYY-MM-DD", http_status=400)
+        target_date = str(raw_date)
+    trigger = _pop_trigger(payload)
+    try:
+        job, reason = jobs.trigger_ai_analyze(date_str=target_date, trigger=trigger)
+    except LockTimeout:
+        raise errors.ApiError("lock_busy", "系统繁忙，请稍后再试", http_status=503)
+    if reason == "quota_exhausted":
+        usage = jobs.quota_usage()
+        raise errors.ApiError("quota_exhausted",
+                              f"今日任务配额已用尽（{usage['used']}/{usage['limit']}）",
+                              http_status=429)
+    if reason == "already_running":
+        return JSONResponse(status_code=409, content={
+            "code": "already_running",
+            "message": "已有任务在运行，请稍后再试",
+            "job": _job_view(job),
+        })
+    jobs.submit_job(job["id"])
+    return JSONResponse(status_code=202, content={"job": _job_view(job)})
+
+
 @router.get("/jobs/{jid}")
 def jobs_get(jid: str, _: None = Depends(require_auth)) -> dict:
     """查询任务状态（可轮询到终态）。"""

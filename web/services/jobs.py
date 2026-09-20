@@ -266,6 +266,8 @@ def _build_cmd(args: list[str], script: str = "predict") -> list[str]:
         return [sys.executable, str(config.BASE_DIR / "scripts" / "predict.py"), *args]
     if script == "predict_bball":
         return [sys.executable, str(config.BASE_DIR / "scripts" / "bball" / "run.py"), *args]
+    if script == "ai_analyze":
+        return [sys.executable, "-m", "web.services.ai_analyze", *args]
     return [sys.executable, "-m", "web.enrich"]
 
 
@@ -424,3 +426,14 @@ def trigger_bball(args: list[str], trigger: str = "manual") -> tuple[dict | None
 def trigger_ai_enrich(trigger: str = "manual") -> tuple[dict | None, str | None]:
     """提交 AI 富化任务（python -m web.enrich，argv 固定为空）。"""
     return _spawn("ai_enrich", [], trigger)
+
+
+def trigger_ai_analyze(date_str: str | None = None,
+                       trigger: str = "manual") -> tuple[dict | None, str | None]:
+    """提交 AI 分析任务（python -m web.services.ai_analyze [YYYY-MM-DD]）。
+
+    与 predict/ai_enrich 共享同一配额计数器（_spawn 的契约）——AI 分析异步执行、
+    不阻塞主预测链路；任何内部异常被 jobs._spawn 捕获，不会拖累 predict 主流程。
+    """
+    args = [date_str] if date_str else []
+    return _spawn("ai_analyze", args, trigger)

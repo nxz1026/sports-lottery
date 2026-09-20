@@ -44,3 +44,26 @@ def ops(_: None = Depends(require_auth)) -> dict:
         "sql_note": _NOTE,
         "degraded": not all(ok.values()),
     }
+
+
+@router.get("/freshness")
+def freshness(threshold_hours: float = 24.0, _: None = Depends(require_auth)) -> dict:
+    """topic 新鲜度：复用 ops.topics 的 latest_arrival/min_since_latest，超阈值标记 stale。
+
+    入参 threshold_hours 默认 24（按 plan item P0-infra「topic 超 24h 报警」）。
+    返回 {ok, threshold_hours, stale, all}。store 异常 → 全部为空 + ok=False。
+    """
+    from store import jc_ops_view
+    from web.services.freshness import evaluate_topics, format_alert_lines
+    try:
+        th = max(0.5, min(float(threshold_hours), 168.0))
+    except (TypeError, ValueError):
+        th = 24.0
+    try:
+        snap = jc_ops_view.ops_snapshot()
+        topics = snap.get("topics") or []
+    except Exception:
+        topics = []
+    result = evaluate_topics(topics, threshold_hours=th)
+    result["alerts"] = format_alert_lines(result)
+    return result
