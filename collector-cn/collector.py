@@ -4,7 +4,7 @@
 定位：独立小工具，只做取数/落盘/推送。不连 DB、不解析 HTML、不装重型依赖。
 仅 stdlib（urllib/json/hashlib/pathlib/subprocess/tarfile/argparse）。
 
-契约 v1.3（单一真源：doc/国内采集机实施文档-v1.md §5）：
+契约 v1.1（单一真源：doc/国内采集机实施文档-v1.md §5）：
 - 通用行外壳：{"kind","topic","snap_ts","fetched_at","endpoint","http_status",
   "collector_host","payload","src_hash"}
 - snap_ts = 请求发出时刻（UTC 带 Z），同批同值；官方更新时间留 payload 原样
@@ -17,77 +17,40 @@
   python collector.py --probe            # 探针模式（v1 遗留，契约冻结后仅复探用）
   python collector.py --collect <topic>  # 采集指定 topic 落 JSONL
   python collector.py --collect-all      # 采集全部 8 topic
-  python collector.py --push             # 打包 out/ → scp+sudo 推 oracle + .done
+  python collector.py --push-batch <topic>...   # 定时任务主路径：B1 采集 + B2 tar 流式推 + G(A) .done 清单（league key-only）
 """
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
 import json
 import subprocess
 import sys
 import os
+import threading
 import tarfile
 import time
 import urllib.error
 import urllib.request
+import io
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CN_TZ = timezone(timedelta(hours=8))
 UTC = timezone.utc
+CONFIG = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+
+UA = CONFIG["ua"]
+REFERER = CONFIG["referer"]
+QPS = float(CONFIG["qps_interval"])
+RETRIES = int(CONFIG["retries"])
+BACKOFF = [float(x) for x in CONFIG["backoff"]]
+HEAD_BYTES = int(CONFIG["probe_head_bytes"])
+HOST = CONFIG["collector_host"]
+SSH_ALIAS = CONFIG["push"]["ssh_alias"]
+REMOTE_ROOT = CONFIG["push"]["remote_root"]
 CONTRACT = "v1.3"
-
-
-def _load_config() -> dict:
-    """读取 config.json；惰性调用，import 阶段不触发文件 IO。"""
-    p = ROOT / "config.json"
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise RuntimeError(f"config.json 不存在或无法读取：{exc}") from exc
-
-
-def _cfg() -> dict:
-    """进程内单次读取，结果缓存；首次调用时才真正读文件。"""
-    if _cfg._cache is None:  # type: ignore[attr-defined]
-        _cfg._cache = _load_config()
-    return _cfg._cache  # type: ignore[attr-defined]
-
-
-_cfg._cache = None  # type: ignore[attr-defined]
-
-# Lazily populated compatibility names; no config I/O occurs at import time.
-CONFIG = UA = REFERER = QPS = RETRIES = BACKOFF = HEAD_BYTES = HOST = None
-SSH_ALIAS = REMOTE_ROOT = None
-
-
-def _ensure_config() -> None:
-    global CONFIG, UA, REFERER, QPS, RETRIES, BACKOFF, HEAD_BYTES, HOST
-    global SSH_ALIAS, REMOTE_ROOT
-    if CONFIG is not None:
-        return
-    CONFIG = _cfg()
-    UA = CONFIG["ua"]
-    REFERER = CONFIG["referer"]
-    QPS = float(CONFIG["qps_interval"])
-    RETRIES = int(CONFIG["retries"])
-    BACKOFF = [float(x) for x in CONFIG["backoff"]]
-    HEAD_BYTES = int(CONFIG["probe_head_bytes"])
-    HOST = CONFIG["collector_host"]
-    SSH_ALIAS = CONFIG["push"]["ssh_alias"]
-    REMOTE_ROOT = CONFIG["push"]["remote_root"]
-
-
-def _get_config_val(key: str, *nested: str):  # noqa: ANN202
-    """安全取值，支持嵌套键（传多个 key）。"""
-    val = _cfg()
-    path = (key,) + nested
-    for k in path:
-        val = val[k]
-    return val
 
 # 玩法块 → 官方 poolCode（§5.1 实测）
 _POOL_CODE = {"had": "HAD", "hhad": "HHAD", "crs": "CRS", "ttg": "TTG", "hafu": "HAFU"}
@@ -125,7 +88,6 @@ def _req(url: str, ua: str, referer: str, timeout: int = 20) -> tuple[int, str, 
 
 def fetch(url: str) -> dict:
     """带重试的 GET（指数退避 5/15/45s，QPS 节流）。返回探针记录。"""
-    _ensure_config()
     rec = {"url": url, "fetched_at": now_utc()}
     last_err = ""
     for attempt in range(RETRIES):
@@ -150,14 +112,12 @@ def _ok(j: dict) -> bool:
 
 
 def _envelope(topic: str, url: str, rec: dict, snap_ts: str, payload: dict) -> dict:
-    _ensure_config()
     return {"kind": "line", "topic": topic, "snap_ts": snap_ts, "fetched_at": now_utc(),
             "endpoint": url, "http_status": rec.get("http_status", 0),
             "collector_host": HOST, "payload": payload, "src_hash": src_hash(payload)}
 
 
 def _error_row(topic: str, url: str, rec: dict, snap_ts: str, body: bytes) -> dict:
-    _ensure_config()
     """失败行（§5.0）：errorCode != "0" 或 success != true。payload 原样放四键（失败响应无 value）。"""
     try:
         j = json.loads(body.decode("utf-8", errors="replace"))
@@ -278,7 +238,6 @@ def parse_lottery_draw(url: str, rec: dict, snap_ts: str) -> list:
             for it in (j.get("value") or {}).get("list") or []]
 
 def parse_jc_odds_history(url: str, rec: dict, snap_ts: str) -> list:
-    _ensure_config()
     """jc_odds_history：一行 = 一场在售足球 × 整条赔率走势（getOddsHistoryV1 value 原样）。
 
     流程：candidates[0]（jczq_offer 端点）取在售场次 matchId → 逐场 GET history_url
@@ -337,7 +296,6 @@ def _update_status(**kw) -> None:
 
 
 def _pack_probe(rec: dict, tag: str) -> None:
-    _ensure_config()
     """单独回传一份探针包（§5.5 首次非空 / 复探用）。"""
     out = ROOT / "probe"
     out.mkdir(parents=True, exist_ok=True)
@@ -356,17 +314,23 @@ def _pack_probe(rec: dict, tag: str) -> None:
     with tarfile.open(pack, "w:gz") as tf:
         tf.add(out / "probe_results.json", arcname="probe_results.json")
         tf.add(raw / name, arcname=f"raw/{name}")
-    subprocess.run(["scp", "-o", "BatchMode=yes", str(pack),
-                    f"{SSH_ALIAS}:/tmp/{pack.name}"], capture_output=True, text=True, timeout=120)
-    subprocess.run(["ssh", "-o", "BatchMode=yes", SSH_ALIAS,
-                    f"sudo -n mkdir -p {REMOTE_ROOT}/{HOST} && "
-                    f"sudo -n mv /tmp/{pack.name} {REMOTE_ROOT}/{HOST}/ && "
-                    f"sudo -n chown league:league {REMOTE_ROOT}/{HOST}/{pack.name}"],
-                   capture_output=True, text=True, timeout=60)
+    # league key-only（受限 shell 只放行 `tar -C DIR -xzf -`）：本地 tar 打流 → 远端解到 incoming/cn-collector/
+    p_local = subprocess.Popen(
+        ["tar", "-czf", "-", "-C", str(pack.parent), str(pack.name)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p_ssh = subprocess.Popen(
+        ["ssh", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+         "-i", str(Path.home() / ".ssh" / "collector-league"),
+         SSH_ALIAS, f"tar -C {REMOTE_ROOT}/{HOST} -xzf -"],
+        stdin=p_local.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    p_local.stdout.close()
+    _o, e = p_ssh.communicate(timeout=120)
+    p_local.wait(timeout=60)
+    if p_ssh.returncode != 0 or p_local.returncode != 0:
+        print(f"[pack_probe] 探针包推送失败 tar_rc={p_local.returncode} ssh_rc={p_ssh.returncode}: {e.decode(errors='replace').strip()}")
 
 
 def write_batch(topic: str, rows: list) -> Path:
-    _ensure_config()
     """落 out/<topic>/<utc>__<batch>.jsonl；0 行产 .empty。追加不覆盖（batch 序号递增）。"""
     out_dir = ROOT / "out" / topic
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -386,7 +350,6 @@ def write_batch(topic: str, rows: list) -> Path:
 
 
 def collect(topic: str) -> int:
-    _ensure_config()
     spec = CONFIG["topics"].get(topic)
     if not spec:
         print(f"[collect] 未知 topic: {topic}")
@@ -409,14 +372,12 @@ def collect(topic: str) -> int:
 
 
 def collect_all() -> int:
-    _ensure_config()
     rc = 0
     for topic in CONFIG["topics"]:
         rc |= collect(topic)
     return rc
 
 def collect_batch(topics: list) -> tuple[int, list]:
-    _ensure_config()
     """§6 B1：一批 = 全部 topic 齐全。每个指定 topic 各落一个文件（.jsonl 或 .empty），缺一个都不行。
 
     返回 (rc, 本批实际产出的文件路径列表)。
@@ -429,7 +390,6 @@ def collect_batch(topics: list) -> tuple[int, list]:
 
 
 def collect_topic(topic: str) -> Path:
-    _ensure_config()
     """单 topic 采集 + 落文件，返回产出路径（.jsonl 或 .empty）。"""
     spec = CONFIG["topics"].get(topic)
     if not spec:
@@ -453,7 +413,6 @@ def collect_topic(topic: str) -> Path:
 
 
 def probe() -> int:
-    _ensure_config()
     """探针模式（v1 遗留）：逐个 GET 候选端点；反爬 HTML 换 UA/Referer 重试 2 次；BLOCKED 标记。"""
     out_dir = ROOT / "probe"
     raw_dir = out_dir / "raw"
@@ -530,12 +489,16 @@ def _manifest(paths: list) -> str:
 
 
 def push_batch(topics: list) -> int:
-    _ensure_config()
-    """B1+B2+G(A)：采集全部指定 topic → 打包本批产出文件 → 远端落盘 → 最后写 .done 清单。
+    """B1+B2+G(A)：采集全部指定 topic → tar 流式推远端 → 最后写 .done 清单。
 
-    流程：collect_batch 各 topic 各产一个文件（.jsonl/.empty，记 paths）→ tar 只含本批 paths
-    （topic/ 前缀）→ 远端解 staging → 逐文件 mv 到 topic 目录 → 最后 install .done（清单=paths）→ chown。
-    保证：每个推上来的文件被恰好一个 .done 覆盖（不多、不少、无 double-list、无孤儿）。
+    league key-only（受限 shell 只放行 `tar -C DIR -xzf -`）：
+      ① 本地 Windows tar -czf - 只含本批 paths（以 out/ 为基准，arcname=topic/<file>）
+         → 管道 → ssh oracle-league `tar -C <incoming>/cn-collector -xzf -`，直接解到最终
+         位置（incoming/cn-collector/<topic>/），不经过 staging/mv；
+      ② .done 清单同样 tar 流式推（解到 cn-collector/ 根）；
+      ③ B2：.done 是最后一步——数据先落位，清单后到；海外侧以 .done 为装载信号。
+    原子性：tar 单文件原子解包；半程断流 → 部分文件已落位但该批无 .done，海外侧
+    （mismatch/无主清单判定）会丢弃未成套文件，幂等可重推（batch 序号 __NNN 递增不覆盖）。
     """
     rc, paths = collect_batch(topics)
     out_dir = ROOT / "out"
@@ -543,59 +506,45 @@ def push_batch(topics: list) -> int:
         print("[push_batch] out/ 不存在")
         return 1
     batch_ts = now_utc().rstrip("Z").replace(":", "-")
-    # 打包：只含本批实际产出的文件（paths），topic/ 前缀；旧批次不混入
-    pack = ROOT / "out.tar.gz"
-    with tarfile.open(pack, "w:gz") as tf:
-        for p in paths:
-            tf.add(p, arcname=f"{p.parent.name}/{p.name}")
-    # 本地先写 .done 清单文件（B2：远端 install .done 是最后一步）
     done = f"{batch_ts}Z.done"
     manifest = _manifest(paths)
-    done_local = ROOT / "out.done.tmp"
+    # .done 以最终时间戳名直接落本地 out/（受限 shell 远端只有 tar -xzf，无法改名；本地保留作幂等锚）
+    done_local = out_dir / done
     done_local.write_text(manifest, encoding="utf-8")
-    staging = f".staging_{batch_ts}"
-    # B2 原子性 + G(A)：staging 全用 sudo（incoming 属主 league，ubuntu 非 league 组无写权）
-    # tar 解到 staging → 逐 topic mv → 清 staging。整链 && 传递 rc（数据落盘失败则 r2 rc!=0，不写 .done）
-    remote_cmd = (
-        f"sudo -n rm -rf {REMOTE_ROOT}/{HOST}/{staging} && "
-        f"sudo -n mkdir -p {REMOTE_ROOT}/{HOST}/{staging} && "
-        f"sudo -n tar xzf /tmp/out.tar.gz -C {REMOTE_ROOT}/{HOST}/{staging} && "
-        f"sudo -n rm /tmp/out.tar.gz && "
-        f"for t in {' '.join(topics)}; do "
-        f"  sudo -n mkdir -p {REMOTE_ROOT}/{HOST}/$t; "
-        f"  for f in {REMOTE_ROOT}/{HOST}/{staging}/$t/*; do "
-        f"    [ -e \"$f\" ] || continue; "
-        f"    sudo -n mv \"$f\" {REMOTE_ROOT}/{HOST}/$t/ || exit 1; "
-        f"  done; "
-        f"done && "
-        f"sudo -n rm -rf {REMOTE_ROOT}/{HOST}/{staging} && "
-        f"sudo -n chown -R league:league {REMOTE_ROOT}/{HOST}")
-    # scp 包 + .done 到远端 /tmp
-    r = subprocess.run(["scp", "-o", "BatchMode=yes", str(pack),
-                        f"{SSH_ALIAS}:/tmp/out.tar.gz"],
-                       capture_output=True, text=True, timeout=120)
-    if r.returncode != 0:
-        print(f"[push_batch] scp 包失败 rc={r.returncode}: {r.stderr.strip()}")
+    remote_base = f"{REMOTE_ROOT}/{HOST}"
+
+    def stream_local_tar(local_args: list, timeout: int) -> int:
+        """本地 tar（stdout 打流）→ ssh(league key-only) 远端 tar 解到 remote_base。
+        返回 ssh rc；本地 tar 失败抛异常（数据没打包成功，不可推）。"""
+        p_local = subprocess.Popen(
+            local_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p_ssh = subprocess.Popen(
+            ["ssh", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+             "-i", str(Path.home() / ".ssh" / "collector-league"),
+             SSH_ALIAS, f"tar -C {remote_base} -xzf -"],
+            stdin=p_local.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        p_local.stdout.close()
+        _out, err = p_ssh.communicate(timeout=timeout)
+        p_local.wait(timeout=timeout)
+        if p_local.returncode != 0:
+            p_local_err = p_local.stderr.read(errors="replace")
+            p_ssh.kill()
+            print(f"[push_batch] 本地 tar 失败 rc={p_local.returncode}: {p_local_err.strip()}")
+            return 1
+        if p_ssh.returncode != 0:
+            print(f"[push_batch] ssh 流式失败 rc={p_ssh.returncode}: {err.decode(errors='replace').strip()}")
+        return p_ssh.returncode
+
+    if rc != 0:
+        print(f"[push_batch] collect rc={rc}（部分 topic 失败，仍推已产出文件）")
+    # ① 数据文件：-C out 使 arcname = topic/<file>.jsonl，与远端 .done 相对路径一致
+    rel = [str(p.relative_to(out_dir)) for p in paths]
+    r1 = stream_local_tar(["tar", "-czf", "-", "-C", str(out_dir), *rel], timeout=180)
+    if r1 != 0:
         return 1
-    r_done = subprocess.run(["scp", "-o", "BatchMode=yes", str(done_local),
-                             f"{SSH_ALIAS}:/tmp/{done}"],
-                            capture_output=True, text=True, timeout=60)
-    done_local.unlink(missing_ok=True)
-    if r_done.returncode != 0:
-        print(f"[push_batch] scp .done 失败 rc={r_done.returncode}: {r_done.stderr.strip()}")
-        return 1
-    r2 = subprocess.run(["ssh", "-o", "BatchMode=yes", SSH_ALIAS, remote_cmd],
-                        capture_output=True, text=True, timeout=120)
-    if r2.returncode != 0:
-        print(f"[push_batch] 远端落盘失败 rc={r2.returncode}: {r2.stderr.strip()}")
-        return 1
-    # B2：.done 是最后一步（数据全部 rename 后才 install 清单）
-    r3 = subprocess.run(["ssh", "-o", "BatchMode=yes", SSH_ALIAS,
-                        f"sudo -n install -m 0644 -o league -g league /tmp/{done} "
-                        f"{REMOTE_ROOT}/{HOST}/{done} && sudo -n rm /tmp/{done}"],
-                       capture_output=True, text=True, timeout=60)
-    if r3.returncode != 0:
-        print(f"[push_batch] install .done 失败 rc={r3.returncode}: {r3.stderr.strip()}")
+    # ② .done 清单（B2 最后一步）：单独推，远端名 = done；数据文件流里不含 .done
+    r2 = stream_local_tar(["tar", "-czf", "-", "-C", str(out_dir), done], timeout=60)
+    if r2 != 0:
         return 1
     print(f"[push_batch] 完成：{topics} + {done}")
     return rc
@@ -616,15 +565,10 @@ def _acquire_singleton_lock() -> bool:
         except (ValueError, OSError):
             old_pid = 0
         if old_pid and old_pid != my_pid:
-            try:
-                os.kill(old_pid, 0)
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                return False
-            except OSError:
-                pass
-            else:
+            K32 = ctypes.windll.kernel32
+            h = K32.OpenProcess(0x0400, 0, old_pid)
+            if h:
+                K32.CloseHandle(h)
                 return False
     lock.write_text(str(my_pid), encoding="utf-8")
     return True
@@ -640,11 +584,10 @@ def _release_singleton_lock() -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="国内采集机（契约 v1.3）")
+    ap = argparse.ArgumentParser(description="国内采集机（契约 v1.2）")
     ap.add_argument("--probe", action="store_true", help="探针模式（复探用）")
     ap.add_argument("--collect", metavar="TOPIC", help="采集指定 topic 落 JSONL")
     ap.add_argument("--collect-all", action="store_true", help="采集全部 8 topic")
-    ap.add_argument("--push", action="store_true", help="推送 out/ 到远端 + .done（兼容旧路径）")
     ap.add_argument("--push-batch", nargs="+", metavar="TOPIC",
                     help="B1+B2+G(A)：采集指定 topic 批 + 原子推远端 + .done 清单")
     ap.add_argument("--mode-log", metavar="MODE", default="",
@@ -654,18 +597,13 @@ def main() -> int:
     if args.mode_log:
         _lh = ROOT / "logs" / f"collector_{args.mode_log}.log"
         _lh.parent.mkdir(parents=True, exist_ok=True)
-        with open(_lh, "a", encoding="utf-8") as _log_fh:
-            with contextlib.redirect_stdout(_log_fh), contextlib.redirect_stderr(_log_fh):
-                return _run(args, ap)
-    # 单例锁：--push / --push-batch 定时任务主路径专用；probe/collect 不锁（可并行诊断）
-    return _run(args, ap)
-
-
-def _run(args, ap) -> int:
+        sys.stdout = open(_lh, "a", encoding="utf-8")
+        sys.stderr = open(_lh, "a", encoding="utf-8")
+    # 单例锁：--push-batch 定时任务主路径专用；probe/collect 不锁（可并行诊断）
     _locked = False
-    if args.push or args.push_batch:
+    if args.push_batch:
         if not _acquire_singleton_lock():
-            print("[singleton] 已有活跃批次在跑，本次 no-op")
+            print(f"[singleton] 已有活跃批次在跑，本次 no-op")
             return 0
         _locked = True
     try:
@@ -675,9 +613,6 @@ def _run(args, ap) -> int:
             return collect(args.collect)
         if args.collect_all:
             return collect_all()
-        if args.push:
-            _ensure_config()
-            return push_batch(list(CONFIG["topics"]))
         if args.push_batch:
             return push_batch(args.push_batch)
         ap.print_help()
