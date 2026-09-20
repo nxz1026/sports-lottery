@@ -188,7 +188,16 @@ bindKwInput("#kwInput","kw",renderMatches);
 bindMultiChips("#fixLeagueFilters","jcFixLeague","jcFixLeagues",renderJcFixtures);
 bindKwInput("#jcFixKw","jcFixKw",renderJcFixtures);
 bindSingleChips("#lotteryGameFilters","lotGame",b=>{state.lotteryGame=b.dataset.lotGame||"all";renderLottery()});
-bindSingleChips("#lotteryPerFilters","lotPer",b=>{const n=Number(b.dataset.lotPer||20);state.lotteryPer=[10,20,50].includes(n)?n:20;loadLottery()});$("#historyDate").value=new Date().toISOString().slice(0,10);Promise.all([loadToday(),loadTrace(),loadAI(),loadDaily(),loadAccuracy(),loadSources()]).finally(()=>{$("#liveText").textContent="最近同步 · "+new Date().toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})});
+bindSingleChips("#lotteryPerFilters","lotPer",b=>{const n=Number(b.dataset.lotPer||20);state.lotteryPer=[10,20,50].includes(n)?n:20;loadLottery()});$("#historyDate").value=new Date().toISOString().slice(0,10);
+/* 启动探测是否已登录：未登录就跳过批量 fetch（避免 7 个 401 噪声），UI 仍渲染空状态 */
+async function _probeAuthAndBoot(){
+  try{
+    const r=await fetch(API+"/me",{credentials:"same-origin"});
+    if(r.status===401){ $("#liveText").textContent="未登录 · 登录后自动加载数据"; return; }
+  }catch(_){ /* 网络问题：仍尝试批量拉 */ }
+  Promise.all([loadToday(),loadTrace(),loadAI(),loadDaily(),loadAccuracy(),loadSources()]).finally(()=>{$("#liveText").textContent="最近同步 · "+new Date().toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})});
+}
+_probeAuthAndBoot();
 /* ================= A. 运动维度筛选 + NBA 篮球渲染（today 视图内） ================= */
 function isBasketball(p){return String((p&&p.sport)||"").toLowerCase()==="basketball"||String((p&&p.league)||"").toLowerCase()==="nba"}
 // 兼容两种后端形状：篮球在 leagues.nba 里（flat 已收），或在顶层 nba 数组里（仅补差集，不动足球行）。
