@@ -122,3 +122,67 @@ def lottery_draws(per_type: int = 20) -> list[dict[str, Any]]:
     """
     per_type = max(1, min(int(per_type), 100))
     return _fetch(_LOTTERY_SQL, {"per_type": per_type})
+
+
+_MOV_SQL_DAY = """
+   select m.match_num, m.league_cn, m.home_cn, m.away_cn,
+          to_char(m.kickoff_bj, 'MM-DD HH24:MI') as kickoff_bj,
+          o.play_type, o.snap_ts, o.goal_line, o.options
+     from fact.jc_offer o
+     join fact.jc_match m using (match_id)
+    where m.business_date = %(day)s
+    order by m.match_num, o.play_type, o.snap_ts, o.match_id"""
+
+_MOV_SQL_LATEST = _MOV_SQL_DAY.replace(
+    "m.business_date = %(day)s",
+    "m.business_date = (select max(business_date) from fact.jc_match)")
+
+
+def jc_movement(day: str | None = None) -> list[dict[str, Any]]:
+    """两时点盘口快照链：每场每玩法「开盘(first) vs 临场(last)」赔率与隐含概率变动。
+
+    fact.jc_offer 由 10 分钟采集周期累积多时点 snap_ts（开盘/临场都在内）。
+    返回每场每玩法一条：开盘/临场时点、逐侧赔率、delta、归一化隐含概率。
+    day 缺省 → 最新 business_date。只读，异常降级 []。
+    """
+    sql = _MOV_SQL_DAY if day else _MOV_SQL_LATEST
+    rows = _fetch(sql, {"day": day} if day else {})
+    groups: dict = {}
+
+    def _nums(o: dict) -> dict:
+        out = {}
+        for k in ("h", "d", "a"):
+            try:
+                v = float(o[k])
+            except (KeyError, TypeError, ValueError):
+                v = None
+            out[k] = v
+        return out
+
+    def _implied(nums: dict) -> dict:
+        s = sum(1 / v for k, v in nums.items() if v and v > 1)
+        if s <= 0:
+            return {}
+        return {k: round((1 / nums[k]) / s, 3) for k in nums if nums[k] and nums[k] > 1}
+
+    for r in rows:
+        key = (r["match_num"], r["play_type"])
+        g = groups.setdefault(key, {"base": r, "snaps": []})
+        g["snaps"].append(r)
+
+    out: list[dict[str, Any]] = []
+    for (mn, pt), g in groups.items():
+        first, last = g["snaps"][0], g["snaps"][-1]
+        fo, lo = _nums(first["options"] or {}), _nums(last["options"] or {})
+        delta = {k: (round(lo[k] - fo[k], 3) if (fo[k] and lo[k]) else None) for k in fo}
+        out.append({
+            "match_num": mn, "play_type": pt,
+            "league_cn": first.get("league_cn"), "home": first.get("home_cn"),
+            "away": first.get("away_cn"), "kickoff": first.get("kickoff_bj"),
+            "goal_line": last.get("goal_line"),
+            "opening_ts": first["snap_ts"].isoformat(),
+            "closing_ts": last["snap_ts"].isoformat(),
+            "opening_odds": fo, "closing_odds": lo, "delta": delta,
+            "opening_implied": _implied(fo), "closing_implied": _implied(lo),
+        })
+    return out
