@@ -219,6 +219,23 @@ def gap(top: int = 10, _: None = Depends(require_auth)) -> dict:
     }
 
 
+@router.get("/movement")
+def movement(day: str | None = None, _: None = Depends(require_auth)) -> dict:
+    """两时点盘口快照链：开盘(first) vs 临场(last) 赔率与隐含概率变动。
+
+    数据源=竞彩官方 10 分钟采集在 fact.jc_offer 累积的多时点 snap_ts（D9 口径，
+    不含 The Odds API）。只列五大联赛在售场次；day 缺省 → 最新 business_date。
+    """
+    from store import jc_view
+
+    rows = jc_view.jc_movement(day=day)
+    rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
+    return {
+        "sport": "football", "scope": "五大联赛", "day": day or "latest",
+        "count": len(rows), "items": rows,
+    }
+
+
 def _nba_available(preds: list, today) -> bool:
     """NBA 是否在开赛窗口：存在最近 ≤7 天的排期才算可出图；
     否则（纯赛程预估、休赛期）不生成篮球每日图。preds 含 kickoff_date('YYYY-MM-DD')。"""
