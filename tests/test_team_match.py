@@ -198,3 +198,67 @@ def test_build_rows_attaches_hhad_model():
     # 缺 λ 的预测不产 hhad_model（不编数）
     rows2 = tm.build_rows(fixtures, {"seriea": [{"home": "佛罗伦萨", "away": "那不勒斯"}]})
     assert "hhad_model" not in rows2[0]
+
+
+def test_algo_suggestion_carries_probs():
+    out = tm.algo_suggestion({
+        "home": "佛罗伦萨", "away": "那不勒斯", "direction": "佛罗伦萨 胜",
+        "reasoning_factors": {"home_ml_true_prob": 0.5, "draw_true_prob": 0.3,
+                              "away_ml_true_prob": 0.2},
+    })
+    assert out["probs"] == {"主胜": 0.5, "平": 0.3, "客胜": 0.2}
+    assert out["weighted"] == "主胜"
+    # 无 reasoning_factors → 无 probs
+    out2 = tm.algo_suggestion({"home": "A", "away": "B", "direction": "A 胜"})
+    assert "probs" not in out2
+
+
+def _gap_fixture_rows():
+    # 两场：官方 h/d/a 3.02/3.20/2.06（隐含≈0.33/0.31/0.35）
+    return [
+        {"match_num": 8001, "league_cn": "意甲", "home_cn": "佛罗伦萨",
+         "away_cn": "那不勒斯", "play_type": "had",
+         "options": {"h": "3.02", "d": "3.20", "a": "2.06"}},
+        {"match_num": 8002, "league_cn": "英超", "home_cn": "利兹联",
+         "away_cn": "水晶宫", "play_type": "had",
+         "options": {"h": "2.40", "d": "3.30", "a": "2.90"}},
+        # 官方缺 a 的场次（如仅 hhad 在售）→ 不入榜
+        {"match_num": 8003, "league_cn": "德甲", "home_cn": "拜仁",
+         "away_cn": "多特", "play_type": "had", "options": {"h": "1.30", "d": "4.50"}},
+    ]
+
+
+def _gap_preds():
+    return {
+        "seriea": [{"home": "佛罗伦萨", "away": "那不勒斯",
+                    "reasoning_factors": {"home_ml_true_prob": 0.10,
+                                          "draw_true_prob": 0.30,
+                                          "away_ml_true_prob": 0.60}}],
+        "epl": [{"home": "利兹联", "away": "水晶宫",
+                 "reasoning_factors": {"home_ml_true_prob": 0.45,
+                                       "draw_true_prob": 0.30,
+                                       "away_ml_true_prob": 0.25}}],
+    }
+
+
+def test_jc_gap_ranks_and_filters():
+    rows = tm.build_rows(_gap_fixture_rows(), _gap_preds())
+    out = tm.jc_gap(rows)
+    assert len(out) == 2                 # 缺 a 的场次被过滤
+    for it in out:
+        assert set(it["official"]) == {"主胜", "平", "客胜"}
+        assert abs(sum(it["official"].values()) - 1.0) < 1e-6
+        assert 0 <= it["gap"] <= 1
+    # 场次1：模型主胜0.10 vs 官方隐含≈0.33 → 主胜分歧最大，模型远低 → 官方隐含更看好主胜
+    it1 = next(x for x in out if x["match_num"] == 8001)
+    assert it1["worst"] == "主胜"
+    assert "官方隐含更看好主胜" in it1["note"]
+    # top_n 截断
+    assert len(tm.jc_gap(rows, top_n=1)) == 1
+
+
+def test_jc_gap_empty_and_note():
+    assert tm.jc_gap([]) == []
+    assert tm.jc_gap_note("客胜", 0.2, 0.5) == "模型较市场更看好客胜"
+    assert tm.jc_gap_note("主胜", 0.4, 0.1) == "官方隐含更看好主胜"
+    assert tm.jc_gap_note("平", 0.3, 0.35) == "平分歧居前"

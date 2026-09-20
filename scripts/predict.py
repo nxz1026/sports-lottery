@@ -628,6 +628,38 @@ def _apply_ml_args(args) -> bool:
     return False
 
 
+def _refresh_ml_models(league_key=None, max_age_days: float = 1.0, base_dir=None) -> dict:
+    """过期/缺失的 ML 模型按需重训（不修改 core，仅复用公开训练函数）。
+
+    每次预测跑完后调用：刚结算的比赛进入历史样本，模型随新比赛自更新。
+    返回 {league_key: True|False|None}（True=已重训，False=样本不足回退规则，
+    None=训练异常跳过，不影响本次预测）。
+    """
+    from core.config import LEAGUE_CONFIG, FOOTBALL_DIR
+    from core.model.ml_model import train_league_model
+    from pathlib import Path
+    import os
+    import time as _t
+    keys = [league_key] if league_key else list(LEAGUE_CONFIG)
+    base = Path(base_dir) if base_dir else Path(FOOTBALL_DIR) / "references"
+    out: dict = {}
+    for k in keys:
+        p = base / f"ml_model_{k}.json"
+        try:
+            stale = (not p.exists()) or ((_t.time() - os.path.getmtime(p)) / 86400.0) >= max_age_days
+        except OSError:
+            stale = True
+        if not stale:
+            continue
+        try:
+            m = train_league_model(k, base_dir=base_dir)
+            out[k] = m is not None
+        except Exception as e:
+            logger.warning(f"ML refresh failed for {k}: {e}")
+            out[k] = None
+    return out
+
+
 def main() -> None:
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -662,12 +694,20 @@ def main() -> None:
                 result = run_league(league_key, args, now_bjt, dates_str, silent=True)
                 if result:
                     all_outputs.append(result)
+                try:
+                    _refresh_ml_models(league_key)
+                except Exception as _e:
+                    logger.warning(f"ML refresh failed for {league_key}: {_e}")
             except Exception as e:
                 logger.error(f"Prediction failed for {league_key}: {e}")
         # Print combined JSON array for --all mode
         print(json.dumps(all_outputs, indent=2, ensure_ascii=False))
     else:
         run_league(args.league, args, now_bjt, dates_str)
+        try:
+            _refresh_ml_models(args.league)
+        except Exception as _e:
+            logger.warning(f"ML refresh failed for {args.league}: {_e}")
 
 
 if __name__ == "__main__":
