@@ -169,7 +169,9 @@ def daily_image(sport: str = "football", _: None = Depends(require_auth)) -> dic
         }
 
     # sport == "football"（默认）
-    fixture_rows = jc_view.fixtures_on(None)
+    # 用今天（BJT）作 day 查所有场次——不查 latest business_date，避免被非五大联赛日期
+    # （如亚运/友谊赛）覆盖；daily-image 口径 = "今日在售的五大联赛"
+    fixture_rows = jc_view.fixtures_on(today.isoformat())
     pred_by_league = {
         lg: (doc.get("data") or {}).get("predictions", [])
         for lg, doc in latest.items()
