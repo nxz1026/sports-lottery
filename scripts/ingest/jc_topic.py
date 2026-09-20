@@ -6,7 +6,7 @@ from core.log import logger
 from ingest import jbq_result_write, jc_issue_write, jc_odds_write, jc_write
 from ingest.jc_read import read_lines
 from psycopg.types.json import Json
-from store.parse_collector import parse_line
+from store.parse_collector import parse_line, parse_lines_all
 
 WRITE = ("jczq_offer", "jczq_result")
 ISSUE = ("jc_issue", "jc_issue_result", "lottery_draw")
@@ -35,23 +35,29 @@ def _ops(cur, topic: str, rel: str, size: int | None, n: int, ups: int,
 
 
 def _load_saved(cur, topic: str, rel: str, lines: list, rej: list, writer) -> int:
-    """逐条写指令：savepoint 隔离；parse_line None 与 writer ValueError 都记 rej，不静默丢行。"""
+    """逐条写指令：savepoint 隔离；parse_line None 与 writer ValueError 都记 rej，不静默丢行。
+    P0-COLLECT2：jc_issue / jc_issue_result 一行 envelope 可产生多条指令（parent + N children），
+    用 parse_lines_all 拉平；children 写失败但 parent 成功 ⇒ 父行已落，rej 单独记行内 index；不断父事务。"""
     sp, kind, label = _BBALL_LANE if topic in BASKETBALL_RESULTS else _ISSUE_LANE
     ups = 0
     for i, env in enumerate(lines, 1):
-        ins = parse_line(env)
-        if ins is None:
+        all_ins = parse_lines_all(env)
+        if all_ins == [None]:
             rej.append({"line": i, "reason": "parse_none"})
             continue
-        try:
-            cur.execute(_SAVEPOINT_SQL[sp]["savepoint"])
-            ups += writer(cur, ins, env.get("src_hash") or "", rel)
-            cur.execute(_SAVEPOINT_SQL[sp]["release"])
-        except ValueError as e:
-            cur.execute(_SAVEPOINT_SQL[sp]["rollback to"])
-            rej.append({"line": i, "reason": str(e)})
-            logger.warning("%s topic=%s 文件=%s %s=%s err=%s",
-                           kind, topic, rel, label, ins.get("pk"), str(e)[:80])
+        for j, ins in enumerate(all_ins):
+            if ins is None:
+                rej.append({"line": i, "reason": f"parse_none[child {j}]"})
+                continue
+            try:
+                cur.execute(_SAVEPOINT_SQL[sp]["savepoint"])
+                ups += writer(cur, ins, env.get("src_hash") or "", rel)
+                cur.execute(_SAVEPOINT_SQL[sp]["release"])
+            except ValueError as e:
+                cur.execute(_SAVEPOINT_SQL[sp]["rollback to"])
+                rej.append({"line": i, "reason": f"{ins['table']}:{str(e)[:80]}"})
+                logger.warning("%s topic=%s 文件=%s %s=%s err=%s",
+                               kind, topic, rel, label, ins.get("pk"), str(e)[:80])
     return ups
 
 
