@@ -191,6 +191,34 @@ def daily_image(sport: str = "football", _: None = Depends(require_auth)) -> dic
     }
 
 
+@router.get("/gap")
+def gap(top: int = 10, _: None = Depends(require_auth)) -> dict:
+    """官方 SP 隐含概率 vs 模型三向概率的错位榜（每日一报）。
+
+    基线=官方让利价隐含概率（The Odds API 按 D9 默认关闭，不含国际收盘）。
+    只列五大联赛在售、官方 had 三项齐、模型有胜平负概率的场次；
+    按错位分降序，最多 top 条。
+    """
+    from store import jc_view
+    from web.services import store as web_store
+    from web.services.team_match import build_rows, jc_gap as _jc_gap
+
+    latest = web_store.latest_by_league()
+    fixture_rows = jc_view.fixtures_on(None)
+    pred_by_league = {
+        lg: (doc.get("data") or {}).get("predictions", [])
+        for lg, doc in latest.items()
+    }
+    rows = build_rows(fixture_rows, pred_by_league)
+    rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
+    items = _jc_gap(rows, top_n=min(max(int(top), 1), 30))
+    return {
+        "sport": "football", "scope": "五大联赛", "count": len(items),
+        "items": items,
+        "note": "基线=官方让利价隐含概率 vs 模型概率；The Odds API 默认关闭，国际收盘不纳入。",
+    }
+
+
 def _nba_available(preds: list, today) -> bool:
     """NBA 是否在开赛窗口：存在最近 ≤7 天的排期才算可出图；
     否则（纯赛程预估、休赛期）不生成篮球每日图。preds 含 kickoff_date('YYYY-MM-DD')。"""

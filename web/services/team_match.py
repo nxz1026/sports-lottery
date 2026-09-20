@@ -135,6 +135,9 @@ def algo_suggestion(pred: dict) -> dict:
     if all(isinstance(v, (int, float)) for v in (h, d, a)):
         probs = [("主胜", float(h)), ("平", float(d)), ("客胜", float(a))]
         out["weighted"] = max(probs, key=lambda x: x[1])[0]
+        # 携带三向概率，供 jc_gap 错位榜等消费。
+        out["probs"] = {"主胜": round(float(h), 3), "平": round(float(d), 3),
+                        "客胜": round(float(a), 3)}
     return out
 
 
@@ -168,6 +171,62 @@ def poisson_hhad(lambda_home, lambda_away, line, max_goals: int = 10) -> dict | 
                 lose += p
     probs = {"让胜": round(win, 4), "让平": round(draw, 4), "让负": round(lose, 4)}
     return {"line": str(line), "pick": max(probs, key=lambda k: probs[k]), "probs": probs}
+
+
+# 错位榜三侧键位（对齐官方 had 与 algo.probs）
+_GD = {"主胜": "h", "平": "d", "客胜": "a"}
+
+
+def jc_gap(rows, top_n=None) -> list[dict]:
+    """官方 SP 隐含概率 vs 模型胜平负概率的错位榜（每日一报）。
+
+    仅用恒可取数（官方 had 奖金 + 预测 reasoning_factors 真实概率）。
+    注意：基线是「官方让利价隐含概率」，非国际收盘盘口 —— The Odds API 已按
+    D9 降级为可选校验，默认关闭，故不纳入。官方 had 三项齐、模型有 probs 才入选。
+    错位分 = 官方隐含概率与模型概率的 TV/2。按错位降序，返回前 top_n 条。
+    """
+    items = []
+    for r in rows:
+        had = r.get("had") or {}
+        algo = r.get("algo") or {}
+        probs = algo.get("probs")
+        if not probs:
+            continue
+        try:
+            ho, do, ao = float(had["h"]), float(had["d"]), float(had["a"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (ho > 1 and do > 1 and ao > 1):
+            continue
+        s = 1 / ho + 1 / do + 1 / ao
+        if s <= 0:
+            continue
+        oi = {"主胜": (1 / ho) / s, "平": (1 / do) / s, "客胜": (1 / ao) / s}
+        gap = sum(abs(oi[k] - probs[k]) for k in oi) / 2.0
+        worst = max(oi, key=lambda k: abs(oi[k] - probs[k]))
+        items.append({
+            "match_num": r.get("match_num"),
+            "league_cn": r.get("league_cn"),
+            "home": r.get("home_cn"),
+            "away": r.get("away_cn"),
+            "official": {k: round(v, 3) for k, v in oi.items()},
+            "model": probs,
+            "gap": round(gap, 3),
+            "worst": worst,
+            "note": jc_gap_note(worst, oi[worst], probs[worst]),
+        })
+    items.sort(key=lambda x: -x["gap"])
+    return items[:top_n] if top_n else items
+
+
+def jc_gap_note(worst: str, official_p: float, model_p: float) -> str:
+    """错位方向一句话：同一侧上模型概率与官方隐含的差异。"""
+    diff = model_p - official_p
+    if diff >= 0.15:
+        return f"模型较市场更看好{worst}"
+    if diff <= -0.15:
+        return f"官方隐含更看好{worst}"
+    return f"{worst}分歧居前"
 
 
 def nba_rows(predictions: list[dict]) -> list[dict]:
