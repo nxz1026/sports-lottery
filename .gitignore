@@ -69,3 +69,6 @@ scripts/bball_data/
 # 运行期中间件（predict/backtest 产物；历史训练样本已并入 references/historical_past_matches.json）
 scripts/predictions/*.json
 scripts/results/*.json
+
+# AI 分析产物（ai_analyze 异步 job 输出）
+predictions/ai_analysis/

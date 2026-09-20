@@ -30,6 +30,41 @@ def ai_get_details(request: Request, _: None = Depends(require_auth)) -> dict:
     return ai.ai_details()
 
 
+@router.get("/ai/analyze")
+def ai_analyze_get(date_str: str | None = Query(None, alias="date"),
+                   _: None = Depends(require_auth)) -> dict:
+    """AI 分析结果（逐场解读 / 胆材叙事 / 开奖复盘）。
+
+    date 缺省=今日 BJT；由 ai_analyze 异步 job 落盘 predictions/ai_analysis/{date}.json，
+    本端点只读不触发。如文件不存在或缺字段 → available=False + note。
+    """
+    from pathlib import Path
+    from web.services import ai_analyze as _aa
+    target = _aa._today_bjt().isoformat() if not date_str else str(date_str)
+    try:
+        from datetime import date as _date
+        _date.fromisoformat(target)
+    except ValueError:
+        return {"available": False, "date": target, "note": "invalid_date",
+                "classes": {"per_match": [], "banker": "", "lottery": []}}
+    path = _aa._output_path(target)
+    if not path.exists():
+        return {"available": False, "date": target,
+                "note": f"no analysis yet（先 POST /api/v1/jobs/ai-analyze）",
+                "classes": {"per_match": [], "banker": "", "lottery": []}}
+    try:
+        import json as _json
+        with open(path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+    except Exception as e:
+        return {"available": False, "date": target, "note": f"read_failed: {e}",
+                "classes": {"per_match": [], "banker": "", "lottery": []}}
+    return {"available": True, "date": data.get("date"),
+            "generated_at": data.get("generated_at"),
+            "classes": data.get("classes") or {},
+            "warning": data.get("warning") or []}
+
+
 def _parse_day(value: str | None) -> date:
     if value is None:
         return ai.store.bjt_today()

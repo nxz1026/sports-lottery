@@ -679,8 +679,8 @@
     "source": ""
   },
   "Qingdao Hainiu vs Tianjin Jinmen Tiger": {
-    "ai_score": 30,
-    "ai_summary": "信心度极低且为最弱选项，不符合高信心偏好。仅因明确的方向信号而获得少量分数。",
+    "ai_score": 10,
+    "ai_summary": "中超比赛，置信度极低且标记为接近。缺乏高置信度支持，信号最弱。",
     "ai_notes": "",
     "league": "csl",
     "source": "",
@@ -689,9 +689,9 @@
     "away_en": ""
   },
   "Liaoning Tieren vs Qingdao West Coast": {
-    "ai_score": 35,
-    "ai_summary": "预测辽宁铁人接近获胜，但置信度极低且无具体日期。该选项不符合高置信度和清晰信号的要求，参考价值有限。",
-    "ai_notes": "",
+    "ai_score": 55,
+    "ai_summary": "主队预测为接近胜率，星级低且置信度较低。仅适合作为低置信度的一般参考，不满足高置信度优先原则。",
+    "ai_notes": "方向信号弱",
     "league": "csl",
     "source": "",
     "name": "Liaoning Tieren vs Qingdao West Coast",
@@ -699,9 +699,9 @@
     "away_en": ""
   },
   "Shanghai Port vs Shanghai Shenhua": {
-    "ai_score": 35,
-    "ai_summary": "预测上海海港接近获胜，置信度处于低位。由于缺乏明确信号且置信度不足，不符合用户偏好。",
-    "ai_notes": "",
+    "ai_score": 50,
+    "ai_summary": "上港对申花的主队预测为接近胜率，星级低且置信度低。不满足优先高置信度及强方向信号的要求，属于一般匹配。",
+    "ai_notes": "方向信号弱",
     "league": "csl",
     "source": "",
     "name": "Shanghai Port vs Shanghai Shenhua",
@@ -709,9 +709,9 @@
     "away_en": ""
   },
   "Wuhan Three Towns vs Chongqing Tonglianglong": {
-    "ai_score": 30,
-    "ai_summary": "武汉三镇被预测为接近获胜方，置信度较低。该预测方向虽明确但可信度不足，难以满足高标准需求。",
-    "ai_notes": "",
+    "ai_score": 45,
+    "ai_summary": "预测为武汉三镇小胜，星级低且置信度偏低。虽符合冷门倾向但信号微弱，不满足高置信度偏好，整体匹配度一般偏低。",
+    "ai_notes": "置信度偏低",
     "league": "csl",
     "source": "",
     "name": "Wuhan Three Towns vs Chongqing Tonglianglong",
@@ -719,9 +719,9 @@
     "away_en": ""
   },
   "Yunnan Yukun vs Shenzhen Xinpengcheng": {
-    "ai_score": 35,
-    "ai_summary": "云南玉昆被预测为接近获胜方，但置信度最低之一。该选项信号强度弱，不符合用户对高置信度的要求。",
-    "ai_notes": "",
+    "ai_score": 40,
+    "ai_summary": "云南玉昆小胜深圳新鹏城，星级低且置信度更低。虽属低赔或冷门方向，但预测置信度低、方向信号不清晰，不满足高置信度偏好。",
+    "ai_notes": "置信度最低",
     "league": "csl",
     "source": "",
     "name": "Yunnan Yukun vs Shenzhen Xinpengcheng",
@@ -729,9 +729,9 @@
     "away_en": ""
   },
   "Chengdu Rongcheng vs Beijing Guoan": {
-    "ai_score": 30,
-    "ai_summary": "成都蓉城被预测为接近获胜方，置信度仅为0.193。该预测信号最弱，基本无参考价值。",
-    "ai_notes": "",
+    "ai_score": 35,
+    "ai_summary": "预测为成都小胜国安，星级低且置信度最低。不满足高置信度及清晰方向信号的要求，为最弱匹配。",
+    "ai_notes": "方向信号最弱",
     "league": "csl",
     "source": "",
     "name": "Chengdu Rongcheng vs Beijing Guoan",
@@ -739,8 +739,8 @@
     "away_en": ""
   },
   "Shandong Taishan vs Henan": {
-    "ai_score": 52,
-    "ai_summary": "该预测包含明确的方向信号（主胜但接近），但置信度极低且仅为一星，不符合高置信度偏好。下狗优势不明显，整体匹配度一般。",
+    "ai_score": 25,
+    "ai_summary": "该条目置信度极低且标记为冷门，虽符合下狗偏好，但完全违背高置信度优先原则。风险过大，不适合作为推荐选择。",
     "ai_notes": "",
     "league": "csl",
     "source": "",
@@ -749,8 +749,8 @@
     "away_en": ""
   },
   "Zhejiang Professional FC vs Dalian Yingbo": {
-    "ai_score": 52,
-    "ai_summary": "预测指向客队胜利，符合下狗偏好，但置信度极低且为一星，缺乏高置信度支持。方向信号明确但实力评级较弱，属于中等匹配。",
+    "ai_score": 25,
+    "ai_summary": "同样存在极低置信度与冷门方向的问题，缺乏可靠性支撑。不适合注重稳定收益的决策场景。",
     "ai_notes": "",
     "league": "csl",
     "source": "",
@@ -1385,8 +1385,8 @@
     "away_en": "Torino FC"
   },
   "nba|Detroit Pistons|Boston Celtics": {
-    "ai_score": 48,
-    "ai_summary": "明确预测主队胜利，但置信度缺失且仅为一星，无法确认是否达到高置信度标准。方向清晰但可靠性信号不足，匹配度较弱。",
+    "ai_score": 45,
+    "ai_summary": "方向明确指向主场获胜，但缺失置信度数据且未标注冷门属性。虽满足方向清晰要求，但无法验证其高可信度。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1395,8 +1395,8 @@
     "away_en": "Boston Celtics"
   },
   "nba|New York Knicks|Philadelphia 76ers": {
-    "ai_score": 48,
-    "ai_summary": "预测主队胜利，方向明确但缺乏置信度数据支持，仅为一星评级。无法验证是否偏好下狗，且高置信度要求未满足，匹配度较弱。",
+    "ai_score": 45,
+    "ai_summary": "提供清晰的获胜方向但缺少置信度指标，且非下狗选项。在缺乏核心数据支撑的情况下，匹配度有限。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1405,8 +1405,8 @@
     "away_en": "Philadelphia 76ers"
   },
   "nba|San Antonio Spurs|Oklahoma City Thunder": {
-    "ai_score": 48,
-    "ai_summary": "预测主队胜利，方向清晰但无置信度数值，仅为一星。无法确认是否符合高置信度或下狗偏好，整体表现平庸。",
+    "ai_score": 45,
+    "ai_summary": "方向信号清晰但存在数据缺失，且未体现下狗特征。与用户高置信度及下狗偏好均无显著契合。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1416,7 +1416,7 @@
   },
   "nba|Orlando Magic|Atlanta Hawks": {
     "ai_score": 45,
-    "ai_summary": "奥兰多魔术作为主队预测获胜，虽符合主场优势，但缺乏高置信度信号。该预测未体现用户偏好的冷门方向，且为一星低置信度选项。",
+    "ai_summary": "该预测为奥兰多魔术主场战胜亚特兰大老鹰，属于常规实力相当的 matchup。由于缺乏明确的高置信度信号且非典型冷门方向，与用户偏好匹配度一般。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1425,8 +1425,8 @@
     "away_en": "Atlanta Hawks"
   },
   "nba|Washington Wizards|Milwaukee Bucks": {
-    "ai_score": 85,
-    "ai_summary": "华盛顿奇才作为实力较弱的队伍被预测获胜，符合“偏好冷门”的高优先级需求。尽管置信度标记为一星，但方向信号清晰且具备较高赔率价值。",
+    "ai_score": 82,
+    "ai_summary": "预测华盛顿奇才战胜密尔沃基雄鹿，符合用户偏好的“弱者胜”（Underdog）方向。这是明显的强弱对抗，具备较高的冷门价值，方向信号清晰。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1435,8 +1435,8 @@
     "away_en": "Milwaukee Bucks"
   },
   "nba|Brooklyn Nets|Charlotte Hornets": {
-    "ai_score": 80,
-    "ai_summary": "夏洛特黄蜂客场击败布鲁克林篮网，属于典型的弱队爆冷走势。预测方向明确指向客队冷门，契合用户对非热门结果的偏好。",
+    "ai_score": 85,
+    "ai_summary": "预测夏洛特黄蜂客场战胜布鲁克林篮网，属于典型的弱势方取胜（Underdog）。双方实力接近但黄蜂被视为略处下风或势均力敌，符合用户寻找非热门球队获胜的心理。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1446,7 +1446,7 @@
   },
   "nba|Miami Heat|Minnesota Timberwolves": {
     "ai_score": 40,
-    "ai_summary": "迈阿密热火作为强队被预测获胜，属于常规热门结果。该选项缺乏冷门吸引力，且置信度低，不符合用户追求高价值冷门的核心优先级。",
+    "ai_summary": "预测迈阿密热火战胜明尼苏达森林狼，这通常是基于主队优势或森林狼客战不稳的预期。该预测未体现明显的“弱者胜”特征，缺乏针对用户优先级的吸引力。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1456,7 +1456,7 @@
   },
   "nba|New Orleans Pelicans|Indiana Pacers": {
     "ai_score": 88,
-    "ai_summary": "印第安纳步行者客场战胜新奥尔良鹈鹕，是明确的客队冷门预测。方向信号清晰，完全符合用户偏好冷门和高价值结果的策略倾向。",
+    "ai_summary": "预测印第安纳步行者客场战胜新奥尔良鹈鹕，符合用户偏好的冷门方向。作为客队，步行者若被视为相对弱势方，此预测提供了清晰的下注价值。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1466,7 +1466,7 @@
   },
   "nba|Memphis Grizzlies|Utah Jazz": {
     "ai_score": 45,
-    "ai_summary": "该预测指向客队获胜，但仅为一星评级且无置信度数据，不符合高信心偏好。虽然满足冷门方向，但信号强度较弱。",
+    "ai_summary": "预测犹他爵士客场获胜属于冷门方向，但置信度为单星且无具体信心指标，稳定性不足。对于追求高置信度的用户而言，该选项风险较高。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1475,8 +1475,8 @@
     "away_en": "Utah Jazz"
   },
   "nba|Houston Rockets|Dallas Mavericks": {
-    "ai_score": 65,
-    "ai_summary": "主场球队获胜预测带有两星评级，清晰度高于其他条目。虽非典型冷门，但相对信号更强，符合中等偏好。",
+    "ai_score": 55,
+    "ai_summary": "休斯顿火箭主场获胜虽非绝对冷门，但双星评级在五项中提供了相对较好的信号强度。方向明确但置信度提升有限，符合部分偏好。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1485,8 +1485,8 @@
     "away_en": "Dallas Mavericks"
   },
   "nba|Los Angeles Lakers|Golden State Warriors": {
-    "ai_score": 40,
-    "ai_summary": "湖人作为热门球队获胜，不符合冷门偏好。一星评级且无置信度，信号微弱，匹配度低。",
+    "ai_score": 30,
+    "ai_summary": "洛杉矶湖人作为热门球队获胜，不符合用户偏好冷门的策略。单星评级且无高置信度支持，与用户优先级匹配度最低。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1496,7 +1496,7 @@
   },
   "nba|Portland Trail Blazers|Phoenix Suns": {
     "ai_score": 45,
-    "ai_summary": "开拓者作为弱势球队获胜，符合冷门偏好。但仅有一星评级且缺乏置信度，可靠性存疑。",
+    "ai_summary": "波特兰开拓者主场获胜具有冷门属性，但单星评级意味着信号较弱。虽然方向符合偏好，但缺乏高置信度支撑。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1505,8 +1505,8 @@
     "away_en": "Phoenix Suns"
   },
   "nba|Philadelphia 76ers|Cleveland Cavaliers": {
-    "ai_score": 40,
-    "ai_summary": "76人作为强队获胜，既非冷门又非高信心预测。一星评级信号模糊，不满足核心优先级。",
+    "ai_score": 45,
+    "ai_summary": "费城76人主场获胜被视为冷门选择，方向上契合用户偏好。然而单星评级和空白的置信度字段使其吸引力低于双星选项。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1515,9 +1515,9 @@
     "away_en": "Cleveland Cavaliers"
   },
   "nba|Oklahoma City Thunder|Denver Nuggets": {
-    "ai_score": 65,
-    "ai_summary": "雷霆作为常规赛强队具备一定优势，但对手掘金实力强劲，属于势均力敌的对局。两星推荐信号尚可，但缺乏明确的高置信度下犬信号。",
-    "ai_notes": "",
+    "ai_score": 85,
+    "ai_summary": "强队对强队的对决，俄克拉荷马雷霆作为热门方在实力上占优。虽然缺乏低分冷门属性，但方向信号明确，符合清晰预测需求。",
+    "ai_notes": "2-star评级支持较高置信度，非underdog但信号清晰。",
     "league": "nba",
     "source": "",
     "name": "俄克拉荷马雷霆 vs 丹佛掘金",
@@ -1525,9 +1525,9 @@
     "away_en": "Denver Nuggets"
   },
   "nba|Boston Celtics|New York Knicks": {
-    "ai_score": 40,
-    "ai_summary": "凯尔特人是热门主队，并非下犬选项，与用户偏好背道而驰。一星低置信度信号表明预测可靠性低，不符合高置信度要求。",
-    "ai_notes": "",
+    "ai_score": 75,
+    "ai_summary": "波士顿凯尔特人对阵纽约尼克斯，主队胜率预期较高。属于常规强弱对话，缺乏强烈的下注冷门倾向。",
+    "ai_notes": "1-star评级，方向清晰但非低置信度或冷门场景。",
     "league": "nba",
     "source": "",
     "name": "波士顿凯尔特人 vs 纽约尼克斯",
@@ -1535,9 +1535,9 @@
     "away_en": "New York Knicks"
   },
   "nba|San Antonio Spurs|Houston Rockets": {
-    "ai_score": 55,
-    "ai_summary": "马刺主场迎战火箭，存在一定的主场优势，可能构成轻微的下犬或平手盘价值。一星信号置信度较低，仅勉强达到中等匹配度。",
-    "ai_notes": "",
+    "ai_score": 70,
+    "ai_summary": "圣安东尼奥马刺主场作战，面对休斯顿火箭。虽然马刺近期表现波动，但主队方向设定明确。",
+    "ai_notes": "1-star评级，若马刺实力未达预期则存在一定风险，但符合主场信号。",
     "league": "nba",
     "source": "",
     "name": "圣安东尼奥马刺 vs 休斯顿火箭",
@@ -1545,9 +1545,9 @@
     "away_en": "Houston Rockets"
   },
   "nba|Washington Wizards|Charlotte Hornets": {
-    "ai_score": 45,
-    "ai_summary": "奇才对阵黄蜂属于两队实力较弱的对抗，但预测方向为奇才胜，且通常被视为弱势方。一星低置信度使得该选项吸引力有限，不符合高置信度偏好。",
-    "ai_notes": "",
+    "ai_score": 65,
+    "ai_summary": "华盛顿奇才与夏洛特黄蜂同为东部弱旅，比赛不确定性较高。方向设定为主队胜，但缺乏强大实力背书。",
+    "ai_notes": "1-star评级，低水平对抗通常意味着较高波动性，需谨慎看待‘高置信度’预期。",
     "league": "nba",
     "source": "",
     "name": "华盛顿奇才 vs 夏洛特黄蜂",
@@ -1555,9 +1555,9 @@
     "away_en": "Charlotte Hornets"
   },
   "nba|Boston Celtics|Chicago Bulls": {
-    "ai_score": 60,
-    "ai_summary": "凯尔特人作为热门主队战胜公牛并非下犬选择，尽管公牛近期状态波动。两星信号优于其他一星条目，但仍偏离用户偏好的下犬方向。",
-    "ai_notes": "",
+    "ai_score": 80,
+    "ai_summary": "波士顿凯尔特人再次作为主队，面对芝加哥公牛。凯尔特人整体实力占优，方向信号稳定。",
+    "ai_notes": "2-star评级增强了置信度，虽非underdog，但符合清晰方向偏好。",
     "league": "nba",
     "source": "",
     "name": "波士顿凯尔特人 vs 芝加哥公牛",
@@ -1565,8 +1565,8 @@
     "away_en": "Chicago Bulls"
   },
   "nba|Brooklyn Nets|Detroit Pistons": {
-    "ai_score": 45,
-    "ai_summary": "底特律活塞作为下狗队伍获胜，符合用户偏好。但置信度数据缺失，且为单星预测，信号强度不足。",
+    "ai_score": 75,
+    "ai_summary": "底特律活塞作为受让方获胜符合下狗偏好，但单星评级表明信心不足。方向信号明确，适合作为中等风险的下狗选择。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1575,8 +1575,8 @@
     "away_en": "Detroit Pistons"
   },
   "nba|Miami Heat|Indiana Pacers": {
-    "ai_score": 35,
-    "ai_summary": "迈阿密热火是热门队伍，与用户偏好的下狗策略相悖。缺乏明确的高置信度信号，匹配度较低。",
+    "ai_score": 40,
+    "ai_summary": "迈阿密热火是热门方，与用户偏好下狗的策略相悖。单星评级且为热门队，既不符合高信心要求，也不符合下狗偏好。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1585,8 +1585,8 @@
     "away_en": "Indiana Pacers"
   },
   "nba|Phoenix Suns|Denver Nuggets": {
-    "ai_score": 45,
-    "ai_summary": "丹佛掘金相对菲尼克斯太阳可视为下狗选项，方向明确。但因缺少置信度数值，无法确认为高置信度预测。",
+    "ai_score": 85,
+    "ai_summary": "丹佛掘金作为受让方（相对太阳）取胜，符合下狗选择偏好。虽然为单星，但强队在下注盘口中的受让方获胜逻辑较强，方向清晰。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1595,8 +1595,8 @@
     "away_en": "Denver Nuggets"
   },
   "nba|Los Angeles Lakers|Portland Trail Blazers": {
-    "ai_score": 35,
-    "ai_summary": "洛杉矶湖人作为热门球队获胜，不符合下狗偏好。且无置信度数据支持，属于弱匹配项。",
+    "ai_score": 40,
+    "ai_summary": "洛杉矶湖人是绝对热门，违背了用户偏好下狗的指令。单星评级使得该热门选择缺乏吸引力，既非下狗也非高信心。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1605,8 +1605,8 @@
     "away_en": "Portland Trail Blazers"
   },
   "nba|Indiana Pacers|New York Knicks": {
-    "ai_score": 55,
-    "ai_summary": "纽约尼克斯战胜印第安纳步行者，符合下狗胜出的偏好。方向清晰，但缺失的置信度限制了高分评定。",
+    "ai_score": 80,
+    "ai_summary": "纽约尼克斯作为受让方战胜步行者，符合下狗偏好。单星评级限制了分数上限，但方向信号清晰且符合用户风险偏好。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1615,9 +1615,9 @@
     "away_en": "New York Knicks"
   },
   "nba|San Antonio Spurs|Golden State Warriors": {
-    "ai_score": 65,
-    "ai_summary": "2星评级且选择主队获胜，信号强度中等。缺乏高置信度标记，但方向明确，符合部分偏好。",
-    "ai_notes": "非冷门选择，置信度字段为空，属于中等匹配度。",
+    "ai_score": 35,
+    "ai_summary": "预测方向为主队获胜，这与用户偏好冷门队（通常客队或弱队）不符。信心等级为两星，未能满足对高置信度预测的严格要求。",
+    "ai_notes": "",
     "league": "nba",
     "source": "",
     "name": "圣安东尼奥马刺 vs 金州勇士",
@@ -1625,9 +1625,9 @@
     "away_en": "Golden State Warriors"
   },
   "nba|Denver Nuggets|Houston Rockets": {
-    "ai_score": 40,
-    "ai_summary": "1星评级且选择强队丹佛掘金获胜，既不符合高置信度偏好，也非冷门推荐。信号强度较弱。",
-    "ai_notes": "低星级且方向为热门方，与用户优先级冲突较大。",
+    "ai_score": 25,
+    "ai_summary": "丹佛掘金通常被视为热门球队，预测其获胜不符合用户偏好冷门队的策略。一星的信心等级很低，无法提供用户所需的高置信度保障。",
+    "ai_notes": "",
     "league": "nba",
     "source": "",
     "name": "丹佛掘金 vs 休斯顿火箭",
@@ -1635,9 +1635,9 @@
     "away_en": "Houston Rockets"
   },
   "nba|Washington Wizards|Boston Celtics": {
-    "ai_score": 75,
-    "ai_summary": "1星评级但选择客队波士顿凯尔特人，符合冷门偏好。虽然星数低，但方向明确且具备下注价值。",
-    "ai_notes": "方向为客队胜，契合Underdog picks偏好，清晰度尚可。",
+    "ai_score": 45,
+    "ai_summary": "预测波士顿凯尔特人获胜，虽为热门队，但方向信号清晰明确。由于缺乏高置信度支持且不符合冷门偏好，评分仅处于中等水平。",
+    "ai_notes": "",
     "league": "nba",
     "source": "",
     "name": "华盛顿奇才 vs 波士顿凯尔特人",
@@ -1645,9 +1645,9 @@
     "away_en": "Boston Celtics"
   },
   "nba|Denver Nuggets|Dallas Mavericks": {
-    "ai_score": 55,
-    "ai_summary": "2星评级选择主队丹佛掘金，信号中等但非冷门。掘金通常被视为热门，与冷门偏好不符。",
-    "ai_notes": "2星提供一定信心，但方向非下狗，匹配度一般。",
+    "ai_score": 30,
+    "ai_summary": "预测丹佛掘金战胜达拉斯独行侠，同样倾向于强队获胜，违背了用户寻找冷门机会的优先级。二星的信心评级仍低于“高置信度”的要求。",
+    "ai_notes": "",
     "league": "nba",
     "source": "",
     "name": "丹佛掘金 vs 达拉斯独行侠",
@@ -1655,9 +1655,9 @@
     "away_en": "Dallas Mavericks"
   },
   "nba|Philadelphia 76ers|Miami Heat": {
-    "ai_score": 45,
-    "ai_summary": "1星评级选择主队费城76人，信号弱且非冷门。与高置信度和冷门偏好均不匹配。",
-    "ai_notes": "低星级热门方选择，缺乏吸引力。",
+    "ai_score": 35,
+    "ai_summary": "预测费城76人获胜，方向指向相对较强的主队，不符合冷门偏好。一星的低信心等级使得该预测对用户而言吸引力不足。",
+    "ai_notes": "",
     "league": "nba",
     "source": "",
     "name": "费城76人 vs 迈阿密热火",
@@ -1665,8 +1665,8 @@
     "away_en": "Miami Heat"
   },
   "nba|Oklahoma City Thunder|Minnesota Timberwolves": {
-    "ai_score": 75,
-    "ai_summary": "雷霆主场获胜具备一定竞争力，但置信度缺失导致确定性不足。符合普通预测偏好，适合中性仓位。",
+    "ai_score": 65,
+    "ai_summary": "预测主队获胜，星级为2星。因缺乏置信度数据且非明确冷门，匹配度一般。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1675,8 +1675,8 @@
     "away_en": "Minnesota Timberwolves"
   },
   "nba|Portland Trail Blazers|San Antonio Spurs": {
-    "ai_score": 55,
-    "ai_summary": "马刺作为客队取胜，符合冷门倾向但星级较低。置信度为空，风险相对可控但信号不强。",
+    "ai_score": 40,
+    "ai_summary": "预测客队获胜，但星级仅为1星，表明信号较弱。不符合高置信度和强方向信号的优先需求。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1685,8 +1685,8 @@
     "away_en": "San Antonio Spurs"
   },
   "nba|New York Knicks|Miami Heat": {
-    "ai_score": 45,
-    "ai_summary": "尼克斯主场获胜为常规选择，缺乏冷门属性。单星评级且无置信度，优先级较低。",
+    "ai_score": 40,
+    "ai_summary": "预测主队获胜，星级为1星，置信度不明。信号强度不足，难以满足用户对高质量预测的偏好。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1695,8 +1695,8 @@
     "away_en": "Miami Heat"
   },
   "nba|San Antonio Spurs|Los Angeles Lakers": {
-    "ai_score": 80,
-    "ai_summary": "马刺客场击败强敌湖人，是显著的冷门方向。双星评级支持方向清晰，但缺乏量化置信度。",
+    "ai_score": 45,
+    "ai_summary": "预测圣安东尼奥马刺胜湖人，马刺在联盟中通常被视为弱势方，具有冷门属性。但星级仅2星且无置信度，确定性不足。",
     "ai_notes": "",
     "league": "nba",
     "source": "",
@@ -1745,8 +1745,8 @@
     "away_en": "Athletic Club"
   },
   "epl|AFC Bournemouth|Liverpool FC": {
-    "ai_score": 45,
-    "ai_summary": "该条目信心度较低且属于接近胜负的预测，不符合高信心偏好。虽然方向明确，但整体吸引力不足。",
+    "ai_score": 20,
+    "ai_summary": "置信度极低且为冷门预测，但方向信号模糊。不符合高置信度偏好。",
     "ai_notes": "",
     "league": "epl",
     "source": "",
@@ -1755,8 +1755,8 @@
     "away_en": "Liverpool FC"
   },
   "epl|Leeds United FC|Crystal Palace FC": {
-    "ai_score": 48,
-    "ai_summary": "预测信心度偏低，且属于热门球队获胜而非冷门选项。与用户优先级的匹配度一般。",
+    "ai_score": 65,
+    "ai_summary": "利兹联作为主场球队击败强敌水晶宫，符合冷门偏好。置信度中等，方向明确。",
     "ai_notes": "",
     "league": "epl",
     "source": "",
@@ -1765,8 +1765,8 @@
     "away_en": "Crystal Palace FC"
   },
   "epl|Manchester City FC|Sunderland AFC": {
-    "ai_score": 72,
-    "ai_summary": "这是列表中信心度最高的条目，并获得了两星级别评估。尽管是强队获胜，但其可靠性显著优于其他选项。",
+    "ai_score": 40,
+    "ai_summary": "曼城大胜桑德兰属于强队正常发挥，非冷门。虽然置信度尚可，但不符合冷门偏好。",
     "ai_notes": "",
     "league": "epl",
     "source": "",
@@ -1776,7 +1776,7 @@
   },
   "epl|Fulham FC|Manchester United FC": {
     "ai_score": 55,
-    "ai_summary": "预测信心度中等，且涉及热门球队曼联。在方向明确性上尚可，但缺乏高信心特征。",
+    "ai_summary": "曼联客场胜富勒姆，属于强弱分明局的常规结果，非典型冷门。置信度较低，信号一般。",
     "ai_notes": "",
     "league": "epl",
     "source": "",
@@ -1786,7 +1786,7 @@
   },
   "bundesliga|Bayer 04 Leverkusen|RB Leipzig": {
     "ai_score": 75,
-    "ai_summary": "置信度在所有选项中最高，且方向信号清晰（非“接近”）。勒沃库森作为强队主场作战，虽非典型下克上，但符合高置信度与明确方向的核心需求。",
+    "ai_summary": "预测勒沃库森胜，置信度0.475属于中等偏低，但具备具体数值。勒沃库森作为主队且近期强势，相比NBA条目方向更明确，虽非高置信度但优于无数据的NBA条目。",
     "ai_notes": "",
     "league": "bundesliga",
     "source": "",
@@ -1795,8 +1795,8 @@
     "away_en": "RB Leipzig"
   },
   "bundesliga|FC Schalke 04|SV 07 Elversberg": {
-    "ai_score": 70,
-    "ai_summary": "沙尔克04胜的方向信号清晰且为下克上倾向，但置信度处于中等水平。符合下克上与清晰方向偏好，属于良好匹配。",
+    "ai_score": 65,
+    "ai_summary": "沙尔克04作为主队具备一定优势，但信心度仅0.471，处于中等水平。方向信号明确支持主队胜利，符合部分偏好但缺乏高置信度支撑。",
     "ai_notes": "",
     "league": "bundesliga",
     "source": "",
@@ -1805,8 +1805,8 @@
     "away_en": "SV 07 Elversberg"
   },
   "bundesliga|SC Paderborn 07|TSG 1899 Hoffenheim": {
-    "ai_score": 50,
-    "ai_summary": "霍芬海姆胜的方向带有“接近”修饰，信号清晰度受损且置信度较低。虽符合下克上偏好，但整体匹配度一般。",
+    "ai_score": 45,
+    "ai_summary": "霍芬海姆被视为客队热门或优势方，不符合偏爱弱势方（underdog）的优先条件。信心度0.362较低，且方向信号虽明确但风险较高。",
     "ai_notes": "",
     "league": "bundesliga",
     "source": "",
@@ -1815,9 +1815,9 @@
     "away_en": "TSG 1899 Hoffenheim"
   },
   "laliga|Getafe CF|Málaga CF": {
-    "ai_score": 35,
-    "ai_summary": "置信度仅0.40，远低于用户偏好的高置信度标准。赫塔菲对阵马拉加，赫塔菲通常不被视为典型下狗，且方向信号清晰但风险高。",
-    "ai_notes": "置信度偏低，不符合核心偏好",
+    "ai_score": 68,
+    "ai_summary": "赫塔菲主场对马拉加，方向指向主队获胜，信心度0.46接近中等门槛。在拉 liga中属于相对稳健的主场预测，但未达到高置信标准。",
+    "ai_notes": "",
     "league": "laliga",
     "source": "",
     "name": "赫塔菲 vs 马拉加",
@@ -1825,9 +1825,9 @@
     "away_en": "Málaga CF"
   },
   "laliga|Club Atlético de Madrid|Real Madrid CF": {
-    "ai_score": 25,
-    "ai_summary": "置信度0.333极低，且为1星推荐，属于弱信号。马德里竞技对皇家马德里是顶级对决，皇家马德里获胜方向清晰但缺乏高置信度支持。",
-    "ai_notes": "低置信度，高风险，不推荐",
+    "ai_score": 40,
+    "ai_summary": "马德里的国家德比中预测马竞获胜，通常被视为非典型弱队选择，且信心度0.386偏低。高关注度赛事的不确定性远高于当前信心水平所示。",
+    "ai_notes": "",
     "league": "laliga",
     "source": "",
     "name": "马德里竞技 vs 皇家马德里",
@@ -1835,9 +1835,9 @@
     "away_en": "Real Madrid CF"
   },
   "laliga|RC Deportivo La Coruña|Real Betis Balompié": {
-    "ai_score": 25,
-    "ai_summary": "置信度0.311为全组最低，1星推荐，信号最弱。虽然皇家贝蒂斯可能对拉科鲁尼亚构成下狗优势，但模型置信度过低，不符合高置信度优先原则。",
-    "ai_notes": "置信度过低，不予考虑",
+    "ai_score": 72,
+    "ai_summary": "拉科鲁尼亚作为传统西乙或降级队对阵贝蒂斯，符合弱势方（underdog）偏好。信心度0.372虽低，但方向信号明确支持主队，具有较高投机价值。",
+    "ai_notes": "",
     "league": "laliga",
     "source": "",
     "name": "拉科鲁尼亚 vs 皇家贝蒂斯",
@@ -1845,9 +1845,9 @@
     "away_en": "Real Betis Balompié"
   },
   "laliga|Villarreal CF|Levante UD": {
-    "ai_score": 50,
-    "ai_summary": "置信度0.506高于平均水平，比利亚雷亚尔主场对莱万特通常具备下狗或平手优势，方向信号清晰。虽置信度未达“极高”，但相对其他条目表现更佳，符合部分偏好。",
-    "ai_notes": "相对最优选择，适合作为中等信心下狗单",
+    "ai_score": 35,
+    "ai_summary": "置信度极低且方向不确定，无法满足高置信度或清晰信号要求。尽管涉及弱队，但风险过高。",
+    "ai_notes": "",
     "league": "laliga",
     "source": "",
     "name": "比利亚雷亚尔 vs 莱万特",
@@ -1855,8 +1855,8 @@
     "away_en": "Levante UD"
   },
   "laliga|Valencia CF|Real Sociedad de Fútbol": {
-    "ai_score": 65,
-    "ai_summary": "该预测指向瓦伦西亚对皇家社会的客胜，置信度处于中等偏低水平。方向信号相对清晰，但缺乏高置信度支撑，适合作为常规关注项。",
+    "ai_score": 30,
+    "ai_summary": "置信度最低且信号模糊，严重不符合高置信度和清晰方向偏好。弱队属性不足以弥补可靠性缺陷。",
     "ai_notes": "",
     "league": "laliga",
     "source": "",
@@ -1865,8 +1865,8 @@
     "away_en": "Real Sociedad de Fútbol"
   },
   "ligue1|AJ Auxerre|Stade Brestois 29": {
-    "ai_score": 35,
-    "ai_summary": "虽包含下犬倾向（布雷斯特客场胜），但信心值（0.214）仍偏低且信号方向标记为“接近”，清晰度不足。整体匹配度较弱。",
+    "ai_score": 25,
+    "ai_summary": "置信度低且方向不确定，不满足高置信度要求。虽为潜在弱队，但预测可靠性差。",
     "ai_notes": "",
     "league": "ligue1",
     "source": "",
@@ -1875,8 +1875,8 @@
     "away_en": "Stade Brestois 29"
   },
   "ligue1|OGC Nice|Lille OSC": {
-    "ai_score": 45,
-    "ai_summary": "预测里尔客场胜具有下犬属性，符合下犬偏好，但信心值（0.292）依然低于高信心门槛。信号标注为“接近”，确定性有限。",
+    "ai_score": 78,
+    "ai_summary": "唯一的高置信度且明确方向信号条目，符合用户对高置信度和清晰信号的核心优先级。虽非弱队，但稳定性优于其他低置信度选项。",
     "ai_notes": "",
     "league": "ligue1",
     "source": "",
@@ -1885,8 +1885,8 @@
     "away_en": "Lille OSC"
   },
   "ligue1|Olympique de Marseille|Paris Saint-Germain FC": {
-    "ai_score": 85,
-    "ai_summary": "信心值接近0.5且评级为2星，提供清晰的非“接近”方向信号，完美契合高信心与清晰信号的优先需求。唯一不足是预测方并非典型下犬球队。",
+    "ai_score": 45,
+    "ai_summary": "置信度中等偏低且方向信号带有保留标记，不符合高置信度偏好。弱队偏好虽可能相关，但可靠性不足。",
     "ai_notes": "",
     "league": "ligue1",
     "source": "",
@@ -1895,8 +1895,8 @@
     "away_en": "Paris Saint-Germain FC"
   },
   "seriea|ACF Fiorentina|SSC Napoli": {
-    "ai_score": 85,
-    "ai_summary": "那不勒斯客场获胜的方向清晰，置信度良好。强队预测符合一般逻辑，虽非下狗但信号稳健，匹配度高。",
+    "ai_score": 45,
+    "ai_summary": "置信度较低，信号不够清晰。符合下注偏好，但整体质量较弱。",
     "ai_notes": "",
     "league": "seriea",
     "source": "",
@@ -1905,8 +1905,8 @@
     "away_en": "SSC Napoli"
   },
   "seriea|Frosinone Calcio|Como 1907": {
-    "ai_score": 45,
-    "ai_summary": "置信度最高且星级最强，但科莫在此语境下可能被视为热门而非传统下狗。方向信号明确，但需权衡热门预测的风险。",
+    "ai_score": 50,
+    "ai_summary": "置信度偏低，方向虽为下盘但缺乏说服力。满足部分用户偏好，表现一般。",
     "ai_notes": "",
     "league": "seriea",
     "source": "",
@@ -1915,8 +1915,8 @@
     "away_en": "Como 1907"
   },
   "seriea|Parma Calcio 1913|Genoa CFC": {
-    "ai_score": 35,
-    "ai_summary": "置信度极低且非热门方方向，虽符合冷门偏好但信号较弱。该预测缺乏高置信度支撑，不建议优先选择。",
+    "ai_score": 52,
+    "ai_summary": "置信度略高于前两项，仍属中等水平。作为下盘选项具备一定吸引力。",
     "ai_notes": "",
     "league": "seriea",
     "source": "",
@@ -1925,8 +1925,8 @@
     "away_en": "Genoa CFC"
   },
   "seriea|Juventus FC|Atalanta BC": {
-    "ai_score": 50,
-    "ai_summary": "方向为热门方获胜，与偏好冷门的需求相悖。置信度中等，属于一般匹配项。",
+    "ai_score": 75,
+    "ai_summary": "置信度较高且方向清晰，为高质量预测。未体现下盘偏好，但整体稳健。",
     "ai_notes": "",
     "league": "seriea",
     "source": "",
@@ -1935,8 +1935,8 @@
     "away_en": "Atalanta BC"
   },
   "seriea|AC Milan|US Lecce": {
-    "ai_score": 80,
-    "ai_summary": "具备最高置信度和清晰的3星信号，最符合高置信度偏好。虽然方向为热门方，但综合确定性指标表现最佳。",
+    "ai_score": 85,
+    "ai_summary": "置信度最高且方向明确，符合核心偏好。作为强队胜选项略偏离下盘偏好。",
     "ai_notes": "",
     "league": "seriea",
     "source": "",

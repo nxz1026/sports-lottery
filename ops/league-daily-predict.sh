@@ -108,5 +108,26 @@ trigger "NBA 篮球预测" "jobs/predict-bball" '{"ahead_days":90,"trigger":"tim
 # 3) AI 富化（配额与 predict 共享同一计数器）
 trigger "AI 富化" "jobs/ai-enrich" '{"trigger":"timer"}'
 
+# 4) topic 新鲜度检查：超 24h 落 /home/ubuntu/logs/dsh-freshness-alerts.log
+#    不外推通知、不阻塞主流程。纯 GET，超时 30s。
+ALERT_LOG="${LEAGUE_FRESHNESS_ALERT_LOG:-/home/ubuntu/logs/dsh-freshness-alerts.log}"
+mkdir -p "$(dirname "$ALERT_LOG")"
+resp="$(api "$BASE/jc/freshness?threshold_hours=24" || true)"
+fresh_json="$(sed '$d' <<<"$resp" || true)"
+fresh_code="$(tail -n1 <<<"$resp" || echo "000")"
+if [ "$fresh_code" = "200" ] && [ -n "$fresh_json" ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] && log "$line" >> "$ALERT_LOG"
+  done <<<"$(printf '%s' "$fresh_json" | /home/ubuntu/.venvs/league/bin/python -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    raise SystemExit
+for a in d.get('alerts') or []:
+    print(a)
+")"
+fi
+
 log "结束，退出码 $rc"
 exit "$rc"
