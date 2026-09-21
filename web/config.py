@@ -98,6 +98,28 @@ API_FOOTBALL_MINUTE_LIMIT: int = _env_int("API_FOOTBALL_MINUTE_LIMIT", 10)
 API_FOOTBALL_TIMEOUT_SECONDS: int = _env_int("API_FOOTBALL_TIMEOUT_SECONDS", 10)
 
 
+# --- 临时赛事白名单（五大联赛之外的赛事，CSV；用于亚运/欧冠/世界杯/奥运等）----
+# 命名采用 fact.jc_match.league_cn 的官方全名（与 jczq_offer 入港的 leagueName 一致）。
+# 重启服务生效；赛事过完把这一行注释掉、再次重启即恢复"五大联赛主面板"。
+# 例：LEAGUE_TEMP_LEAGUES="亚运会男足,亚运会女足,亚洲冠军精英联赛,欧罗巴联赛"
+LEAGUE_TEMP_LEAGUES_RAW: str = os.getenv("LEAGUE_TEMP_LEAGUES", "").strip()
+
+
+def parse_league_temp(raw: str) -> tuple[str, ...]:
+    """解析 LEAGUE_TEMP_LEAGUES：去空白/去重/过滤空项，保持原顺序。"""
+    seen, out = set(), []
+    for tok in raw.split(","):
+        t = tok.strip()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return tuple(out)
+
+
+LEAGUE_TEMP_LEAGUES: tuple[str, ...] = parse_league_temp(LEAGUE_TEMP_LEAGUES_RAW)
+
+
 def env_summary() -> dict:
     """暴露给 /health 的无敏感摘要（不含账号/密码）。"""
     return {
@@ -110,6 +132,7 @@ def env_summary() -> dict:
         "cors_origins": CORS_ORIGINS,
         "predict_timeout_seconds": PREDICT_TIMEOUT_SECONDS,
         "daily_trigger_limit": DAILY_TRIGGER_LIMIT,
+        "league_temp_leagues": list(LEAGUE_TEMP_LEAGUES),
     }
 
 
