@@ -84,11 +84,13 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   const matched=rows.filter(r=>r.matched);
   // 精选横条（≤2 条）+ LLM 推荐理由：高度按是否显示动态算
   const picks=rows.filter(r=>r.matched&&r.algo).sort((a,b)=>(b.algo.stars||0)-(a.algo.stars||0));
-  const showPicks=picks.slice(0,2).map(p=>`${p.match_num} ${(p.home_cn||"").slice(0,8)}vs${(p.away_cn||"").slice(0,8)}→${recTxt(p)}`);
+  const showPicks=picks.length?picks.slice(0,2).map(p=>`${p.match_num} ${(p.home_cn||"").slice(0,8)}vs${(p.away_cn||"").slice(0,8)}→${recTxt(p)}`):[];
   const showReason=showPicks.length && pickReason;
-  const picksBlockH = 26 + (showReason ? 22 : 0);
+  const picksBlockH = (showPicks.length ? 26 : 8) + (showReason ? 22 : 0);
   // 高度：头部 + 实时要闻条(3行) + 精选横条 + 推荐理由(?) + 表格 + 页脚
-  canvas.height=HEAD+NB+picksBlockH+ROW*rows.length+FOOT;
+  // 高度：头部 + 实时要闻条(3行) + 精选横条 + 推荐理由(?) + 表格(仅主图有赛事时) + 页脚
+  const tableBlockH=rows.length?(ROW*(rows.length+1)):0; // 表头+数据行；空主图不占高度
+  canvas.height=HEAD+NB+picksBlockH+tableBlockH+FOOT;
   const g=ctx.createLinearGradient(0,0,0,canvas.height);
   g.addColorStop(0,"#3f9d63"); g.addColorStop(0.35,"#7cc48a"); g.addColorStop(1,"#3f9d63");
   ctx.fillStyle=g; ctx.fillRect(0,0,W,canvas.height);
@@ -113,18 +115,18 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   const newsLines=fitNews3(news).split("\n");
   newsLines.forEach((ln,i)=>{ ctx.fillText(ln, 152, y+18+i*20); });
   y+=NB;
-  // 精选横条（≤2 条）+ LLM 推荐理由（按需）
-  ctx.fillStyle="#fff"; ctx.strokeStyle="#c62828";
-  ctx.fillRect(0,y-10,W,30); ctx.strokeRect(0,y-10,W,30);
-  ctx.fillStyle="#c62828"; ctx.font="bold 15px 'PingFang SC','Microsoft YaHei'";
-  ctx.fillText("◆ 今日精选", 16, y+10);
-  ctx.fillStyle="#1c1c1c"; ctx.font="14px 'PingFang SC'";
+  // 精选横条（≤2 条）：无主图精选时整条不画（避免空框架显得排版乱）
   if (showPicks.length){
+    ctx.fillStyle="#fff"; ctx.strokeStyle="#c62828";
+    ctx.fillRect(0,y-10,W,30); ctx.strokeRect(0,y-10,W,30);
+    ctx.fillStyle="#c62828"; ctx.font="bold 15px 'PingFang SC','Microsoft YaHei'";
+    ctx.fillText("◆ 今日精选", 16, y+10);
+    ctx.fillStyle="#1c1c1c"; ctx.font="14px 'PingFang SC'";
     ctx.fillText(showPicks.join("　"), 118, y+10);
+    y+=26;
   } else {
-    ctx.fillText("暂无精选（模型预判积累中）", 118, y+10);
+    y+=8; // 留小间距，不画空横条
   }
-  y+=26;
   // LLM 推荐理由（精选 ≥1 条时显示一行）
   if (showReason){
     ctx.fillStyle="#fff"; ctx.fillRect(0,y-10,W,28);
@@ -132,22 +134,24 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
     ctx.fillText(`💡 ${pickReason}`, 16, y+10);
     y+=22;
   }
-  // 表格头
+  // 表格头：主图无赛事时整张表不画（临时赛事走独立 temp canvas，不混进主表）
   const cols=[
     {k:"league",l:"联赛",w:150},{k:"no",l:"场次",w:62},{k:"team",l:"对阵",w:238},
     {k:"handicap",l:"让球",w:56},{k:"pick",l:"推荐",w:92},{k:"score",l:"比分",w:112},{k:"haf",l:"半全场",w:190},
   ];
   const labels=["联赛","场次","对阵","让球","推荐","比分","半全场"];
   const hafCols=cols.reduce((a,c)=>a+c.w,0); // 校验不越界可用
-  trHead(ctx,y,W,cols,labels); y+=ROW;
-  rows.forEach(r=>{
+  if(rows.length){
+    trHead(ctx,y,W,cols,labels); y+=ROW;
+    rows.forEach(r=>{
     const algo=r.algo||{};
     const hdcap=(r.goal_line!=null&&r.goal_line!=="")?String(r.goal_line):"—";
     const scoreTxt=(r.matched&&algo.top2&&algo.top2.length)?algo.top2.join("/"):(r.matched&&algo.score?algo.score:"—");
     const hafPick=(r.haf_model&&r.haf_model.pick)?r.haf_model.pick:"—";
     trRow(ctx,y,W,cols,[r.league_cn||"",String(r.match_num||""),`${r.home_cn||""}vs${r.away_cn||""}`,hdcap,recTxt(r),scoreTxt,hafPick],r.matched);
-    y+=ROW;
-  });
+      y+=ROW;
+    });
+  } // end if(rows.length)
   // 底部红横幅（无 slogan，仅合规 + 二维码）
   ctx.fillStyle="#c62828"; ctx.globalAlpha=.94;
   ctx.fillRect(0,canvas.height-FOOT,W,FOOT); ctx.globalAlpha=1;
@@ -330,9 +334,16 @@ async function load(){
     // QR 固定指向 Dashboard 主页（不是 dailyimage.html 自身）
     const dashboardUrl=(_PREFIX||"")+"/";
     const q=await api("qr?url="+encodeURIComponent(dashboardUrl)).catch(()=>({}));
+    const mainRows = SPORT==="basketball" ? (d.rows||[]) : ((d.main_rows!=null)?d.main_rows:(d.rows||[]));
     CANVAS = SPORT==="basketball"
-      ? await drawNba(d.rows||[],d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news)
-      : await drawFootball(d.rows||[],d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news,pickReason);
+      ? await drawNba(mainRows,d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news)
+      : await drawFootball(mainRows,d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news,pickReason);
+    if(SPORT==="football" && (d.main_rows!=null) && d.main_rows.length===0 && (d.rows||[]).length && d.note){
+      const noteBar=document.createElement("div");
+      noteBar.style.cssText="text-align:center;color:#8d6e00;background:#fff4d6;border:1px solid #e0c96a;border-radius:6px;padding:8px 14px;font-size:13px;margin:0 auto 10px;max-width:900px;line-height:1.6";
+      noteBar.textContent="ℹ️ "+d.note;
+      host.insertBefore(noteBar,CANVAS);
+    }
     host.appendChild(CANVAS);
     // 临时赛事（LEAGUE_TEMP_LEAGUES：亚运/欧冠/世界杯/奥运 等）：附加独立 canvas，
     // 仅显示 odd 盘口层，无模型预判；五大联赛无在售时也要展示（note 已提示主面板空）。
