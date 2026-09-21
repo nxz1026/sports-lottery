@@ -180,6 +180,21 @@ def daily_image(sport: str = "football", _: None = Depends(require_auth)) -> dic
     # 用户定范围＝NBA + 五大联赛：足球表只保留五大联赛在售（无预判的仍列 odd 层）。
     rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
     matched = [r for r in rows if r.get("matched")]
+    # 五大联赛通常周末 / 周中分散，平日本视图常为空；
+    # 与 NBA 休赛处理对称：rows=[] 返回 available=False + 明确 note，
+    # 前端 dailyimage.html 已有空态卡片"还没有今天的图 + note"。
+    if not rows:
+        return {
+            "sport": "football", "available": False, "rows": [],
+            "date": today.isoformat(),
+            "note": (f"今日（{today.isoformat()}）五大联赛无在售赛事。"
+                      "五大联赛通常在周末/周中分散开赛，请到「竞彩盘口」视图选其他日期查看历史图，"
+                      "或查看 [NBA 篮球] 每日一图。"),
+            "stats": {"scope": "五大联赛", "on_sale": 0, "recommend": 0, "nba": 0,
+                      "hit": _hit_stats()},
+            "match_note": ("范围：NBA + 五大联赛。推荐列为官方盘口(odd)与模型算法层的合并；"
+                           "让球线取官方 hhad 盘口；命中率待实际结算数据积累后如实展示。"),
+        }
     return {
         "sport": "football", "available": True, "rows": rows,
         "date": today.isoformat(),
