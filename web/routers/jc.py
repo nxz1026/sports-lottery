@@ -218,7 +218,7 @@ def daily_image(sport: str = "football", _: None = Depends(require_auth)) -> dic
                 f"{len(temp_rows)} 场临时赛事（{ ' / '.join(LEAGUE_TEMP_LEAGUES) }，盘口层，无模型预判）。")
     return {
         "sport": "football", "available": available,
-        "rows": rows,        # 兜底兼容旧前端（main + temp 拼接）
+        "rows": main_rows,    # 主面板（五大联赛）；temp_rows 单独暴露，避免前端同场重复
         "main_rows": main_rows,
         "temp_rows": temp_rows,
         "date": today.isoformat(),
