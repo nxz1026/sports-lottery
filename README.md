@@ -408,6 +408,13 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 | App ID | ——（本机部署，无云端 App ID） |
 | 看板鉴权 | 用户名 `admin`（Nginx Basic） + 页面 `a`（league-api session） |
 
+**临时赛事白名单（亚运 / 欧冠 / 世界杯 / 奥运 等）**：
+- 通过 `.env` 的 `LEAGUE_TEMP_LEAGUES`（CSV）控制，五大联赛 + 临时白名单一并出现在每日一图 / dashboard 今日推荐。
+- 国内采集机 0 改动（数据本就在 26 个联赛里持续入港），临时赛事**无模型预判**（historical_past_matches.json 仅含五大联赛），仅显示官方盘口。
+- 启用：`echo 'LEAGUE_TEMP_LEAGUES=亚运会男足,亚运会女足' >> /home/ubuntu/league-v2/repo/.env && sudo systemctl restart league-dashboard`，`/health` 会暴露当前白名单。
+- 下线：`sed -i '/^LEAGUE_TEMP_LEAGUES=/d' .env && sudo systemctl restart league-dashboard`，自动恢复五大联赛主面板。
+- 命名：与 `fact.jc_match.league_cn` 官方全名一致（如"亚运会男足"/"欧罗巴联赛"），错误命名会显示空态卡 + note。
+
 **部署链路（本机）**：
 1. `/home/ubuntu/league-v2/repo/.env`（gitignore）存凭据：`AUTH_USERNAME/PASSWORD`、`API_FOOTBALL_KEY`、`FOOTBALL_DATA_API_KEY`、`ODDS_API_KEY`/`NBA_API_KEY`、`LEAGUE_*`、`LLM_*` 等。systemd 通过 `EnvironmentFile=` 注入；不要提交该文件。
 2. 代码 push 到 `origin/main`，本机直接 `git pull` 即拿到最新代码；systemd `Restart=on-failure` 会自动重启加载新代码（仅 Python/前端；`.env` 改动需手动 restart 加载）。
