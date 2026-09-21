@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Web Dashboard HTML Generator (P5-1).
+"""league-api 看盘 HTML 生成器 (P5-1)。
 
 生成静态 HTML Dashboard 文件，可视化预测结果：
 - 实时预测表格（方向、信心、比分、λ 参数）
