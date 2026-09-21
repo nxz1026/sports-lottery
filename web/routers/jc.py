@@ -35,6 +35,17 @@ _BIG5 = {
     "德国甲级联赛", "法国甲级联赛",
 }
 
+
+def _big5_with_temp() -> set[str]:
+    """白名单全集 = 硬编码五大联赛 ∪ env LEAGUE_TEMP_LEAGUES（去重）。
+
+    端点过滤统一使用本集合：临时赛事（亚运/欧冠/世界杯等）出现在
+    daily-image/jc_gap/movement/ai_analyze 等候选中，daily-image 在
+    端点内再做 main/temp 分组。
+    """
+    from web.config import LEAGUE_TEMP_LEAGUES
+    return _BIG5 | set(LEAGUE_TEMP_LEAGUES)
+
 # league_cn 全名 → 预测文件名里的联赛键，供命中率对账（core.backtest）。
 _BIG5_KEYS = {
     "英格兰超级联赛": "epl",
@@ -170,41 +181,58 @@ def daily_image(sport: str = "football", _: None = Depends(require_auth)) -> dic
 
     # sport == "football"（默认）
     # 用今天（BJT）作 day 查所有场次——不查 latest business_date，避免被非五大联赛日期
-    # （如亚运/友谊赛）覆盖；daily-image 口径 = "今日在售的五大联赛"
+    # （如亚运/友谊赛）覆盖；daily-image 口径 = "今日在售的五大联赛 + 临时赛事"。
     fixture_rows = jc_view.fixtures_on(today.isoformat())
     pred_by_league = {
         lg: (doc.get("data") or {}).get("predictions", [])
         for lg, doc in latest.items()
     }
     rows = build_rows(fixture_rows, pred_by_league)
-    # 用户定范围＝NBA + 五大联赛：足球表只保留五大联赛在售（无预判的仍列 odd 层）。
-    rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
-    matched = [r for r in rows if r.get("matched")]
-    # 五大联赛通常周末 / 周中分散，平日本视图常为空；
-    # 与 NBA 休赛处理对称：rows=[] 返回 available=False + 明确 note，
-    # 前端 dailyimage.html 已有空态卡片"还没有今天的图 + note"。
+    # 白名单 = 五大联赛硬编码 ∪ env LEAGUE_TEMP_LEAGUES；临时赛事无训练样本 → algo/hhad/haf 不会计算（仅 odd 盘口层）。
+    rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
+
+    # 分组：五大联赛主面板 + 临时赛事附面板（仅盘口层）。
+    main_rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
+    temp_rows = [r for r in rows if (r.get("league_cn") or "") not in _BIG5]
+    main_matched = [r for r in main_rows if r.get("matched")]
+
+    from web.config import LEAGUE_TEMP_LEAGUES
     if not rows:
+        # 五大联赛 + 临时赛事都没有：彻底空态
         return {
-            "sport": "football", "available": False, "rows": [],
+            "sport": "football", "available": False, "rows": [], "main_rows": [], "temp_rows": [],
             "date": today.isoformat(),
             "note": (f"今日（{today.isoformat()}）五大联赛无在售赛事。"
                       "五大联赛通常在周末/周中分散开赛，请到「竞彩盘口」视图选其他日期查看历史图，"
                       "或查看 [NBA 篮球] 每日一图。"),
-            "stats": {"scope": "五大联赛", "on_sale": 0, "recommend": 0, "nba": 0,
-                      "hit": _hit_stats()},
+            "stats": {"scope": "五大联赛", "main_on_sale": 0, "main_recommend": 0,
+                      "temp_on_sale": 0, "nba": 0, "hit": _hit_stats()},
             "match_note": ("范围：NBA + 五大联赛。推荐列为官方盘口(odd)与模型算法层的合并；"
                            "让球线取官方 hhad 盘口；命中率待实际结算数据积累后如实展示。"),
         }
+    # available 条件：五大联赛有赛事（用户主面板）或临时赛事有赛事（值得展示，但提示主面板空）
+    available = bool(main_rows) or bool(temp_rows)
+    note = None
+    if not main_rows and temp_rows:
+        note = (f"今日（{today.isoformat()}）五大联赛无在售赛事；附 "
+                f"{len(temp_rows)} 场临时赛事（{ ' / '.join(LEAGUE_TEMP_LEAGUES) }，盘口层，无模型预判）。")
     return {
-        "sport": "football", "available": True, "rows": rows,
+        "sport": "football", "available": available,
+        "rows": rows,        # 兜底兼容旧前端（main + temp 拼接）
+        "main_rows": main_rows,
+        "temp_rows": temp_rows,
         "date": today.isoformat(),
+        "note": note,
         "stats": {
-            "scope": "五大联赛", "on_sale": len(rows), "recommend": len(matched),
+            "scope": "五大联赛+临时赛事", "on_sale": len(rows),
+            "main_on_sale": len(main_rows), "main_recommend": len(main_matched),
+            "temp_on_sale": len(temp_rows),
             "nba": 0,
             "hit": _hit_stats(),
         },
-        "match_note": ("范围：NBA + 五大联赛。推荐列为官方盘口(odd)与模型算法层的合并；"
-                       "让球线取官方 hhad 盘口；命中率待实际结算数据积累后如实展示。"),
+        "match_note": ("范围：NBA + 五大联赛 + 临时赛事（env LEAGUE_TEMP_LEAGUES）。"
+                       "临时赛事无模型预判，仅显示官方盘口；让球线取官方 hhad 盘口；"
+                       "命中率仅统计五大联赛。"),
     }
 
 
@@ -227,7 +255,7 @@ def gap(top: int = 10, _: None = Depends(require_auth)) -> dict:
         for lg, doc in latest.items()
     }
     rows = build_rows(fixture_rows, pred_by_league)
-    rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
+    rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
     items = _jc_gap(rows, top_n=min(max(int(top), 1), 30))
     return {
         "sport": "football", "scope": "五大联赛", "count": len(items),
@@ -246,7 +274,7 @@ def movement(day: str | None = None, _: None = Depends(require_auth)) -> dict:
     from store import jc_view
 
     rows = jc_view.jc_movement(day=day)
-    rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
+    rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
     return {
         "sport": "football", "scope": "五大联赛", "day": day or "latest",
         "count": len(rows), "items": rows,
@@ -344,7 +372,7 @@ def _picks_context(sport: str, limit: int = 2) -> str:
             for lg, doc in (_ws.latest_by_league() or {}).items()
         }
         rows = _br(fixture_rows, pred_by_league)
-        rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
+        rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
         matched = [r for r in rows if r.get("matched") and r.get("algo")]
         matched.sort(key=lambda r: -(r.get("algo", {}).get("stars") or 0))
         picks = matched[:limit]
@@ -371,7 +399,7 @@ def _news_context(sport: str) -> str:
         rows = jc_view.fixtures_on(None)
         seen: dict = {}
         for r in rows:
-            if (r.get("league_cn") or "") not in _BIG5:
+            if (r.get("league_cn") or "") not in _big5_with_temp():
                 continue
             mn = r.get("match_num")
             if mn is None or mn in seen:

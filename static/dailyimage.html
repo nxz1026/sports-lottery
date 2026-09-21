@@ -160,6 +160,51 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   if(qr){ try{ const im=await loadSvg(qr); const qs=80, qx=W-qs-30, qy=canvas.height-FOOT+60; ctx.drawImage(im,qx,qy,qs,qs);}catch(e){} }
   return canvas;
 }
+/* ===== 临时赛事图块（亚运/欧冠/世界杯/奥运 等，env LEAGUE_TEMP_LEAGUES 配置）=====
+ * 仅 odd 盘口层，无模型预判；视觉与主图一致以便阅读，但无 header/精选/AI 要闻。 */
+function drawTempLeagues(rows,date){
+  const canvas=document.createElement("canvas");
+  canvas.id="tempLeaguesCanvas";
+  const ctx=canvas.getContext("2d");
+  const W=900, ROW=44, HEAD=60, FOOT=24;
+  canvas.width=W;
+  canvas.height=HEAD + ROW*rows.length + FOOT;
+  // 背景：浅金色调（与主图深绿区分，提示"次级/临时"）
+  ctx.fillStyle="#fff8e1"; ctx.fillRect(0,0,W,canvas.height);
+  // 顶部：临时赛事横幅 + 说明
+  ctx.fillStyle="#c62828"; ctx.fillRect(0,0,W,HEAD-4);
+  ctx.fillStyle="#fff"; ctx.textAlign="center";
+  ctx.font="bold 20px 'PingFang SC','Microsoft YaHei',sans-serif";
+  ctx.fillText("🏅 临时赛事（仅盘口层 · 模型暂无预测）", W/2, 26);
+  ctx.font="13px 'PingFang SC'";
+  ctx.fillText(`${date} · 由 LEAGUE_TEMP_LEAGUES 配置：赛事过完关闭 env 行并重启即可下线`, W/2, 46);
+  // 列：联赛 / 场次 / 对阵 / 让球 / 主胜 / 平 / 客胜
+  const labels=["联赛","场次","对阵","让球","主胜","平","客胜"];
+  const colW=[160,60,290,60,80,80,80];
+  let x=10, y=HEAD-4;
+  ctx.fillStyle="#3f3f3f"; ctx.font="bold 13px 'PingFang SC'";
+  labels.forEach((lab,i)=>{ ctx.fillText(lab, x, y-4); x+=colW[i]; });
+  ctx.strokeStyle="#c8c8c8"; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  // 行
+  ctx.font="13px 'PingFang SC','Microsoft YaHei'";
+  rows.forEach((r,i)=>{
+    const ry = y + ROW*i + 16;
+    if(i%2===1){ ctx.fillStyle="#f5f5f5"; ctx.fillRect(0, y+ROW*i, W, ROW); ctx.fillStyle="#3f3f3f"; }
+    const lg = r.league_cn || "";
+    ctx.fillStyle = leagueColor(lg); ctx.fillText(lg, 10, ry);
+    ctx.fillStyle="#3f3f3f";
+    ctx.fillText(String(r.match_num||""), 10+colW[0], ry);
+    ctx.fillText(`${r.home_cn||""} vs ${r.away_cn||""}`, 10+colW[0]+colW[1], ry);
+    ctx.fillText(String(r.goal_line||"—"), 10+colW[0]+colW[1]+colW[2], ry);
+    // had 盘口（主/平/客赔率）：build_rows 输出 r.had 本身是 options 字典（h/d/a 键）。
+    const hadOpts = r.had || {};
+    const oh = hadOpts.h, od = hadOpts.d, oa = hadOpts.a;
+    ctx.fillText(oh!=null?Number(oh).toFixed(2):"—", 10+colW[0]+colW[1]+colW[2]+colW[3], ry);
+    ctx.fillText(od!=null?Number(od).toFixed(2):"—", 10+colW[0]+colW[1]+colW[2]+colW[3]+colW[4], ry);
+    ctx.fillText(oa!=null?Number(oa).toFixed(2):"—", 10+colW[0]+colW[1]+colW[2]+colW[3]+colW[4]+colW[5], ry);
+  });
+  return canvas;
+}
 /* ===== NBA 每日一图 ===== */
 async function drawNba(rows,date,qr,qrurl,stats,news){
   const canvas=document.createElement("canvas");
@@ -289,6 +334,17 @@ async function load(){
       ? await drawNba(d.rows||[],d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news)
       : await drawFootball(d.rows||[],d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news,pickReason);
     host.appendChild(CANVAS);
+    // 临时赛事（LEAGUE_TEMP_LEAGUES：亚运/欧冠/世界杯/奥运 等）：附加独立 canvas，
+    // 仅显示 odd 盘口层，无模型预判；五大联赛无在售时也要展示（note 已提示主面板空）。
+    const tempRows = (SPORT==="football" && d.temp_rows && d.temp_rows.length) ? d.temp_rows : [];
+    if(tempRows.length){
+      const tempCanvas = drawTempLeagues(tempRows, d.date);
+      host.appendChild(tempCanvas);
+      const tmpLabel = document.createElement("div");
+      tmpLabel.style.cssText="text-align:center;color:#555;font-size:13px;padding:8px 0 6px";
+      tmpLabel.textContent="🏅 临时赛事（env LEAGUE_TEMP_LEAGUES 配置） · 仅盘口层 · 模型暂无预测";
+      host.insertBefore(tmpLabel, tempCanvas);
+    }
     document.getElementById("download").style.display="";
   }catch(e){
     host.innerHTML='<div class="empty"><h2>生成失败</h2><p>'+(e.message||"请稍后重试")+'</p></div>';
