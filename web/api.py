@@ -1,4 +1,4 @@
-"""web.api — FastAPI 应用工厂与开发入口。
+"""web.api — league-api 服务入口（FastAPI 应用工厂）。
 
 - GET  /health    免鉴权健康检查
 - 静态挂载 /login（static/login.html）；未登录 GET / → 302 /login
@@ -34,7 +34,7 @@ from web.routers.ticket import router as ticket_router
 from web.lifecycle import lifespan
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-APP_TITLE = "league-predict Web Dashboard"
+APP_TITLE = "league-api"
 APP_VERSION = "0.1.0"
 
 # scripts/（core 纯函数，如 core.backtest.league_accuracy）供 web 复用：

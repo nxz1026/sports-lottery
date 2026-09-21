@@ -2,7 +2,7 @@
 
 联赛预测引擎。多数据源融合 + 信号模型 + ELO + Dixon-Coles 双变量泊松 + 蒙特卡洛模拟。
 
-推理内核零外部依赖（纯 stdlib）。**v2 起 `scripts/store/`、`scripts/ingest/` 另需 `psycopg[binary]`（唯一新增依赖，只用于落库/取数，不进预测链路）**。统一运行在 FastAPI Cloud（见「运行与部署」）。GitHub Actions 已于 2026-09-11 下线。
+推理内核零外部依赖（纯 stdlib）。**v2 起 `scripts/store/`、`scripts/ingest/` 另需 `psycopg[binary]`（唯一新增依赖，只用于落库/取数，不进预测链路）**。统一运行在 `league-api`（本机 systemd + Nginx，见「运行与部署」）。GitHub Actions 已于 2026-09-11 下线。
 
 ## v2 进行中：全玩法覆盖（分支 `v2`，2026-09-15 起）
 
@@ -398,20 +398,20 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 
 ## 运行与部署
 
-主应用部署说明沿用 **FastAPI Cloud**；体彩 Dashboard 是部署机上的独立 Nginx + systemd 入口，两者不是同一公网路由。Dashboard 的本机部署、`/dashboard/jc/` 前缀代理和应用 session 说明见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
+`league-api`（原"league-predict Web Dashboard"）即这套预测读取 API + 自看面板，跑在本机 NDORACLE（`140.83.62.161`）上：systemd `league-dashboard.service`（127.0.0.1:8077）+ Nginx 代理公网 `/dashboard/jc/`，前端在 `static/`，后端在 `web/`。FastAPI Cloud Hobby 档已退役，无 fastapicloud.dev / scale-to-zero，session 与预测 JSON 直接落本机盘 / DB。详细部署说明见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
 
 | 项 | 值 |
 |---|---|
-| 线上地址 | https://league-predict.fastapicloud.dev |
-| 平台 | FastAPI Cloud Hobby（scale-to-zero，免费档） |
-| App ID | `b94a43da-be9f-47da-bfde-18188c489dad` |
-| 看板鉴权 | 用户名 `admin`（口令见运维机 `deploy/runtime.env`，**不入库**） |
+| 线上地址 | https://140.83.62.161/dashboard/jc/ |
+| 进程 | `league-dashboard.service`（systemd `127.0.0.1:8077`，`Restart=on-failure`） |
+| 公网入口 | 本机 Nginx（`/dashboard/jc/` → 静态入口 + `/dashboard/jc/api/` → `league-api /api/`，走 Nginx Basic Auth） |
+| App ID | ——（本机部署，无云端 App ID） |
+| 看板鉴权 | 用户名 `admin`（Nginx Basic） + 页面 `a`（league-api session） |
 
-**部署链路**（运维机 `/root/projects/league-predict`）：
-1. `deploy/runtime.env`（gitignore）存凭据：`AUTH_*`、`API_FOOTBALL_KEY`、`FOOTBALL_DATA_API_KEY`、`LLM_API_KEY/BASE/MODEL`。本机 systemd Dashboard 当前使用 `/home/ubuntu/league-v2/repo/.env`，并通过 `EnvironmentFile` 注入；不要提交该文件。
-2. `bash /root/build_league_web.sh` 组装 staging 到 `/root/build/league-web`（拷 web/static/scripts/ai/… + 写 pyproject `[tool.fastapi] entrypoint="web.api:app"` + 顶层 `main.py` 引导 + `.env`→`config.env` + 注入 `web/__init__.py` load_dotenv）。
-3. 用部署 token 免登录发布：`FASTAPI_CLOUD_TOKEN=<deploy token> FASTAPI_CLOUD_APP_ID=<id> fastapi cloud deploy /root/build/league-web`。
-4. 核验：`GET https://api.fastapicloud.com/api/v1/apps/<id>` → `latest_deployment.status == success`。
+**部署链路（本机）**：
+1. `/home/ubuntu/league-v2/repo/.env`（gitignore）存凭据：`AUTH_USERNAME/PASSWORD`、`API_FOOTBALL_KEY`、`FOOTBALL_DATA_API_KEY`、`ODDS_API_KEY`/`NBA_API_KEY`、`LEAGUE_*`、`LLM_*` 等。systemd 通过 `EnvironmentFile=` 注入；不要提交该文件。
+2. 代码 push 到 `origin/main`，本机直接 `git pull` 即拿到最新代码；systemd `Restart=on-failure` 会自动重启加载新代码（仅 Python/前端；`.env` 改动需手动 restart 加载）。
+3. 核验：`curl -kI https://140.83.62.161/dashboard/jc/` 返回 200（过 Basic Auth 后），`/dashboard/jc/api/v1/me` 过 `a/a` 登录后 200。
 
 **运行时预测/富化**（在 Web 界面触发，或 API）：
 - `POST /api/v1/jobs/predict`（选联赛/数据源/蒙特卡洛）跑 `scripts/predict.py`。**不传参数时只跑英超**（`--league` 默认值 `epl`）；要跑全部 5 个足球联赛须显式传 `{"all": true}`，或传 `{"league": "laliga"}` 等指定单个联赛。

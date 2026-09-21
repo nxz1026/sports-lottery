@@ -1,1 +1,1 @@
-"""league-predict Web 层（M1 骨架：会话认证）。"""
+"""league-api 服务层（M1 骨架：会话认证）。"""
