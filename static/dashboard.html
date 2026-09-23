@@ -3,9 +3,133 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>竞彩智荐 · 数据仪表盘</title>
-<style>
-:root{--bg:#0d1117;--soft:#141a22;--panel:#161d26;--hover:#1d2631;--line:#283342;--ink:#e9eef6;--mut:#9aa7b6;--dim:#687688;--red:#ff3b46;--red2:#ff858b;--green:#33c48d;--gold:#ffcf5c;--blue:#7aa2ff;--radius:10px}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}a{color:inherit;text-decoration:none}button,select{font:inherit}.app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}.side{background:var(--soft);border-right:1px solid var(--line);padding:14px 10px;position:sticky;top:0;height:100vh}.brand{display:flex;gap:9px;align-items:center;padding:5px 8px 18px}.mark{display:grid;place-items:center;width:31px;height:31px;border-radius:8px;background:linear-gradient(135deg,var(--red),#a61520);font-weight:800;font-size:16px}.brand b{display:block}.brand small{color:var(--dim)}.section{color:var(--dim);font-size:11px;letter-spacing:.08em;margin:14px 8px 5px}.nav{display:flex;flex-direction:column;gap:3px}.nav button{border:0;background:none;color:var(--mut);text-align:left;padding:9px 10px;border-radius:6px;cursor:pointer}.nav button:hover,.nav button.active{color:#fff;background:linear-gradient(90deg,#522127,transparent);box-shadow:inset 2px 0 var(--red)}.nav button span{float:right;color:var(--red2);font-size:11px}.side-status{margin:22px 0 0;padding:11px;border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);color:var(--mut);font-size:12px}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:6px}.main{min-width:0}.top{height:53px;padding:0 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:3;background:rgba(13,17,23,.9);backdrop-filter:blur(10px)}.top h1{font-size:15px;margin:0}.crumb{color:var(--dim)}.grow{flex:1}.live{border:1px solid var(--line);border-radius:999px;padding:4px 10px;color:var(--mut);font-size:12px}.btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:6px 12px;cursor:pointer}.btn:hover{background:var(--hover)}.btn.primary{background:linear-gradient(135deg,var(--red),#bd1b26);border:0;color:white;font-weight:650}.layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:20px;padding:22px;max-width:1500px;margin:auto}.view{display:none;min-width:0}.view.active{display:block}.hero{margin-bottom:17px}.kicker{color:var(--red2);font-size:12px;font-weight:650}.hero h2{font-size:23px;margin:4px 0}.hero p{margin:0;color:var(--mut)}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}.kpi{padding:14px 15px;background:var(--panel)}.kpi label{display:block;color:var(--dim);font-size:11px;font-weight:650}.kpi strong{display:block;font-size:25px;margin:3px 0;font-variant-numeric:tabular-nums}.kpi small{color:var(--mut)}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:13px}.chip{border:1px solid var(--line);background:var(--panel);color:var(--mut);border-radius:999px;padding:5px 12px;cursor:pointer}.chip.active{color:var(--red2);border-color:var(--red);background:#3a1b22}.hint{color:var(--dim);margin-left:auto}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.card,.match{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:15px}.match:hover{border-color:#455466}.m-top,.teams,.pick,.meta,.prob-legend{display:flex;align-items:center;gap:8px}.m-top{color:var(--dim);font-size:12px;margin-bottom:10px}.league{background:var(--hover);padding:2px 7px;border-radius:4px;color:var(--mut)}.m-top time{margin-left:auto}.teams{margin-bottom:12px}.team{display:flex;align-items:center;gap:8px;flex:1;min-width:0;font-weight:650}.team.away{justify-content:flex-end;text-align:right}.badge{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,#3b82f6,#1e40af);color:#fff;font-weight:800}.vs{color:var(--dim);font-size:11px}.prob{height:7px;display:flex;overflow:hidden;border-radius:9px;background:var(--hover)}.prob i{height:100%}.prob .h{background:var(--red)}.prob .d{background:var(--blue)}.prob .a{background:var(--dim)}.prob-legend{justify-content:space-between;color:var(--dim);font-size:11px;margin:5px 0 12px}.pick{border-top:1px solid var(--line);padding-top:11px}.tag{background:#3b2028;color:var(--red2);padding:4px 9px;border-radius:5px;font-weight:700}.stars{color:var(--gold);letter-spacing:1px}.odds{margin-left:auto;text-align:right;color:var(--gold);font-size:17px;font-weight:700}.odds small{display:block;color:var(--dim);font-size:10px;font-weight:400}.meta{margin-top:9px;flex-wrap:wrap}.mini{padding:2px 8px;border-radius:99px;background:var(--hover);color:var(--mut);font-size:11px}.mini.good{background:#183a32;color:#68d6ac}.rail{display:flex;flex-direction:column;gap:13px}.card h3{font-size:13px;margin:0 0 11px}.daily{background:linear-gradient(145deg,#342026,var(--panel));border-color:#67323b}.daily ul{padding-left:18px;color:var(--mut);margin:5px 0}.daily li{margin:6px 0}.daily b{color:var(--ink)}.bar{height:7px;background:var(--hover);border-radius:8px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--red),var(--gold))}.dist{display:flex;flex-direction:column;gap:9px}.dist-row header{display:flex;justify-content:space-between;color:var(--mut);font-size:12px}.dist-row b{color:var(--ink)}.empty{border:1px dashed var(--line);padding:28px;text-align:center;color:var(--mut);border-radius:var(--radius)}.error{color:#ff9898;border-color:#8d363d}.loading{color:var(--mut);animation:pulse 1.2s infinite}@keyframes pulse{50%{opacity:.45}}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}th{color:var(--dim);font-size:11px}td{font-variant-numeric:tabular-nums}.scroll{overflow:auto}footer{grid-column:1/-1;border-top:1px solid var(--line);padding-top:15px;color:var(--dim);font-size:11.5px}footer b{color:var(--mut)}.hidden{display:none!important}@media(max-width:1120px){.layout{grid-template-columns:1fr}.rail{order:-1;display:grid;grid-template-columns:repeat(3,1fr)}}@media(max-width:800px){.app{display:block}.side{height:auto;position:static;border:0;border-bottom:1px solid var(--line);display:flex;align-items:center;overflow:auto;padding:8px}.brand{padding:4px 8px}.section,.side-status,.brand small{display:none}.nav{flex-direction:row}.nav button{white-space:nowrap}.top{padding:0 13px}.crumb{display:none}.layout{padding:15px 12px}.kpis{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.rail{display:block}.rail .card{margin-bottom:13px}} 
-.match-detail{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:rgba(20,26,34,.65)}.recommendation-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 14px;margin:0}.recommendation-detail-grid>div{min-width:0}.recommendation-detail-grid dt{color:var(--dim);font-size:11px}.recommendation-detail-grid dd{margin:1px 0 0;color:var(--ink);overflow-wrap:anywhere}.detail-unavailable{color:var(--dim)}@media(max-width:700px){.recommendation-detail-grid{grid-template-columns:1fr}}
+<style>/* =============================================================================
+   主题：GitHub 风格双色调（亮 / 暗）。纯 CSS @media (prefers-color-scheme) 驱动，
+   不引入脚本、开关按钮或本地存储，也不依赖任何主题属性标记。
+   语义：正常/命中→--ok   失败/未中→--bad   进行中/待定→--link 或 --muted
+        警告→--warn-bg/--warn-border   链接/主强调→--link
+        红涨绿跌方向保留：涨/主胜→--bad（红系），跌→--ok（绿系），仅随亮暗调明度。
+   ============================================================================= */
+:root{
+  --bg:#ffffff;--fg:#1f2328;--muted:#59636e;--border:#d0d7de;--subtle:#f6f8fa;
+  --link:#0969da;--ok:#1a7f37;--bad:#cf222e;--warn-bg:#fff8c5;--warn-border:#bf8700;
+  --btn-bg:#f6f8fa;--btn-hover:#eef1f4;--code-bg:#f6f8fa;color-scheme:light;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans CJK SC",sans-serif;
+  --font-mono:ui-monospace,"SF Mono","JetBrains Mono",Consolas,monospace;
+  /* 既有变量名一律保留、引用点不动，只把值重定向到上面这套语义色 */
+  --soft:var(--subtle);--panel:var(--subtle);--hover:var(--btn-hover);--line:var(--border);
+  --ink:var(--fg);--mut:var(--muted);--dim:var(--muted);--radius:6px;
+  --red:var(--bad);--red2:var(--bad);--green:var(--ok);--gold:var(--warn-border);--blue:var(--link);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--border:#30363d;--subtle:#161b22;
+    --link:#2f81f7;--ok:#3fb950;--bad:#f85149;--warn-bg:#2b2306;--warn-border:#9e6a03;
+    --btn-bg:#21262d;--btn-hover:#30363d;--code-bg:#161b22;color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-sans);font-size:14px;line-height:1.5}
+a{color:inherit;text-decoration:none}
+button,select{font:inherit}
+h1,h2,h3,b,strong{font-weight:600}
+code{background:var(--code-bg);color:var(--fg);border-radius:4px;padding:1px 4px;font-family:var(--font-mono);font-size:.92em}
+.app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+.side{background:var(--soft);border-right:1px solid var(--line);padding:14px 10px;position:sticky;top:0;height:100vh}
+.brand{display:flex;gap:9px;align-items:center;padding:5px 8px 18px}
+.mark{display:grid;place-items:center;width:31px;height:31px;border-radius:6px;background:var(--link);color:var(--bg);font-weight:800;font-size:16px}
+.brand b{display:block}
+.brand small{color:var(--dim)}
+.section{color:var(--dim);font-size:11px;letter-spacing:.08em;margin:14px 8px 5px}
+.nav{display:flex;flex-direction:column;gap:3px}
+.nav button{border:0;background:none;color:var(--mut);text-align:left;padding:9px 10px;border-radius:6px;cursor:pointer}
+.nav button:hover,.nav button.active{color:var(--fg);background:var(--subtle);border-left:2px solid var(--link);padding-left:8px}
+.nav button span{float:right;color:var(--red2);font-size:11px}
+.side-status{margin:22px 0 0;padding:11px;border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);color:var(--mut);font-size:12px}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:6px}
+.main{min-width:0}
+.top{height:53px;padding:0 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:3;background:var(--bg)}
+.top h1{font-size:15px;margin:0}
+.crumb{color:var(--dim)}
+.grow{flex:1}
+.live{border:1px solid var(--line);border-radius:6px;padding:4px 10px;color:var(--mut);font-size:12px}
+.btn{border:1px solid var(--line);background:var(--btn-bg);color:var(--ink);border-radius:6px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:var(--btn-hover)}
+.btn.primary{background:var(--link);border:0;color:var(--bg);font-weight:600}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:20px;padding:22px;max-width:1500px;margin:auto}
+.view{display:none;min-width:0}
+.view.active{display:block}
+.hero{margin-bottom:17px}
+.kicker{color:var(--link);font-size:12px;font-weight:600}
+.hero h2{font-size:23px;margin:4px 0}
+.hero p{margin:0;color:var(--mut)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
+.kpi{padding:14px 15px;background:var(--panel)}
+.kpi label{display:block;color:var(--dim);font-size:11px;font-weight:600}
+.kpi strong{display:block;font-size:25px;margin:3px 0;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.kpi small{color:var(--mut)}
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:13px}
+.chip{border:1px solid var(--line);background:var(--panel);color:var(--mut);border-radius:6px;padding:5px 12px;cursor:pointer}
+.chip.active{color:var(--link);border-color:var(--link);background:var(--subtle)}
+.hint{color:var(--dim);margin-left:auto}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.card,.match{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:15px}
+.match:hover{border-color:var(--muted)}
+.m-top,.teams,.pick,.meta,.prob-legend{display:flex;align-items:center;gap:8px}
+.m-top{color:var(--dim);font-size:12px;margin-bottom:10px}
+.league{background:var(--hover);padding:2px 7px;border-radius:4px;color:var(--mut)}
+.m-top time{margin-left:auto}
+.teams{margin-bottom:12px}
+.team{display:flex;align-items:center;gap:8px;flex:1;min-width:0;font-weight:600}
+.team.away{justify-content:flex-end;text-align:right}
+.badge{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--link);color:var(--bg);font-weight:800}
+.vs{color:var(--dim);font-size:11px}
+.prob{height:7px;display:flex;overflow:hidden;border-radius:6px;background:var(--hover)}
+.prob i{height:100%}
+.prob .h{background:var(--red)}
+.prob .d{background:var(--blue)}
+.prob .a{background:var(--dim)}
+.prob-legend{justify-content:space-between;color:var(--dim);font-size:11px;margin:5px 0 12px}
+.pick{border-top:1px solid var(--line);padding-top:11px}
+.tag{background:var(--subtle);color:var(--link);padding:4px 9px;border-radius:4px;font-weight:600}
+.stars{color:var(--gold);letter-spacing:1px}
+.odds{margin-left:auto;text-align:right;color:var(--fg);font-size:17px;font-weight:600;font-family:var(--font-mono)}
+.odds small{display:block;color:var(--dim);font-size:10px;font-weight:400}
+.meta{margin-top:9px;flex-wrap:wrap}
+.mini{padding:2px 8px;border-radius:4px;background:var(--hover);color:var(--mut);font-size:11px}
+.mini.good{background:var(--subtle);color:var(--ok)}
+.rail{display:flex;flex-direction:column;gap:13px}
+.card h3{font-size:13px;margin:0 0 11px}
+.daily{background:var(--subtle);border-color:var(--border)}
+.daily ul{padding-left:18px;color:var(--mut);margin:5px 0}
+.daily li{margin:6px 0}
+.daily b{color:var(--ink)}
+.bar{height:7px;background:var(--hover);border-radius:6px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--link)}
+.dist{display:flex;flex-direction:column;gap:9px}
+.dist-row header{display:flex;justify-content:space-between;color:var(--mut);font-size:12px}
+.dist-row b{color:var(--ink)}
+.empty{border:1px dashed var(--line);padding:28px;text-align:center;color:var(--mut);border-radius:var(--radius)}
+.error{color:var(--bad);border-color:var(--bad)}
+.loading{color:var(--mut);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.45}}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-size:11px}
+td{font-variant-numeric:tabular-nums}
+.scroll{overflow:auto}
+footer{grid-column:1/-1;border-top:1px solid var(--line);padding-top:15px;color:var(--dim);font-size:11.5px}
+footer b{color:var(--mut)}
+.hidden{display:none!important}
+@media(max-width:1120px){.layout{grid-template-columns:1fr}.rail{order:-1;display:grid;grid-template-columns:repeat(3,1fr)}}
+@media(max-width:800px){.app{display:block}.side{height:auto;position:static;border:0;border-bottom:1px solid var(--line);display:flex;align-items:center;overflow:auto;padding:8px}.brand{padding:4px 8px}.section,.side-status,.brand small{display:none}.nav{flex-direction:row}.nav button{white-space:nowrap}.top{padding:0 13px}.crumb{display:none}.layout{padding:15px 12px}.kpis{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.rail{display:block}.rail .card{margin-bottom:13px}}
+.match-detail{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.recommendation-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 14px;margin:0}
+.recommendation-detail-grid>div{min-width:0}
+.recommendation-detail-grid dt{color:var(--dim);font-size:11px}
+.recommendation-detail-grid dd{margin:1px 0 0;color:var(--ink);overflow-wrap:anywhere}
+.detail-unavailable{color:var(--dim)}
+@media(max-width:700px){.recommendation-detail-grid{grid-template-columns:1fr}}
 /* 竞彩盘口 / 彩票开奖：子面板切换与官方代码展示（纯样式，无新依赖） */
 .jcpanel{display:none}.jcpanel.active{display:block}
 .opt{max-height:110px;overflow:auto;color:var(--mut);font-size:11.5px;margin-top:4px;overflow-wrap:anywhere}
@@ -16,24 +140,29 @@ details>summary{cursor:pointer;color:var(--blue);font-size:11.5px}
 .warn{color:var(--gold)}
 /* 多维筛选（今日 / 竞彩 / 彩票）与开奖号码分组：纯样式，无外部依赖 */
 .fgroup{display:flex;align-items:flex-start;gap:9px;margin:0 0 9px;flex-wrap:wrap}
-.flabel{color:var(--dim);font-size:11px;font-weight:650;min-width:50px;padding-top:5px;letter-spacing:.04em}
+.flabel{color:var(--dim);font-size:11px;font-weight:600;min-width:50px;padding-top:5px;letter-spacing:.04em}
 .chipwrap{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0;max-height:112px;overflow:auto}
 .chip.sm{padding:3px 9px;font-size:12px}
 .kw{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:5px 10px;min-width:220px;flex:1}
-.kw:focus{outline:1px solid var(--red);border-color:var(--red)}
-.lball{display:inline-grid;place-items:center;min-width:25px;height:25px;padding:0 3px;border-radius:6px;background:var(--hover);color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
-.lball.pre{background:#3b2028;color:var(--red2)}
-.lball.post{background:#1b2a44;color:var(--blue)}
+.kw:focus{outline:1px solid var(--link);border-color:var(--link)}
+.lball{display:inline-grid;place-items:center;min-width:25px;height:25px;padding:0 3px;border-radius:6px;background:var(--hover);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-variant-numeric:tabular-nums}
+.lball.pre{background:var(--subtle);color:var(--bad)}
+.lball.post{background:var(--subtle);color:var(--link)}
 .lgrp{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
 .lsep{color:var(--dim);padding:0 2px;font-weight:700}
 .lstat{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 9px}
-@media(max-width:800px){.flabel{min-width:100%;padding-top:0}}</style>
+/* 临时赛事表格由 JS 模板生成、色值写死在内联 style 上（本工单冻结 JS），
+   此处用作用域覆盖把唯一的残留彩虹色（浅黄底）归一到语义色，保证暗色下可读。 */
+#tempLeaguesBody table thead tr{background:var(--subtle)!important}
+#tempLeaguesBody table tbody tr{border-bottom-color:var(--border)!important}
+@media(max-width:800px){.flabel{min-width:100%;padding-top:0}}
+</style>
 </head>
 <body>
 <div id="agePrompt" class="card" style="display:none;position:fixed;inset:auto 14px 14px auto;z-index:9;max-width:360px"><b>理性购彩提示</b><p style="color:var(--mut);margin:5px 0">本平台仅供信息参考，未满18周岁禁止购买彩票。</p><button class="btn" data-action="age-dismiss">我已知晓</button></div><div class="app"><aside class="side"><div class="brand"><div class="mark">竞</div><div><b>竞彩智荐</b><small>体彩推荐工作台 · v2</small></div></div><div class="section">今日</div><button class="btn" id="mobileNavToggle" data-action="nav-toggle">☰ 菜单</button><nav class="nav"><button class="active" data-view="today">⌂ 今日推荐 <span id="navCount">—</span></button><button data-view="combo">☷ 串关工作台</button><button data-view="champion">♛ 冠军概率</button><div class="section">复盘</div><button data-view="history">↻ 历史与命中率</button><button data-view="sources">▤ 数据源与任务</button><div class="section">竞彩与彩票</div><button data-view="jc">▦ 竞彩盘口</button><button data-view="lottery">◎ 彩票开奖</button><button data-view="ai-analyze">🧠 AI 分析</button><button data-action="daily-image">🖼 每日一图</button><button data-action="share">↗ 分享</button></nav><div class="side-status"><span class="dot" id="sourceDot"></span><span id="sourceText">数据源检查中…</span><br><small id="sourceMeta">—</small></div></aside><main class="main"><header class="top"><h1 id="pageTitle">今日推荐</h1><span class="crumb">竞彩足球 · NBA 篮球 · 模型数据</span><span class="grow"></span><span class="live"><i class="dot"></i><span id="liveText">连接中…</span></span><button class="btn primary" id="refresh">↻ 刷新推荐</button></header><div class="layout"><section class="view active" id="view-today"><div class="hero"><div class="kicker" id="dateLabel">BJT 比赛日</div><h2>今日精选推荐</h2><p>按模型信心排序，数据来自现有预测 API。数值仅供信息参考，不构成投注建议。</p></div><div class="kpis"><div class="kpi"><label>在榜赛事</label><strong id="kpiMatches">—</strong><small id="kpiLeagues">等待数据</small></div><div class="kpi"><label>高信心（≥4★）</label><strong id="kpiHigh">—</strong><small>模型评分</small></div><div class="kpi"><label>近 7 日命中率</label><strong id="kpiAccuracy">—</strong><small>来自 accuracy_summary</small></div><div class="kpi"><label>AI 状态</label><strong id="kpiAI">—</strong><small id="kpiAIMeta">/api/v1/ai/status</small></div></div><div class="toolbar"><button class="chip" data-action="personalize">仅显示关注联赛/球队</button><span id="followSummary" class="hint">本地偏好未设置</span></div><div class="toolbar" id="sportFilters"><button class="chip active" data-sport="all">全部运动</button><button class="chip" data-sport="football">足球</button><button class="chip" data-sport="basketball">篮球</button><span class="hint" id="sportSummary">—</span></div><div class="card" id="filterPanel" style="margin-bottom:13px"><div class="fgroup"><span class="flabel">联赛</span><div class="chipwrap" id="leagueFilters"><span class="cellnote">等待今日数据…</span></div></div><div class="fgroup"><span class="flabel">开球时间</span><div class="chipwrap" id="timeFilters"><button class="chip active" data-time="all">全部</button><button class="chip" data-time="known">有开球时间</button><button class="chip" data-time="today">今天</button><button class="chip" data-time="tomorrow">明天</button><button class="chip" data-time="3d">未来3天</button><button class="chip" data-time="unknown">时间待定</button></div><span class="cellnote" id="timeNote">—</span></div><div class="fgroup"><span class="flabel">星级</span><div class="chipwrap" id="starFilters"><button class="chip active" data-stars="0">全部星级</button><button class="chip" data-stars="1">≥1★</button><button class="chip" data-stars="2">≥2★</button><button class="chip" data-stars="3">≥3★</button><button class="chip" data-stars="4">≥4★</button><button class="chip" data-stars="5">≥5★</button></div></div><div class="fgroup"><span class="flabel">信心分</span><div class="chipwrap" id="confFilters"><button class="chip active" data-conf="0">全部</button><button class="chip" data-conf="0.05">≥5%</button><button class="chip" data-conf="0.1">≥10%</button><button class="chip" data-conf="0.15">≥15%</button><button class="chip" data-conf="0.2">≥20%</button></div><span class="cellnote" id="confNote">—</span></div><div class="fgroup"><span class="flabel">玩法</span><div class="chipwrap" id="filters"><button class="chip active" data-filter="all">全部玩法</button><button class="chip" data-filter="胜">胜平负</button><button class="chip" data-filter="让">让球</button><button class="chip" data-filter="进球">总进球</button><button class="chip" data-filter="score">比分</button></div></div><div class="fgroup"><span class="flabel">搜索</span><input class="kw" id="kwInput" type="search" placeholder="队名 / 比赛 / 联赛关键词，空格分隔多词（AND）"><button class="btn" data-action="filter-reset">↺ 重置筛选</button></div><div class="fgroup" style="margin:0"><span class="flabel">结果</span><span id="matchCount" style="color:var(--mut)">共 — 场，当前筛选 — 场</span><span class="cellnote" id="filterSummary"></span></div></div><div class="grid" id="matchGrid"><div class="empty loading">正在加载今日预测…</div></div>
 <section id="tempLeaguesSection" style="display:none;margin-top:18px">
-  <div class="card" style="background:#fff8e1;border-color:#ffb74d">
-    <h3 style="color:#c62828;margin:0 0 4px">🏅 临时赛事 <span class="hint">（亚运 / 欧冠 / 世界杯 / 奥运 等，env LEAGUE_TEMP_LEAGUES 配置）</span></h3>
+  <div class="card" style="background:var(--warn-bg);border-color:var(--warn-border)">
+    <h3 style="color:var(--fg);margin:0 0 4px">🏅 临时赛事 <span class="hint">（亚运 / 欧冠 / 世界杯 / 奥运 等，env LEAGUE_TEMP_LEAGUES 配置）</span></h3>
     <p style="color:var(--mut);margin:0 0 10px;font-size:12.5px">临时赛事无模型预判样本，仅显示官方盘口（主胜 / 平 / 客胜赔率）。赛事过完关闭 .env 中 LEAGUE_TEMP_LEAGUES 行并重启即可下线。</p>
     <div id="tempLeaguesBody"></div>
   </div>
