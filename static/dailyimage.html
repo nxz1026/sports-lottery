@@ -5,20 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>竞彩智荐 · 每日一图</title>
 <style>
-  body{margin:0;font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#eef2ee;color:#1c1c1c}
-  .bar{display:flex;align-items:center;gap:12px;padding:12px 18px;background:#c62828;color:#fff;position:sticky;top:0;z-index:5;flex-wrap:wrap}
-  .bar h1{font-size:18px;margin:0;font-weight:700}
+  :root{
+    --bg:#ffffff;--fg:#1f2328;--muted:#59636e;--border:#d0d7de;--subtle:#f6f8fa;
+    --link:#0969da;--ok:#1a7f37;--bad:#cf222e;--warn-bg:#fff8c5;--warn-border:#bf8700;
+    --btn-bg:#f6f8fa;--btn-hover:#eef1f4;--code-bg:#f6f8fa;color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--border:#30363d;--subtle:#161b22;
+      --link:#2f81f7;--ok:#3fb950;--bad:#f85149;--warn-bg:#2b2306;--warn-border:#9e6a03;
+      --btn-bg:#21262d;--btn-hover:#30363d;--code-bg:#161b22;color-scheme:dark;
+    }
+  }
+  body{margin:0;background:var(--bg);color:var(--fg);font-size:14px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans CJK SC",sans-serif}
+  .bar{display:flex;align-items:center;gap:12px;padding:12px 18px;background:var(--subtle);color:var(--fg);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+  .bar h1{font-size:18px;margin:0;font-weight:600}
   .bar .grow{flex:1}
-  .btn{background:#fff;color:#c62828;border:0;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;font-size:14px}
-  .btn.ghost{background:transparent;color:#fff;border:1px solid #fff}
-  .btn.on{background:#ffe082;color:#c62828}
+  .btn{background:var(--btn-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit}
+  .btn:hover{background:var(--btn-hover)}
+  .btn.ghost{background:transparent}
+  .btn.on{background:var(--btn-hover);color:var(--link);border-color:var(--link)}
   #wrap{padding:12px 18px 40px;overflow:auto}
-  canvas{display:block;margin:0 auto;background:#dcebe0;box-shadow:0 2px 12px rgba(0,0,0,.25);border-radius:4px;max-width:100%;height:auto}
+  canvas{display:block;margin:0 auto;background:var(--subtle);border:1px solid var(--border);border-radius:6px;max-width:100%;height:auto}
   @media (max-width:920px){ #wrap{padding:8px 8px 30px} .bar{padding:8px 12px} .bar h2{font-size:15px} .bar button{padding:4px 10px;font-size:13px} }
-  .empty{max-width:640px;margin:60px auto;text-align:center;background:#fff;padding:48px 36px;border-radius:10px;box-shadow:0 3px 14px rgba(0,0,0,.12)}
-  .empty h2{color:#c62828;margin:0 0 12px}
-  .empty p{color:#666;font-size:15px;line-height:1.7}
-  .footnote{text-align:center;color:#999;font-size:12px;padding:6px 0 26px}
+  .empty{max-width:640px;margin:60px auto;text-align:center;background:var(--subtle);padding:48px 36px;border:1px solid var(--border);border-radius:6px}
+  .empty h2{color:var(--bad);margin:0 0 12px;font-weight:600}
+  .empty p{color:var(--muted);font-size:15px;line-height:1.7}
+  .footnote{text-align:center;color:var(--muted);font-size:12px;padding:6px 0 26px}
 </style>
 </head>
 <body>
@@ -38,6 +52,14 @@
 
 <script>
 "use strict";
+/* ===== 主题调色板：颜色一律取自 CSS 变量（亮/暗由 @media prefers-color-scheme 决定）
+ * 画布仅更换颜色来源，尺寸/布局/绘制顺序/接口调用不变；切换系统主题后刷新页面即可重绘。 */
+const PAL=(function(){
+  const cs=getComputedStyle(document.documentElement);
+  const g=function(n){return cs.getPropertyValue(n).trim();};
+  return {bg:g("--bg"),fg:g("--fg"),muted:g("--muted"),border:g("--border"),subtle:g("--subtle"),
+          link:g("--link"),ok:g("--ok"),warnBg:g("--warn-bg"),warnBorder:g("--warn-border")};
+})();
 /* ===== 数据获取（复用 lp_session cookie，同源）=====
  * 应用在公网 Nginx 挂 /dashboard/jc/ 前缀，本机 8077 是根路径：从前缀推导 API 基址。 */
 const _idx=location.pathname.indexOf("/static/");
@@ -63,15 +85,7 @@ function recTxt(r){
   const hasLine=r.goal_line!=null&&r.goal_line!==""&&r.goal_line!=="0";
   return hasLine?("让"+s):s;
 }
-function leagueColor(lg){
-  const s=String(lg||"");
-  if(s.indexOf("英超")>=0||s.indexOf("英格兰超级")>=0)return "#7b1fa2";
-  if(s.indexOf("西甲")>=0||s.indexOf("西班牙甲级")>=0)return "#e65100";
-  if(s.indexOf("德甲")>=0||s.indexOf("德国甲级")>=0)return "#c62828";
-  if(s.indexOf("意甲")>=0||s.indexOf("意大利甲级")>=0)return "#2e7d32";
-  if(s.indexOf("法甲")>=0||s.indexOf("法国甲级")>=0)return "#1565c0";
-  return "#757575";
-}
+function leagueColor(lg){ return PAL.link; }   /* 去彩虹色：联赛统一强调色，随亮/暗切换 */
 function starsTxt(n){return "★".repeat(n>0?Math.min(n,5):0)||"—"}
 function loadSvg(url){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=url})}
 
@@ -91,37 +105,37 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   // 高度：头部 + 实时要闻条(3行) + 精选横条 + 推荐理由(?) + 表格(仅主图有赛事时) + 页脚
   const tableBlockH=rows.length?(ROW*(rows.length+1)):0; // 表头+数据行；空主图不占高度
   canvas.height=HEAD+NB+picksBlockH+tableBlockH+FOOT;
-  const g=ctx.createLinearGradient(0,0,0,canvas.height);
-  g.addColorStop(0,"#3f9d63"); g.addColorStop(0.35,"#7cc48a"); g.addColorStop(1,"#3f9d63");
-  ctx.fillStyle=g; ctx.fillRect(0,0,W,canvas.height);
+  ctx.fillStyle=PAL.bg; ctx.fillRect(0,0,W,canvas.height);   /* 去渐变：纯色底 */
   // 顶部红色横幅 + 历史命中率行
-  ctx.fillStyle="#c62828"; ctx.globalAlpha=.94;
+  ctx.fillStyle=PAL.subtle; ctx.globalAlpha=.94;
   ctx.roundRect(0,0,W,HEAD,0); ctx.fill(); ctx.globalAlpha=1;
-  ctx.fillStyle="#fff"; ctx.textAlign="center";
-  ctx.font="bold 40px 'PingFang SC','Microsoft YaHei',sans-serif";
+  ctx.strokeStyle=PAL.border; ctx.beginPath(); ctx.moveTo(0,HEAD); ctx.lineTo(W,HEAD); ctx.stroke();
+  ctx.fillStyle=PAL.fg; ctx.textAlign="center";
+  ctx.font="bold 40px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("竞彩智荐 · 每日赛事分析", W/2, 44);
-  ctx.font="17px 'PingFang SC'"; ctx.fillStyle="#ffe082";
+  ctx.font="17px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.link;
   ctx.fillText(`五大联赛在售 ${stats.on_sale||0} · 可推荐 ${stats.recommend||0} · 命中率：${hitTxt(stats)}`, W/2, 72);
-  ctx.font="14px 'PingFang SC'"; ctx.fillStyle="#fff";
+  ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.muted;
   ctx.fillText(`${date} · 模型多维度预测 · 不构成投注建议`, W/2, 100);
-  ctx.font="13px 'PingFang SC'"; ctx.fillStyle="#fff";
+  ctx.font="13px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.muted;
   ctx.fillText("范围：NBA + 五大联赛 · 非五大联赛场次不纳入每日推荐", W/2, 124);
   let y=HEAD;
   // 实时要闻条：固定 3 行（NB=78），原文 \n 分隔行渲染
-  ctx.fillStyle="#fff4d6"; ctx.fillRect(0,y,W,NB);
-  ctx.fillStyle="#c62828"; ctx.font="bold 14px 'PingFang SC','Microsoft YaHei'";
+  ctx.fillStyle=PAL.warnBg; ctx.fillRect(0,y,W,NB);
+  ctx.fillStyle=PAL.link; ctx.font="bold 14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+18);
-  ctx.fillStyle="#6b5412"; ctx.font="14px 'PingFang SC'";
+  ctx.fillStyle=PAL.fg; ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   const newsLines=fitNews3(news).split("\n");
   newsLines.forEach((ln,i)=>{ ctx.fillText(ln, 152, y+18+i*20); });
+  ctx.strokeStyle=PAL.warnBorder; ctx.strokeRect(0,y,W,NB);
   y+=NB;
   // 精选横条（≤2 条）：无主图精选时整条不画（避免空框架显得排版乱）
   if (showPicks.length){
-    ctx.fillStyle="#fff"; ctx.strokeStyle="#c62828";
+    ctx.fillStyle=PAL.bg; ctx.strokeStyle=PAL.border;
     ctx.fillRect(0,y-10,W,30); ctx.strokeRect(0,y-10,W,30);
-    ctx.fillStyle="#c62828"; ctx.font="bold 15px 'PingFang SC','Microsoft YaHei'";
+    ctx.fillStyle=PAL.link; ctx.font="bold 15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
     ctx.fillText("◆ 今日精选", 16, y+10);
-    ctx.fillStyle="#1c1c1c"; ctx.font="14px 'PingFang SC'";
+    ctx.fillStyle=PAL.fg; ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
     ctx.fillText(showPicks.join("　"), 118, y+10);
     y+=26;
   } else {
@@ -129,8 +143,8 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   }
   // LLM 推荐理由（精选 ≥1 条时显示一行）
   if (showReason){
-    ctx.fillStyle="#fff"; ctx.fillRect(0,y-10,W,28);
-    ctx.fillStyle="#5d4037"; ctx.font="italic 13px 'PingFang SC'";
+    ctx.fillStyle=PAL.bg; ctx.fillRect(0,y-10,W,28);
+    ctx.fillStyle=PAL.muted; ctx.font="italic 13px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
     ctx.fillText(`💡 ${pickReason}`, 16, y+10);
     y+=22;
   }
@@ -153,13 +167,14 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
     });
   } // end if(rows.length)
   // 底部红横幅（无 slogan，仅合规 + 二维码）
-  ctx.fillStyle="#c62828"; ctx.globalAlpha=.94;
+  ctx.fillStyle=PAL.subtle; ctx.globalAlpha=.94;
   ctx.fillRect(0,canvas.height-FOOT,W,FOOT); ctx.globalAlpha=1;
-  ctx.fillStyle="#fff"; ctx.textAlign="left"; ctx.font="bold 20px 'PingFang SC','Microsoft YaHei'";
+  ctx.strokeStyle=PAL.border; ctx.beginPath(); ctx.moveTo(0,canvas.height-FOOT); ctx.lineTo(W,canvas.height-FOOT); ctx.stroke();
+  ctx.fillStyle=PAL.fg; ctx.textAlign="left"; ctx.font="bold 20px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("长按识别二维码，查看完整分析", 30, canvas.height-FOOT+34);
-  ctx.font="14px 'PingFang SC'"; ctx.fillStyle="#ffe082";
+  ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.link;
   ctx.fillText(qrurl||"", 30, canvas.height-FOOT+58);
-  ctx.textAlign="right"; ctx.fillStyle="#fff"; ctx.font="bold 16px 'PingFang SC'";
+  ctx.textAlign="right"; ctx.fillStyle=PAL.fg; ctx.font="bold 16px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("理性购彩 · 量力而行", W-30, canvas.height-FOOT+34);
   if(qr){ try{ const im=await loadSvg(qr); const qs=80, qx=W-qs-30, qy=canvas.height-FOOT+60; ctx.drawImage(im,qx,qy,qs,qs);}catch(e){} }
   return canvas;
@@ -174,29 +189,29 @@ function drawTempLeagues(rows,date){
   canvas.width=W;
   canvas.height=HEAD + ROW*rows.length + FOOT;
   // 背景：浅金色调（与主图深绿区分，提示"次级/临时"）
-  ctx.fillStyle="#fff8e1"; ctx.fillRect(0,0,W,canvas.height);
+  ctx.fillStyle=PAL.warnBg; ctx.fillRect(0,0,W,canvas.height);
   // 顶部：临时赛事横幅 + 说明
-  ctx.fillStyle="#c62828"; ctx.fillRect(0,0,W,HEAD-4);
-  ctx.fillStyle="#fff"; ctx.textAlign="center";
-  ctx.font="bold 20px 'PingFang SC','Microsoft YaHei',sans-serif";
+  ctx.fillStyle=PAL.subtle; ctx.fillRect(0,0,W,HEAD-4);
+  ctx.fillStyle=PAL.fg; ctx.textAlign="center";
+  ctx.font="bold 20px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("🏅 临时赛事（仅盘口层 · 模型暂无预测）", W/2, 26);
-  ctx.font="13px 'PingFang SC'";
+  ctx.font="13px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText(`${date} · 由 LEAGUE_TEMP_LEAGUES 配置：赛事过完关闭 env 行并重启即可下线`, W/2, 46);
   // 列：联赛 / 场次 / 对阵 / 让球 / 主胜 / 平 / 客胜
   const labels=["联赛","场次","对阵","让球","主胜","平","客胜"];
   const colW=[160,60,290,60,80,80,80];
   let x=10, y=HEAD-4;
-  ctx.fillStyle="#3f3f3f"; ctx.font="bold 13px 'PingFang SC'";
+  ctx.fillStyle=PAL.fg; ctx.font="bold 13px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   labels.forEach((lab,i)=>{ ctx.fillText(lab, x, y-4); x+=colW[i]; });
-  ctx.strokeStyle="#c8c8c8"; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  ctx.strokeStyle=PAL.border; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
   // 行
-  ctx.font="13px 'PingFang SC','Microsoft YaHei'";
+  ctx.font="13px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   rows.forEach((r,i)=>{
     const ry = y + ROW*i + 16;
-    if(i%2===1){ ctx.fillStyle="#f5f5f5"; ctx.fillRect(0, y+ROW*i, W, ROW); ctx.fillStyle="#3f3f3f"; }
+    if(i%2===1){ ctx.fillStyle=PAL.subtle; ctx.fillRect(0, y+ROW*i, W, ROW); ctx.fillStyle=PAL.fg; }
     const lg = r.league_cn || "";
     ctx.fillStyle = leagueColor(lg); ctx.fillText(lg, 10, ry);
-    ctx.fillStyle="#3f3f3f";
+    ctx.fillStyle=PAL.fg;
     ctx.fillText(String(r.match_num||""), 10+colW[0], ry);
     ctx.fillText(`${r.home_cn||""} vs ${r.away_cn||""}`, 10+colW[0]+colW[1], ry);
     ctx.fillText(String(r.goal_line||"—"), 10+colW[0]+colW[1]+colW[2], ry);
@@ -215,26 +230,26 @@ async function drawNba(rows,date,qr,qrurl,stats,news){
   canvas.id="dailyCanvas"; const ctx=canvas.getContext("2d");
   const W=900, HEAD=120, NB=78, ROW=44, FOOT=150;
   canvas.width=W; canvas.height=HEAD+NB+ROW*rows.length+FOOT;
-  const g=ctx.createLinearGradient(0,0,0,canvas.height);
-  g.addColorStop(0,"#3f9d63"); g.addColorStop(0.35,"#7cc48a"); g.addColorStop(1,"#3f9d63");
-  ctx.fillStyle=g; ctx.fillRect(0,0,W,canvas.height);
-  ctx.fillStyle="#1b5e20"; ctx.globalAlpha=.94;
+  ctx.fillStyle=PAL.bg; ctx.fillRect(0,0,W,canvas.height);   /* 去渐变：纯色底 */
+  ctx.fillStyle=PAL.subtle; ctx.globalAlpha=.94;
   ctx.roundRect(0,0,W,HEAD,0); ctx.fill(); ctx.globalAlpha=1;
-  ctx.fillStyle="#fff"; ctx.textAlign="center";
-  ctx.font="bold 40px 'PingFang SC','Microsoft YaHei',sans-serif";
+  ctx.strokeStyle=PAL.border; ctx.beginPath(); ctx.moveTo(0,HEAD); ctx.lineTo(W,HEAD); ctx.stroke();
+  ctx.fillStyle=PAL.fg; ctx.textAlign="center";
+  ctx.font="bold 40px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("竞彩智荐 · NBA 篮球每日分析", W/2, 46);
-  ctx.font="17px 'PingFang SC'"; ctx.fillStyle="#cddc39";
+  ctx.font="17px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.link;
   ctx.fillText(`${date} · 赛事 ${stats.on_sale||0} 场 · 命中率：${hitTxt(stats)}`, W/2, 78);
-  ctx.font="14px 'PingFang SC'"; ctx.fillStyle="#fff";
+  ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.muted;
   ctx.fillText("让分/大小分为模型预测，仅供信息参考 · 不构成投注建议", W/2, 104);
   let y=HEAD;
   // 实时要闻条：固定 3 行
-  ctx.fillStyle="#fff8e1"; ctx.fillRect(0,y,W,NB);
-  ctx.fillStyle="#1b5e20"; ctx.font="bold 14px 'PingFang SC','Microsoft YaHei'";
+  ctx.fillStyle=PAL.warnBg; ctx.fillRect(0,y,W,NB);
+  ctx.fillStyle=PAL.link; ctx.font="bold 14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+18);
-  ctx.fillStyle="#6b5412"; ctx.font="14px 'PingFang SC'";
+  ctx.fillStyle=PAL.fg; ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   const newsLinesNba=fitNews3(news).split("\n");
   newsLinesNba.forEach((ln,i)=>{ ctx.fillText(ln, 152, y+18+i*20); });
+  ctx.strokeStyle=PAL.warnBorder; ctx.strokeRect(0,y,W,NB);
   y+=NB;
   const cols=[
     {k:"no",l:"编号",w:70},{k:"team",l:"对阵",w:300},{k:"spread",l:"让分预测",w:130},
@@ -248,51 +263,52 @@ async function drawNba(rows,date,qr,qrurl,stats,news){
     trNbaRow(ctx,y,W,cols,[String(i+1),`${r.home||""} vs ${r.away||""}`,sp,tl,mg,r.direction||"—"]);
     y+=ROW;
   });
-  ctx.fillStyle="#1b5e20"; ctx.globalAlpha=.94;
+  ctx.fillStyle=PAL.subtle; ctx.globalAlpha=.94;
   ctx.fillRect(0,canvas.height-FOOT,W,FOOT); ctx.globalAlpha=1;
-  ctx.fillStyle="#fff"; ctx.textAlign="left"; ctx.font="bold 20px 'PingFang SC','Microsoft YaHei'";
+  ctx.strokeStyle=PAL.border; ctx.beginPath(); ctx.moveTo(0,canvas.height-FOOT); ctx.lineTo(W,canvas.height-FOOT); ctx.stroke();
+  ctx.fillStyle=PAL.fg; ctx.textAlign="left"; ctx.font="bold 20px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("长按识别二维码，查看完整分析", 30, canvas.height-FOOT+34);
-  ctx.font="14px 'PingFang SC'"; ctx.fillStyle="#cddc39";
+  ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.link;
   ctx.fillText(qrurl||"", 30, canvas.height-FOOT+58);
-  ctx.textAlign="right"; ctx.fillStyle="#fff"; ctx.font="bold 16px 'PingFang SC'";
+  ctx.textAlign="right"; ctx.fillStyle=PAL.fg; ctx.font="bold 16px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("理性购彩 · 量力而行", W-30, canvas.height-FOOT+34);
   if(qr){ try{ const im=await loadSvg(qr); const qs=80, qx=W-qs-30, qy=canvas.height-FOOT+60; ctx.drawImage(im,qx,qy,qs,qs);}catch(e){} }
   return canvas;
 }
 function trHead(ctx,y,W,cols,labels){
-  ctx.fillStyle="#c62828"; ctx.fillRect(0,y,W,44);
-  ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.font="bold 15px 'PingFang SC','Microsoft YaHei'";
+  ctx.fillStyle=PAL.subtle; ctx.fillRect(0,y,W,44);
+  ctx.fillStyle=PAL.fg; ctx.textAlign="center"; ctx.font="bold 15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   let cx=0; cols.forEach((c,i)=>{ ctx.fillText(labels[i],cx+c.w/2,y+29); cx+=c.w; });
 }
 function trRow(ctx,y,W,cols,cells,matched){
-  ctx.fillStyle=matched?"#ffffff":"#eef4ee"; ctx.fillRect(0,y,W,44);
+  ctx.fillStyle=matched?PAL.bg:PAL.subtle; ctx.fillRect(0,y,W,44);
   let cx=0; ctx.textAlign="center";
   cols.forEach((c,i)=>{
     if(c.k==="league"){
       ctx.fillStyle=leagueColor(cells[i]); ctx.fillRect(cx,y,c.w,44);
-      ctx.fillStyle="#fff"; ctx.font="bold 15px 'PingFang SC'"; ctx.fillText(cells[i],cx+c.w/2,y+29); ctx.font="15px 'PingFang SC'";
+      ctx.fillStyle=PAL.bg; ctx.font="bold 15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillText(cells[i],cx+c.w/2,y+29); ctx.font="15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
     } else if(c.k==="team"){
-      ctx.textAlign="left"; ctx.fillStyle="#1c1c1c"; ctx.font="15px 'PingFang SC'";
+      ctx.textAlign="left"; ctx.fillStyle=PAL.fg; ctx.font="15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
       ctx.fillText(cells[i],cx+8,y+29); ctx.textAlign="center";
     } else if(c.k==="pick"){
-      ctx.fillStyle=matched?"#c62828":"#999"; ctx.font=matched?"bold 16px 'PingFang SC'":"15px 'PingFang SC'";
-      ctx.fillText(cells[i],cx+c.w/2,y+29); ctx.font="15px 'PingFang SC'";
+      ctx.fillStyle=matched?PAL.ok:PAL.muted; ctx.font=matched?"bold 16px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif":"15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
+      ctx.fillText(cells[i],cx+c.w/2,y+29); ctx.font="15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
     } else if(c.k==="score"){
-      ctx.fillStyle=matched?"#1c1c1c":"#999"; ctx.font="14px 'PingFang SC'"; ctx.fillText(cells[i],cx+c.w/2,y+29);
+      ctx.fillStyle=matched?PAL.fg:PAL.muted; ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillText(cells[i],cx+c.w/2,y+29);
     } else {
-      ctx.fillStyle=matched?"#1c1c1c":"#999"; ctx.fillText(cells[i],cx+c.w/2,y+29);
+      ctx.fillStyle=matched?PAL.fg:PAL.muted; ctx.fillText(cells[i],cx+c.w/2,y+29);
     }
-    ctx.strokeStyle="#1a5c2a33"; ctx.strokeRect(cx,y,c.w,44); cx+=c.w;
+    ctx.strokeStyle=PAL.border; ctx.strokeRect(cx,y,c.w,44); cx+=c.w;
   });
 }
 function trNbaRow(ctx,y,W,cols,cells){
-  ctx.fillStyle="#e8f5e9"; ctx.fillRect(0,y,W,44);
+  ctx.fillStyle=PAL.subtle; ctx.fillRect(0,y,W,44);
   let cx=0; ctx.textAlign="center";
   cols.forEach((c,i)=>{
-    if(c.k==="team"){ ctx.textAlign="left"; ctx.fillStyle="#1b5e20"; ctx.font="15px 'PingFang SC'"; ctx.fillText(cells[i],cx+14,y+29); ctx.textAlign="center"; }
-    else if(c.k==="pick"){ ctx.fillStyle="#1b5e20"; ctx.font="bold 15px 'PingFang SC'"; ctx.fillText(cells[i],cx+c.w/2,y+29); ctx.font="15px 'PingFang SC'"; }
-    else { ctx.fillStyle="#1c1c1c"; ctx.fillText(cells[i],cx+c.w/2,y+29); }
-    ctx.strokeStyle="#1a5c2a33"; ctx.strokeRect(cx,y,c.w,44); cx+=c.w;
+    if(c.k==="team"){ ctx.textAlign="left"; ctx.fillStyle=PAL.fg; ctx.font="15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillText(cells[i],cx+14,y+29); ctx.textAlign="center"; }
+    else if(c.k==="pick"){ ctx.fillStyle=PAL.ok; ctx.font="bold 15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillText(cells[i],cx+c.w/2,y+29); ctx.font="15px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; }
+    else { ctx.fillStyle=PAL.fg; ctx.fillText(cells[i],cx+c.w/2,y+29); }
+    ctx.strokeStyle=PAL.border; ctx.strokeRect(cx,y,c.w,44); cx+=c.w;
   });
 }
 /* ===== 主流程 ===== */
@@ -340,7 +356,7 @@ async function load(){
       : await drawFootball(mainRows,d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news,pickReason);
     if(SPORT==="football" && (d.main_rows!=null) && d.main_rows.length===0 && (d.rows||[]).length && d.note){
       const noteBar=document.createElement("div");
-      noteBar.style.cssText="text-align:center;color:#8d6e00;background:#fff4d6;border:1px solid #e0c96a;border-radius:6px;padding:8px 14px;font-size:13px;margin:0 auto 10px;max-width:900px;line-height:1.6";
+      noteBar.style.cssText="text-align:center;color:var(--fg);background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:6px;padding:8px 14px;font-size:13px;margin:0 auto 10px;max-width:900px;line-height:1.6";
       noteBar.textContent="ℹ️ "+d.note;
       host.insertBefore(noteBar,CANVAS);
     }
@@ -352,7 +368,7 @@ async function load(){
       const tempCanvas = drawTempLeagues(tempRows, d.date);
       host.appendChild(tempCanvas);
       const tmpLabel = document.createElement("div");
-      tmpLabel.style.cssText="text-align:center;color:#555;font-size:13px;padding:8px 0 6px";
+      tmpLabel.style.cssText="text-align:center;color:var(--muted);font-size:13px;padding:8px 0 6px";
       tmpLabel.textContent="🏅 临时赛事（env LEAGUE_TEMP_LEAGUES 配置） · 仅盘口层 · 模型暂无预测";
       host.insertBefore(tmpLabel, tempCanvas);
     }
