@@ -56,7 +56,8 @@ def _pop_trigger(params: dict) -> str:
 def _validate_args(params: dict) -> list[str]:
     """白名单校验 → argv 列表；非法参数抛 400（code=invalid_params）。"""
     unknown = set(params) - {"league", "dates", "data_source", "monte_carlo",
-                             "n_simulations", "no_dc", "no_ml", "dashboard", "all"}
+                             "n_simulations", "no_dc", "no_ml", "dashboard", "all",
+                             "ahead_days"}
     if unknown:
         raise errors.ApiError("invalid_params", f"未知参数: {sorted(unknown)}")
     argv: list[str] = []
@@ -88,6 +89,11 @@ def _validate_args(params: dict) -> list[str]:
         if not isinstance(n_sim, int) or n_sim < 1:
             raise errors.ApiError("invalid_params", "n_simulations 须为正整数")
         argv += ["--n-simulations", str(n_sim)]
+    ahead = params.get("ahead_days")
+    if ahead is not None:
+        if not isinstance(ahead, int) or isinstance(ahead, bool) or not 1 <= ahead <= 90:
+            raise errors.ApiError("invalid_params", "ahead_days 须为 1..90 的整数")
+        argv += ["--ahead-days", str(ahead)]
     for flag in _FLAG_ARGS:
         key = flag[2:].replace("-", "_")
         if params.get(key):
@@ -122,8 +128,11 @@ def _job_view_detail(job: dict, jid: str) -> dict:
 def jobs_predict(body: dict | None,
                  _: None = Depends(require_auth)) -> JSONResponse:
     """提交预测任务（队列语义：返回 202 + job；并发时 409 + already_running）。"""
+
     params = dict(body or {})
+
     trigger = _pop_trigger(params)
+
     argv = _validate_args(params)
     try:
         job, reason = jobs.trigger_predict(argv, trigger=trigger)

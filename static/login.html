@@ -49,6 +49,9 @@
 </div>
 <script>
 (function () {
+  // Derive base path: /dashboard/jc/ from /dashboard/jc/static/login.html
+  var m = window.location.pathname.match(/(.*\/dashboard\/jc\/)/);
+  var base = m ? m[1] : "/";
   var form = document.getElementById("login-form");
   var errorEl = document.getElementById("error");
   var submitBtn = document.getElementById("submit");
@@ -59,13 +62,13 @@
     submitBtn.disabled = true;
     var username = document.getElementById("username").value.trim();
     var password = document.getElementById("password").value;
-    fetch("/api/v1/login", {
+    fetch(base + "api/v1/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: username, password: password })
     }).then(function (res) {
       if (res.ok) {
-        window.location.href = "/";
+        window.location.href = base;
       } else {
         return res.json().then(function (data) {
           throw new Error(data.message || "登录失败（HTTP " + res.status + "）");

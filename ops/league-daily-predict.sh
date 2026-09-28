@@ -20,11 +20,11 @@ set -uo pipefail
 BASE="${LEAGUE_API_BASE:-http://127.0.0.1:8077/api/v1}"
 # 凭据优先取 .env（service 单元用 EnvironmentFile 注入 AUTH_USERNAME/AUTH_PASSWORD），
 # 避免在两处各写一份；LEAGUE_AUTH_* 仅用于临时覆盖。
-AUTH_USER="${LEAGUE_AUTH_USER:-${AUTH_USERNAME:-a}}"
-AUTH_PASS="${LEAGUE_AUTH_PASS:-${AUTH_PASSWORD:-a}}"
+AUTH_USER="${LEAGUE_AUTH_USER:-a}"
+AUTH_PASS="${LEAGUE_AUTH_PASS:-a}"
 JOB_TIMEOUT="${LEAGUE_JOB_TIMEOUT:-3600}"    # 单个作业等待上限（秒）
 POLL_INTERVAL="${LEAGUE_POLL_INTERVAL:-15}"  # 轮询间隔（秒）
-PY="${LEAGUE_PYTHON:-/home/ubuntu/.venvs/league/bin/python}"
+PY="${LEAGUE_PYTHON:-/home/ubuntu/work/sports-lottery/.venv/bin/python}"
 
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
@@ -100,7 +100,7 @@ log "登录成功"
 # 1) 足球全联赛：argv 必须显式带 --all，否则 predict.py 的 --league 默认值 epl
 #    只会刷新英超（这正是旧进程内 cron 的实际行为，与其注释「全联赛」相反）。
 #    3000 次已用线上真实运行验证；默认 10000 次会超过 web 作业 600s 超时。
-trigger "足球全联赛预测" "jobs/predict" '{"all":true,"n_simulations":3000,"trigger":"timer"}'
+trigger "足球全联赛预测" "jobs/predict" '{"all":true,"n_simulations":3000,"ahead_days":14,"trigger":"timer"}'
 
 # 2) NBA：休赛期揭幕战在数月后，默认 1 天窗口会得 0 场，故放宽到 90 天
 trigger "NBA 篮球预测" "jobs/predict-bball" '{"ahead_days":90,"trigger":"timer"}'

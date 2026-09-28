@@ -60,6 +60,9 @@ DEFAULT_N_SIMULATIONS: int = 10000
 # 以及模型自身的 form/record 特征（无历史比赛可推导 → 回退中性值）。
 # 30 天可覆盖一个月的已结束比赛并带回比分；同一区间仍是一次 HTTP 请求。
 DEFAULT_PAST_DAYS: int = 30
+# 前瞻天数：仅 +1 天窗口会导致未来 0 场次（尤其周末已完赛时），
+# 推荐列表恒空。7 天覆盖下一轮联赛（英超通常一周一赛）。
+DEFAULT_AHEAD_DAYS: int = 14
 
 # ── 庄家水线常量（去水用）──────────────────────────
 BOOKMAKER_MARGIN: float = 1.07

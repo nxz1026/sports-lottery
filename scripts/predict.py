@@ -26,8 +26,9 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from core.config import (
-    LEAGUE_CONFIG, PREDICTIONS_DIR, DC_RHO, DEFAULT_N_SIMULATIONS, DEFAULT_PAST_DAYS
+    LEAGUE_CONFIG, PREDICTIONS_DIR, DC_RHO, DEFAULT_N_SIMULATIONS, DEFAULT_PAST_DAYS,
 )
+from core.constants import DEFAULT_AHEAD_DAYS
 from core.log import logger
 from core.data.fetch import fetch_events
 from core.rankings import fetch_fifa_rankings
@@ -75,6 +76,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--past-days", type=int, default=DEFAULT_PAST_DAYS,
                         help="Days to look back for finished matches (feeds calibration/"
                              "accuracy/reconciliation/form; default %d)" % DEFAULT_PAST_DAYS)
+    parser.add_argument("--ahead-days", type=int, default=DEFAULT_AHEAD_DAYS,
+                        help="Days to look ahead for upcoming matches (default %d)" % DEFAULT_AHEAD_DAYS)
     parser.add_argument("--no-fetch", action="store_true", help="Use local cached data")
     parser.add_argument("--no-dc", action="store_true", help="Disable Dixon-Coles model")
     parser.add_argument("--update-rankings", action="store_true", help="Force refresh FIFA rankings from API")
@@ -121,13 +124,16 @@ def _drop_ghost_future(future: list, now_utc) -> tuple[list, list]:
     return kept, dropped
 
 
-def _fetch_and_parse(league_key: str, data_source: str, dates_str: str, now_utc, skip_fetch: bool) -> tuple[list, list, list, list]:
-    """获取并解析赛事数据，返回 (events, past, future, in_prog)。"""
+def _fetch_and_parse(league_key: str, data_source: str, dates_str: str, now_utc, skip_fetch: bool, whole_season: bool = False) -> tuple[list, list, list, list]:
+    """获取并解析赛事数据，返回 (events, past, future, in_prog)。
+
+    whole_season=True 时取整季赛程（含未来比赛），用于预测场景。
+    """
     if skip_fetch:
         logger.warning("--no-fetch is deprecated, use --data-source football-data for offline mode")
         events = []
     else:
-        events = fetch_events(dates_str, league_key, data_source)
+        events = fetch_events("" if whole_season else dates_str, league_key, data_source, whole_season=whole_season)
 
     logger.info(f"Got {len(events)} events")
     past, future, in_prog = parse_events(events, now_utc)
@@ -461,8 +467,13 @@ def _setup_league_run(league_key: str, args, now_utc, dates_str):
 
     logger.info(f"League: {league_key} ({league_config['name']}), source: {data_source}, type: {tournament_type}")
 
-    # 1. 获取并解析赛事数据
-    events, past, future, in_prog = _fetch_and_parse(league_key, data_source, dates_str, now_utc, skip_fetch)
+    # 1. 获取并解析赛事数据（始终取整季，确保含未来比赛）
+    events, past, future, in_prog = _fetch_and_parse(league_key, data_source, dates_str, now_utc, skip_fetch, whole_season=True)
+
+    # 1.1 按 ahead_days 过滤未来比赛（避免推荐整季几百场）
+    _ahead_days = max(1, int(getattr(args, "ahead_days", DEFAULT_AHEAD_DAYS)))
+    _ahead_cutoff_ts = (now_utc + timedelta(days=_ahead_days)).timestamp()
+    future = [m for m in future if _match_kickoff_utc(m) and _match_kickoff_utc(m) <= _ahead_cutoff_ts]
 
     # 1.2 ESPN 赔率富化（P0-2 修复）：默认 football-data 源不带赔率，
     # 全部预测行 market.status=missing，今日推荐 KPI 与串关组合赔率恒「—」。
@@ -732,8 +743,9 @@ def main() -> None:
         # 回看 past_days 天：窗口若只取「今天-明天」，past_matches 恒为空，
         # 会连带打死校准、命中率、对账与模型 form/record 特征（见 constants.py）。
         _past_days = max(0, int(getattr(args, "past_days", DEFAULT_PAST_DAYS)))
+        _ahead_days = max(1, int(getattr(args, "ahead_days", DEFAULT_AHEAD_DAYS)))
         d0 = (now_bjt - timedelta(days=_past_days)).strftime("%Y%m%d")
-        d2 = (now_bjt + timedelta(days=1)).strftime("%Y%m%d")
+        d2 = (now_bjt + timedelta(days=_ahead_days)).strftime("%Y%m%d")
         dates_str = f"{d0}-{d2}"
 
     if args.all:
