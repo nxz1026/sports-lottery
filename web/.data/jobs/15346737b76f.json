@@ -1,0 +1,1 @@
+{"id": "15346737b76f", "status": "done", "trigger": "manual", "script": "predict", "args": ["--all", "--ahead-days", "7"], "created_at": 1790515284.3024778, "started_at": 1790515284.303743, "finished_at": 1790515387.2526023, "exit_code": 0, "timeout": 600}

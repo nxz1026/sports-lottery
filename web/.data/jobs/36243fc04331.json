@@ -1,0 +1,1 @@
+{"id": "36243fc04331", "status": "done", "trigger": "manual", "script": "predict", "args": ["--all", "--n-simulations", "100", "--ahead-days", "14"], "created_at": 1790515670.3952758, "started_at": 1790515670.3966272, "finished_at": 1790515827.839555, "exit_code": 0, "timeout": 600}

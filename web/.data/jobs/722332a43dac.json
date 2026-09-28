@@ -1,0 +1,1 @@
+{"id": "722332a43dac", "status": "done", "trigger": "timer", "script": "predict_bball", "args": ["--ahead-days", "90"], "created_at": 1790559422.9307106, "started_at": 1790559422.9317129, "finished_at": 1790559424.2991412, "exit_code": 0, "timeout": 600}

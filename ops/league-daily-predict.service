@@ -7,8 +7,9 @@ Wants=league-web.service
 Type=oneshot
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/home/ubuntu/work/sports-lottery
-ExecStart=/home/ubuntu/work/sports-lottery/ops/league-daily-predict.sh
+WorkingDirectory=/home/ubuntu/DSH/sports-lottery
+ExecStart=/home/ubuntu/DSH/sports-lottery/ops/league-daily-predict.sh
+EnvironmentFile=/home/ubuntu/DSH/sports-lottery/.env
 Environment=LEAGUE_API_BASE=http://127.0.0.1:8077/api/v1
 TimeoutStartSec=14400
 Nice=10

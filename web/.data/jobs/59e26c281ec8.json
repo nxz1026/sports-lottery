@@ -1,0 +1,1 @@
+{"id": "59e26c281ec8", "status": "done", "trigger": "timer", "script": "predict", "args": ["--all", "--n-simulations", "3000", "--ahead-days", "14"], "created_at": 1790559001.9166768, "started_at": 1790559001.9185016, "finished_at": 1790559411.434107, "exit_code": 0, "timeout": 600}

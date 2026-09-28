@@ -1,0 +1,2255 @@
+{
+  "date": "2026-09-28",
+  "matches": [
+    {
+      "id": "阿森纳 vs 考文垂",
+      "kickoff_utc": "2026-08-21T19:00:00Z",
+      "home": "Arsenal FC",
+      "away": "Coventry City FC",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "赫尔城 vs 曼联",
+      "kickoff_utc": "2026-08-22T11:30:00Z",
+      "home": "Hull City AFC",
+      "away": "Manchester United FC",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "伊普斯维奇 vs 桑德兰",
+      "kickoff_utc": "2026-08-22T14:00:00Z",
+      "home": "Ipswich Town FC",
+      "away": "Sunderland AFC",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "诺丁汉森林 vs 利兹联",
+      "kickoff_utc": "2026-08-22T14:00:00Z",
+      "home": "Nottingham Forest FC",
+      "away": "Leeds United FC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "埃弗顿 vs 水晶宫",
+      "kickoff_utc": "2026-08-22T14:00:00Z",
+      "home": "Everton FC",
+      "away": "Crystal Palace FC",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "布伦特福德 vs 热刺",
+      "kickoff_utc": "2026-08-22T16:30:00Z",
+      "home": "Brentford FC",
+      "away": "Tottenham Hotspur FC",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "曼城 vs 伯恩茅斯",
+      "kickoff_utc": "2026-08-23T13:00:00Z",
+      "home": "Manchester City FC",
+      "away": "AFC Bournemouth",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "布莱顿 vs 阿斯顿维拉",
+      "kickoff_utc": "2026-08-23T13:00:00Z",
+      "home": "Brighton & Hove Albion FC",
+      "away": "Aston Villa FC",
+      "home_score": 4,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "纽卡斯尔联 vs 利物浦",
+      "kickoff_utc": "2026-08-23T15:30:00Z",
+      "home": "Newcastle United FC",
+      "away": "Liverpool FC",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "富勒姆 vs 切尔西",
+      "kickoff_utc": "2026-08-24T19:00:00Z",
+      "home": "Fulham FC",
+      "away": "Chelsea FC",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "水晶宫 vs 曼城",
+      "kickoff_utc": "2026-08-28T19:00:00Z",
+      "home": "Crystal Palace FC",
+      "away": "Manchester City FC",
+      "home_score": 1,
+      "away_score": 4,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "利物浦 vs 诺丁汉森林",
+      "kickoff_utc": "2026-08-29T11:30:00Z",
+      "home": "Liverpool FC",
+      "away": "Nottingham Forest FC",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "伯恩茅斯 vs 埃弗顿",
+      "kickoff_utc": "2026-08-29T14:00:00Z",
+      "home": "AFC Bournemouth",
+      "away": "Everton FC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "考文垂 vs 赫尔城",
+      "kickoff_utc": "2026-08-29T14:00:00Z",
+      "home": "Coventry City FC",
+      "away": "Hull City AFC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "热刺 vs 纽卡斯尔联",
+      "kickoff_utc": "2026-08-29T16:30:00Z",
+      "home": "Tottenham Hotspur FC",
+      "away": "Newcastle United FC",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "桑德兰 vs 富勒姆",
+      "kickoff_utc": "2026-08-30T13:00:00Z",
+      "home": "Sunderland AFC",
+      "away": "Fulham FC",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "切尔西 vs 布莱顿",
+      "kickoff_utc": "2026-08-30T13:00:00Z",
+      "home": "Chelsea FC",
+      "away": "Brighton & Hove Albion FC",
+      "home_score": 4,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "利兹联 vs 布伦特福德",
+      "kickoff_utc": "2026-08-30T13:00:00Z",
+      "home": "Leeds United FC",
+      "away": "Brentford FC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "曼联 vs 伊普斯维奇",
+      "kickoff_utc": "2026-08-30T15:30:00Z",
+      "home": "Manchester United FC",
+      "away": "Ipswich Town FC",
+      "home_score": 5,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "阿斯顿维拉 vs 阿森纳",
+      "kickoff_utc": "2026-08-31T19:00:00Z",
+      "home": "Aston Villa FC",
+      "away": "Arsenal FC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "伊普斯维奇 vs 利物浦",
+      "kickoff_utc": "2026-09-04T19:00:00Z",
+      "home": "Ipswich Town FC",
+      "away": "Liverpool FC",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "纽卡斯尔联 vs 伯恩茅斯",
+      "kickoff_utc": "2026-09-05T11:30:00Z",
+      "home": "Newcastle United FC",
+      "away": "AFC Bournemouth",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "诺丁汉森林 vs 热刺",
+      "kickoff_utc": "2026-09-05T14:00:00Z",
+      "home": "Nottingham Forest FC",
+      "away": "Tottenham Hotspur FC",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "曼城 vs 考文垂",
+      "kickoff_utc": "2026-09-05T14:00:00Z",
+      "home": "Manchester City FC",
+      "away": "Coventry City FC",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "布莱顿 vs 利兹联",
+      "kickoff_utc": "2026-09-05T14:00:00Z",
+      "home": "Brighton & Hove Albion FC",
+      "away": "Leeds United FC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "布伦特福德 vs 桑德兰",
+      "kickoff_utc": "2026-09-05T14:00:00Z",
+      "home": "Brentford FC",
+      "away": "Sunderland AFC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "富勒姆 vs 水晶宫",
+      "kickoff_utc": "2026-09-05T14:00:00Z",
+      "home": "Fulham FC",
+      "away": "Crystal Palace FC",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "赫尔城 vs 阿斯顿维拉",
+      "kickoff_utc": "2026-09-05T16:30:00Z",
+      "home": "Hull City AFC",
+      "away": "Aston Villa FC",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "埃弗顿 vs 曼联",
+      "kickoff_utc": "2026-09-06T13:00:00Z",
+      "home": "Everton FC",
+      "away": "Manchester United FC",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "阿森纳 vs 切尔西",
+      "kickoff_utc": "2026-09-06T15:30:00Z",
+      "home": "Arsenal FC",
+      "away": "Chelsea FC",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "水晶宫 vs 伊普斯维奇",
+      "kickoff_utc": "2026-09-12T14:00:00Z",
+      "home": "Crystal Palace FC",
+      "away": "Ipswich Town FC",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "利物浦 vs 富勒姆",
+      "kickoff_utc": "2026-09-12T14:00:00Z",
+      "home": "Liverpool FC",
+      "away": "Fulham FC",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "阿斯顿维拉 vs 诺丁汉森林",
+      "kickoff_utc": "2026-09-12T14:00:00Z",
+      "home": "Aston Villa FC",
+      "away": "Nottingham Forest FC",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "伯恩茅斯 vs 布伦特福德",
+      "kickoff_utc": "2026-09-12T14:00:00Z",
+      "home": "AFC Bournemouth",
+      "away": "Brentford FC",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "切尔西 vs 赫尔城",
+      "kickoff_utc": "2026-09-12T14:00:00Z",
+      "home": "Chelsea FC",
+      "away": "Hull City AFC",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "热刺 vs 埃弗顿",
+      "kickoff_utc": "2026-09-12T16:30:00Z",
+      "home": "Tottenham Hotspur FC",
+      "away": "Everton FC",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "桑德兰 vs 阿森纳",
+      "kickoff_utc": "2026-09-12T19:00:00Z",
+      "home": "Sunderland AFC",
+      "away": "Arsenal FC",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "考文垂 vs 布莱顿",
+      "kickoff_utc": "2026-09-13T13:00:00Z",
+      "home": "Coventry City FC",
+      "away": "Brighton & Hove Albion FC",
+      "home_score": 0,
+      "away_score": 5,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "曼联 vs 曼城",
+      "kickoff_utc": "2026-09-13T15:30:00Z",
+      "home": "Manchester United FC",
+      "away": "Manchester City FC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "利兹联 vs 纽卡斯尔联",
+      "kickoff_utc": "2026-09-14T19:00:00Z",
+      "home": "Leeds United FC",
+      "away": "Newcastle United FC",
+      "home_score": 4,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "布伦特福德 vs 切尔西",
+      "kickoff_utc": "2026-09-18T19:00:00Z",
+      "home": "Brentford FC",
+      "away": "Chelsea FC",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "热刺 vs 阿斯顿维拉",
+      "kickoff_utc": "2026-09-19T11:30:00Z",
+      "home": "Tottenham Hotspur FC",
+      "away": "Aston Villa FC",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "埃弗顿 vs 伊普斯维奇",
+      "kickoff_utc": "2026-09-19T14:00:00Z",
+      "home": "Everton FC",
+      "away": "Ipswich Town FC",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "布莱顿 vs 阿森纳",
+      "kickoff_utc": "2026-09-19T14:00:00Z",
+      "home": "Brighton & Hove Albion FC",
+      "away": "Arsenal FC",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "纽卡斯尔联 vs 赫尔城",
+      "kickoff_utc": "2026-09-19T14:00:00Z",
+      "home": "Newcastle United FC",
+      "away": "Hull City AFC",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "诺丁汉森林 vs 考文垂",
+      "kickoff_utc": "2026-09-19T16:30:00Z",
+      "home": "Nottingham Forest FC",
+      "away": "Coventry City FC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "伯恩茅斯 vs 利物浦",
+      "kickoff_utc": "2026-09-20T13:00:00Z",
+      "home": "AFC Bournemouth",
+      "away": "Liverpool FC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "利兹联 vs 水晶宫",
+      "kickoff_utc": "2026-09-20T13:00:00Z",
+      "home": "Leeds United FC",
+      "away": "Crystal Palace FC",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "曼城 vs 桑德兰",
+      "kickoff_utc": "2026-09-20T13:00:00Z",
+      "home": "Manchester City FC",
+      "away": "Sunderland AFC",
+      "home_score": 5,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "富勒姆 vs 曼联",
+      "kickoff_utc": "2026-09-20T15:30:00Z",
+      "home": "Fulham FC",
+      "away": "Manchester United FC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "阿拉维斯 vs 赫塔菲",
+      "kickoff_utc": "2026-08-15T17:30:00Z",
+      "home": "Deportivo Alavés",
+      "away": "Getafe CF",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "塞维利亚 vs 巴列卡诺",
+      "kickoff_utc": "2026-08-15T19:30:00Z",
+      "home": "Sevilla FC",
+      "away": "Rayo Vallecano de Madrid",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "桑坦德竞技 vs 比利亚雷亚尔",
+      "kickoff_utc": "2026-08-16T15:00:00Z",
+      "home": "Real Racing Club de Santander",
+      "away": "Villarreal CF",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "西班牙人 vs 莱万特",
+      "kickoff_utc": "2026-08-16T17:00:00Z",
+      "home": "RCD Espanyol de Barcelona",
+      "away": "Levante UD",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "拉科鲁尼亚 vs 埃尔切",
+      "kickoff_utc": "2026-08-17T19:00:00Z",
+      "home": "RC Deportivo La Coruña",
+      "away": "Elche CF",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马德里竞技 vs 马拉加",
+      "kickoff_utc": "2026-08-19T19:00:00Z",
+      "home": "Club Atlético de Madrid",
+      "away": "Málaga CF",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴列卡诺 vs 阿拉维斯",
+      "kickoff_utc": "2026-08-20T19:00:00Z",
+      "home": "Rayo Vallecano de Madrid",
+      "away": "Deportivo Alavés",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "皇家贝蒂斯 vs 皇家社会",
+      "kickoff_utc": "2026-08-21T19:00:00Z",
+      "home": "Real Betis Balompié",
+      "away": "Real Sociedad de Fútbol",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "毕尔巴鄂竞技 vs 塞维利亚",
+      "kickoff_utc": "2026-08-22T15:00:00Z",
+      "home": "Athletic Club",
+      "away": "Sevilla FC",
+      "home_score": 1,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "瓦伦西亚 vs 维戈塞尔塔",
+      "kickoff_utc": "2026-08-22T17:30:00Z",
+      "home": "Valencia CF",
+      "away": "RC Celta de Vigo",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "西班牙人 vs 皇家马德里",
+      "kickoff_utc": "2026-08-22T19:30:00Z",
+      "home": "RCD Espanyol de Barcelona",
+      "away": "Real Madrid CF",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马德里竞技 vs 比利亚雷亚尔",
+      "kickoff_utc": "2026-08-23T15:00:00Z",
+      "home": "Club Atlético de Madrid",
+      "away": "Villarreal CF",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "赫塔菲 vs 桑坦德竞技",
+      "kickoff_utc": "2026-08-23T17:30:00Z",
+      "home": "Getafe CF",
+      "away": "Real Racing Club de Santander",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "埃尔切 vs 巴塞罗那",
+      "kickoff_utc": "2026-08-23T19:30:00Z",
+      "home": "Elche CF",
+      "away": "FC Barcelona",
+      "home_score": 0,
+      "away_score": 5,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "奥萨苏纳 vs 莱万特",
+      "kickoff_utc": "2026-08-24T17:30:00Z",
+      "home": "CA Osasuna",
+      "away": "Levante UD",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马拉加 vs 拉科鲁尼亚",
+      "kickoff_utc": "2026-08-24T19:30:00Z",
+      "home": "Málaga CF",
+      "away": "RC Deportivo La Coruña",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "瓦伦西亚 vs 皇家贝蒂斯",
+      "kickoff_utc": "2026-08-25T19:00:00Z",
+      "home": "Valencia CF",
+      "away": "Real Betis Balompié",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "皇家马德里 vs 皇家社会",
+      "kickoff_utc": "2026-08-26T19:00:00Z",
+      "home": "Real Madrid CF",
+      "away": "Real Sociedad de Fútbol",
+      "home_score": 4,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "维戈塞尔塔 vs 奥萨苏纳",
+      "kickoff_utc": "2026-08-27T18:30:00Z",
+      "home": "RC Celta de Vigo",
+      "away": "CA Osasuna",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴塞罗那 vs 毕尔巴鄂竞技",
+      "kickoff_utc": "2026-08-27T19:00:00Z",
+      "home": "FC Barcelona",
+      "away": "Athletic Club",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "桑坦德竞技 vs 埃尔切",
+      "kickoff_utc": "2026-08-28T17:00:00Z",
+      "home": "Real Racing Club de Santander",
+      "away": "Elche CF",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "阿拉维斯 vs 比利亚雷亚尔",
+      "kickoff_utc": "2026-08-28T19:30:00Z",
+      "home": "Deportivo Alavés",
+      "away": "Villarreal CF",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "莱万特 vs 皇家贝蒂斯",
+      "kickoff_utc": "2026-08-29T15:00:00Z",
+      "home": "Levante UD",
+      "away": "Real Betis Balompié",
+      "home_score": 5,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "皇家社会 vs 西班牙人",
+      "kickoff_utc": "2026-08-29T17:00:00Z",
+      "home": "Real Sociedad de Fútbol",
+      "away": "RCD Espanyol de Barcelona",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "塞维利亚 vs 马德里竞技",
+      "kickoff_utc": "2026-08-29T19:30:00Z",
+      "home": "Sevilla FC",
+      "away": "Club Atlético de Madrid",
+      "home_score": 1,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "皇家马德里 vs 马拉加",
+      "kickoff_utc": "2026-08-30T15:00:00Z",
+      "home": "Real Madrid CF",
+      "away": "Málaga CF",
+      "home_score": 4,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "拉科鲁尼亚 vs 瓦伦西亚",
+      "kickoff_utc": "2026-08-30T17:30:00Z",
+      "home": "RC Deportivo La Coruña",
+      "away": "Valencia CF",
+      "home_score": 3,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "维戈塞尔塔 vs 毕尔巴鄂竞技",
+      "kickoff_utc": "2026-08-30T19:30:00Z",
+      "home": "RC Celta de Vigo",
+      "away": "Athletic Club",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "奥萨苏纳 vs 赫塔菲",
+      "kickoff_utc": "2026-08-31T17:30:00Z",
+      "home": "CA Osasuna",
+      "away": "Getafe CF",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴塞罗那 vs 巴列卡诺",
+      "kickoff_utc": "2026-08-31T19:30:00Z",
+      "home": "FC Barcelona",
+      "away": "Rayo Vallecano de Madrid",
+      "home_score": 5,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "皇家社会 vs 维戈塞尔塔",
+      "kickoff_utc": "2026-09-03T19:00:00Z",
+      "home": "Real Sociedad de Fútbol",
+      "away": "RC Celta de Vigo",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "皇家贝蒂斯 vs 皇家马德里",
+      "kickoff_utc": "2026-09-04T19:00:00Z",
+      "home": "Real Betis Balompié",
+      "away": "Real Madrid CF",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "毕尔巴鄂竞技 vs 马德里竞技",
+      "kickoff_utc": "2026-09-05T14:15:00Z",
+      "home": "Athletic Club",
+      "away": "Club Atlético de Madrid",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴列卡诺 vs 桑坦德竞技",
+      "kickoff_utc": "2026-09-05T16:30:00Z",
+      "home": "Rayo Vallecano de Madrid",
+      "away": "Real Racing Club de Santander",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "比利亚雷亚尔 vs 拉科鲁尼亚",
+      "kickoff_utc": "2026-09-05T19:00:00Z",
+      "home": "Villarreal CF",
+      "away": "RC Deportivo La Coruña",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "瓦伦西亚 vs 巴塞罗那",
+      "kickoff_utc": "2026-09-06T14:15:00Z",
+      "home": "Valencia CF",
+      "away": "FC Barcelona",
+      "home_score": 0,
+      "away_score": 5,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "阿拉维斯 vs 奥萨苏纳",
+      "kickoff_utc": "2026-09-06T16:30:00Z",
+      "home": "Deportivo Alavés",
+      "away": "CA Osasuna",
+      "home_score": 5,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马拉加 vs 莱万特",
+      "kickoff_utc": "2026-09-06T16:30:00Z",
+      "home": "Málaga CF",
+      "away": "Levante UD",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "西班牙人 vs 塞维利亚",
+      "kickoff_utc": "2026-09-06T19:00:00Z",
+      "home": "RCD Espanyol de Barcelona",
+      "away": "Sevilla FC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "赫塔菲 vs 维戈塞尔塔",
+      "kickoff_utc": "2026-09-07T17:00:00Z",
+      "home": "Getafe CF",
+      "away": "RC Celta de Vigo",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "埃尔切 vs 皇家社会",
+      "kickoff_utc": "2026-09-07T19:30:00Z",
+      "home": "Elche CF",
+      "away": "Real Sociedad de Fútbol",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "塞维利亚 vs 瓦伦西亚",
+      "kickoff_utc": "2026-09-11T19:00:00Z",
+      "home": "Sevilla FC",
+      "away": "Valencia CF",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "桑坦德竞技 vs 阿拉维斯",
+      "kickoff_utc": "2026-09-12T12:00:00Z",
+      "home": "Real Racing Club de Santander",
+      "away": "Deportivo Alavés",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "奥萨苏纳 vs 西班牙人",
+      "kickoff_utc": "2026-09-12T14:15:00Z",
+      "home": "CA Osasuna",
+      "away": "RCD Espanyol de Barcelona",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "毕尔巴鄂竞技 vs 埃尔切",
+      "kickoff_utc": "2026-09-12T16:30:00Z",
+      "home": "Athletic Club",
+      "away": "Elche CF",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "皇家马德里 vs 巴列卡诺",
+      "kickoff_utc": "2026-09-12T19:00:00Z",
+      "home": "Real Madrid CF",
+      "away": "Rayo Vallecano de Madrid",
+      "home_score": 4,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "维戈塞尔塔 vs 马拉加",
+      "kickoff_utc": "2026-09-13T12:00:00Z",
+      "home": "RC Celta de Vigo",
+      "away": "Málaga CF",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "莱万特 vs 巴塞罗那",
+      "kickoff_utc": "2026-09-13T14:15:00Z",
+      "home": "Levante UD",
+      "away": "FC Barcelona",
+      "home_score": 2,
+      "away_score": 4,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "赫塔菲 vs 拉科鲁尼亚",
+      "kickoff_utc": "2026-09-13T16:30:00Z",
+      "home": "Getafe CF",
+      "away": "RC Deportivo La Coruña",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "皇家社会 vs 马德里竞技",
+      "kickoff_utc": "2026-09-13T19:00:00Z",
+      "home": "Real Sociedad de Fútbol",
+      "away": "Club Atlético de Madrid",
+      "home_score": 0,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "比利亚雷亚尔 vs 皇家贝蒂斯",
+      "kickoff_utc": "2026-09-14T19:00:00Z",
+      "home": "Villarreal CF",
+      "away": "Real Betis Balompié",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴列卡诺 vs 西班牙人",
+      "kickoff_utc": "2026-09-15T17:00:00Z",
+      "home": "Rayo Vallecano de Madrid",
+      "away": "RCD Espanyol de Barcelona",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "阿拉维斯 vs 瓦伦西亚",
+      "kickoff_utc": "2026-09-15T18:00:00Z",
+      "home": "Deportivo Alavés",
+      "away": "Valencia CF",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "埃尔切 vs 皇家马德里",
+      "kickoff_utc": "2026-09-15T19:30:00Z",
+      "home": "Elche CF",
+      "away": "Real Madrid CF",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "拉科鲁尼亚 vs 塞维利亚",
+      "kickoff_utc": "2026-09-16T17:00:00Z",
+      "home": "RC Deportivo La Coruña",
+      "away": "Sevilla FC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马德里竞技 vs 奥萨苏纳",
+      "kickoff_utc": "2026-09-16T17:00:00Z",
+      "home": "Club Atlético de Madrid",
+      "away": "CA Osasuna",
+      "home_score": 4,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴塞罗那 vs 桑坦德竞技",
+      "kickoff_utc": "2026-09-16T19:30:00Z",
+      "home": "FC Barcelona",
+      "away": "Real Racing Club de Santander",
+      "home_score": 7,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "皇家贝蒂斯 vs 赫塔菲",
+      "kickoff_utc": "2026-09-17T17:00:00Z",
+      "home": "Real Betis Balompié",
+      "away": "Getafe CF",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马拉加 vs 比利亚雷亚尔",
+      "kickoff_utc": "2026-09-17T19:30:00Z",
+      "home": "Málaga CF",
+      "away": "Villarreal CF",
+      "home_score": 1,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "西班牙人 vs 埃尔切",
+      "kickoff_utc": "2026-09-18T19:00:00Z",
+      "home": "RCD Espanyol de Barcelona",
+      "away": "Elche CF",
+      "home_score": 1,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "奥萨苏纳 vs 巴列卡诺",
+      "kickoff_utc": "2026-09-19T12:00:00Z",
+      "home": "CA Osasuna",
+      "away": "Rayo Vallecano de Madrid",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "毕尔巴鄂竞技 vs 阿拉维斯",
+      "kickoff_utc": "2026-09-19T14:15:00Z",
+      "home": "Athletic Club",
+      "away": "Deportivo Alavés",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "维戈塞尔塔 vs 桑坦德竞技",
+      "kickoff_utc": "2026-09-19T16:30:00Z",
+      "home": "RC Celta de Vigo",
+      "away": "Real Racing Club de Santander",
+      "home_score": 5,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "塞维利亚 vs 巴塞罗那",
+      "kickoff_utc": "2026-09-19T19:00:00Z",
+      "home": "Sevilla FC",
+      "away": "FC Barcelona",
+      "home_score": 1,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "赫塔菲 vs 马拉加",
+      "kickoff_utc": "2026-09-20T12:00:00Z",
+      "home": "Getafe CF",
+      "away": "Málaga CF",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马德里竞技 vs 皇家马德里",
+      "kickoff_utc": "2026-09-20T14:15:00Z",
+      "home": "Club Atlético de Madrid",
+      "away": "Real Madrid CF",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "拉科鲁尼亚 vs 皇家贝蒂斯",
+      "kickoff_utc": "2026-09-20T16:30:00Z",
+      "home": "RC Deportivo La Coruña",
+      "away": "Real Betis Balompié",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "比利亚雷亚尔 vs 莱万特",
+      "kickoff_utc": "2026-09-20T16:30:00Z",
+      "home": "Villarreal CF",
+      "away": "Levante UD",
+      "home_score": 3,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "瓦伦西亚 vs 皇家社会",
+      "kickoff_utc": "2026-09-20T19:00:00Z",
+      "home": "Valencia CF",
+      "away": "Real Sociedad de Fútbol",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "拜仁慕尼黑 vs 斯图加特",
+      "kickoff_utc": "2026-08-28T18:30:00Z",
+      "home": "FC Bayern München",
+      "away": "VfB Stuttgart",
+      "home_score": 5,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "莱比锡红牛 vs 门兴格拉德巴赫",
+      "kickoff_utc": "2026-08-29T13:30:00Z",
+      "home": "RB Leipzig",
+      "away": "Borussia Mönchengladbach",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "美因茨05 vs 帕德博恩07",
+      "kickoff_utc": "2026-08-29T13:30:00Z",
+      "home": "1. FSV Mainz 05",
+      "away": "SC Paderborn 07",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "柏林联合 vs 法兰克福",
+      "kickoff_utc": "2026-08-29T13:30:00Z",
+      "home": "1. FC Union Berlin",
+      "away": "Eintracht Frankfurt",
+      "home_score": 3,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "鄂尔士贝格 vs 勒沃库森",
+      "kickoff_utc": "2026-08-29T13:30:00Z",
+      "home": "SV 07 Elversberg",
+      "away": "Bayer 04 Leverkusen",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "科隆 vs 霍芬海姆",
+      "kickoff_utc": "2026-08-29T13:30:00Z",
+      "home": "1. FC Köln",
+      "away": "TSG 1899 Hoffenheim",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "多特蒙德 vs 汉堡",
+      "kickoff_utc": "2026-08-29T16:30:00Z",
+      "home": "Borussia Dortmund",
+      "away": "Hamburger SV",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "弗赖堡 vs 云达不莱梅",
+      "kickoff_utc": "2026-08-30T13:30:00Z",
+      "home": "SC Freiburg",
+      "away": "SV Werder Bremen",
+      "home_score": 4,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "奥格斯堡 vs 沙尔克04",
+      "kickoff_utc": "2026-08-30T15:30:00Z",
+      "home": "FC Augsburg",
+      "away": "FC Schalke 04",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "斯图加特 vs 科隆",
+      "kickoff_utc": "2026-09-04T18:30:00Z",
+      "home": "VfB Stuttgart",
+      "away": "1. FC Köln",
+      "home_score": 4,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "云达不莱梅 vs 莱比锡红牛",
+      "kickoff_utc": "2026-09-05T13:30:00Z",
+      "home": "SV Werder Bremen",
+      "away": "RB Leipzig",
+      "home_score": 3,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "霍芬海姆 vs 多特蒙德",
+      "kickoff_utc": "2026-09-05T13:30:00Z",
+      "home": "TSG 1899 Hoffenheim",
+      "away": "Borussia Dortmund",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "勒沃库森 vs 柏林联合",
+      "kickoff_utc": "2026-09-05T13:30:00Z",
+      "home": "Bayer 04 Leverkusen",
+      "away": "1. FC Union Berlin",
+      "home_score": 4,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "门兴格拉德巴赫 vs 鄂尔士贝格",
+      "kickoff_utc": "2026-09-05T13:30:00Z",
+      "home": "Borussia Mönchengladbach",
+      "away": "SV 07 Elversberg",
+      "home_score": 3,
+      "away_score": 4,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "帕德博恩07 vs 弗赖堡",
+      "kickoff_utc": "2026-09-05T13:30:00Z",
+      "home": "SC Paderborn 07",
+      "away": "SC Freiburg",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "沙尔克04 vs 拜仁慕尼黑",
+      "kickoff_utc": "2026-09-05T16:30:00Z",
+      "home": "FC Schalke 04",
+      "away": "FC Bayern München",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "汉堡 vs 美因茨05",
+      "kickoff_utc": "2026-09-06T13:30:00Z",
+      "home": "Hamburger SV",
+      "away": "1. FSV Mainz 05",
+      "home_score": 0,
+      "away_score": 5,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "法兰克福 vs 奥格斯堡",
+      "kickoff_utc": "2026-09-06T15:30:00Z",
+      "home": "Eintracht Frankfurt",
+      "away": "FC Augsburg",
+      "home_score": 1,
+      "away_score": 4,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "柏林联合 vs 沙尔克04",
+      "kickoff_utc": "2026-09-11T18:30:00Z",
+      "home": "1. FC Union Berlin",
+      "away": "FC Schalke 04",
+      "home_score": 1,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "霍芬海姆 vs 斯图加特",
+      "kickoff_utc": "2026-09-12T13:30:00Z",
+      "home": "TSG 1899 Hoffenheim",
+      "away": "VfB Stuttgart",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "多特蒙德 vs 帕德博恩07",
+      "kickoff_utc": "2026-09-12T13:30:00Z",
+      "home": "Borussia Dortmund",
+      "away": "SC Paderborn 07",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "奥格斯堡 vs 勒沃库森",
+      "kickoff_utc": "2026-09-12T13:30:00Z",
+      "home": "FC Augsburg",
+      "away": "Bayer 04 Leverkusen",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "美因茨05 vs 法兰克福",
+      "kickoff_utc": "2026-09-12T13:30:00Z",
+      "home": "1. FSV Mainz 05",
+      "away": "Eintracht Frankfurt",
+      "home_score": 1,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "弗赖堡 vs 门兴格拉德巴赫",
+      "kickoff_utc": "2026-09-12T13:30:00Z",
+      "home": "SC Freiburg",
+      "away": "Borussia Mönchengladbach",
+      "home_score": 5,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "科隆 vs 云达不莱梅",
+      "kickoff_utc": "2026-09-12T16:30:00Z",
+      "home": "1. FC Köln",
+      "away": "SV Werder Bremen",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "莱比锡红牛 vs 汉堡",
+      "kickoff_utc": "2026-09-13T13:30:00Z",
+      "home": "RB Leipzig",
+      "away": "Hamburger SV",
+      "home_score": 5,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "鄂尔士贝格 vs 拜仁慕尼黑",
+      "kickoff_utc": "2026-09-13T15:30:00Z",
+      "home": "SV 07 Elversberg",
+      "away": "FC Bayern München",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "拜仁慕尼黑 vs 柏林联合",
+      "kickoff_utc": "2026-09-18T18:30:00Z",
+      "home": "FC Bayern München",
+      "away": "1. FC Union Berlin",
+      "home_score": 7,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "汉堡 vs 科隆",
+      "kickoff_utc": "2026-09-19T13:30:00Z",
+      "home": "Hamburger SV",
+      "away": "1. FC Köln",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "门兴格拉德巴赫 vs 美因茨05",
+      "kickoff_utc": "2026-09-19T13:30:00Z",
+      "home": "Borussia Mönchengladbach",
+      "away": "1. FSV Mainz 05",
+      "home_score": 3,
+      "away_score": 4,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "云达不莱梅 vs 奥格斯堡",
+      "kickoff_utc": "2026-09-19T13:30:00Z",
+      "home": "SV Werder Bremen",
+      "away": "FC Augsburg",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "法兰克福 vs 弗赖堡",
+      "kickoff_utc": "2026-09-19T13:30:00Z",
+      "home": "Eintracht Frankfurt",
+      "away": "SC Freiburg",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "斯图加特 vs 多特蒙德",
+      "kickoff_utc": "2026-09-19T16:30:00Z",
+      "home": "VfB Stuttgart",
+      "away": "Borussia Dortmund",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "勒沃库森 vs 莱比锡红牛",
+      "kickoff_utc": "2026-09-20T13:30:00Z",
+      "home": "Bayer 04 Leverkusen",
+      "away": "RB Leipzig",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "沙尔克04 vs 鄂尔士贝格",
+      "kickoff_utc": "2026-09-20T15:30:00Z",
+      "home": "FC Schalke 04",
+      "away": "SV 07 Elversberg",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "帕德博恩07 vs 霍芬海姆",
+      "kickoff_utc": "2026-09-20T17:30:00Z",
+      "home": "SC Paderborn 07",
+      "away": "TSG 1899 Hoffenheim",
+      "home_score": 3,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "乌迪内斯 vs 科莫",
+      "kickoff_utc": "2026-08-22T16:30:00Z",
+      "home": "Udinese Calcio",
+      "away": "Como 1907",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "国际米兰 vs 蒙扎",
+      "kickoff_utc": "2026-08-22T16:30:00Z",
+      "home": "FC Internazionale Milano",
+      "away": "AC Monza",
+      "home_score": 4,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "热那亚 vs 那不勒斯",
+      "kickoff_utc": "2026-08-22T18:45:00Z",
+      "home": "Genoa CFC",
+      "away": "SSC Napoli",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "帕尔马 vs 卡利亚里",
+      "kickoff_utc": "2026-08-22T18:45:00Z",
+      "home": "Parma Calcio 1913",
+      "away": "Cagliari Calcio",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "弗罗西诺内 vs 尤文图斯",
+      "kickoff_utc": "2026-08-23T16:30:00Z",
+      "home": "Frosinone Calcio",
+      "away": "Juventus FC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "威尼斯 vs 莱切",
+      "kickoff_utc": "2026-08-23T16:30:00Z",
+      "home": "Venezia FC",
+      "away": "US Lecce",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "亚特兰大 vs 萨索洛",
+      "kickoff_utc": "2026-08-23T18:45:00Z",
+      "home": "Atalanta BC",
+      "away": "US Sassuolo Calcio",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "都灵 vs AC米兰",
+      "kickoff_utc": "2026-08-23T18:45:00Z",
+      "home": "Torino FC",
+      "away": "AC Milan",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "博洛尼亚 vs 拉齐奥",
+      "kickoff_utc": "2026-08-24T16:30:00Z",
+      "home": "Bologna FC 1909",
+      "away": "SS Lazio",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "罗马 vs 佛罗伦萨",
+      "kickoff_utc": "2026-08-24T18:45:00Z",
+      "home": "AS Roma",
+      "away": "ACF Fiorentina",
+      "home_score": 4,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "AC米兰 vs 威尼斯",
+      "kickoff_utc": "2026-08-28T18:45:00Z",
+      "home": "AC Milan",
+      "away": "Venezia FC",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "萨索洛 vs 都灵",
+      "kickoff_utc": "2026-08-29T16:30:00Z",
+      "home": "US Sassuolo Calcio",
+      "away": "Torino FC",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "蒙扎 vs 乌迪内斯",
+      "kickoff_utc": "2026-08-29T16:30:00Z",
+      "home": "AC Monza",
+      "away": "Udinese Calcio",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "佛罗伦萨 vs 弗罗西诺内",
+      "kickoff_utc": "2026-08-29T16:30:00Z",
+      "home": "ACF Fiorentina",
+      "away": "Frosinone Calcio",
+      "home_score": 0,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "尤文图斯 vs 帕尔马",
+      "kickoff_utc": "2026-08-29T18:45:00Z",
+      "home": "Juventus FC",
+      "away": "Parma Calcio 1913",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "那不勒斯 vs 科莫",
+      "kickoff_utc": "2026-08-30T16:30:00Z",
+      "home": "SSC Napoli",
+      "away": "Como 1907",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "拉齐奥 vs 热那亚",
+      "kickoff_utc": "2026-08-30T18:45:00Z",
+      "home": "SS Lazio",
+      "away": "Genoa CFC",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "卡利亚里 vs 国际米兰",
+      "kickoff_utc": "2026-08-30T18:45:00Z",
+      "home": "Cagliari Calcio",
+      "away": "FC Internazionale Milano",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "莱切 vs 罗马",
+      "kickoff_utc": "2026-08-31T16:30:00Z",
+      "home": "US Lecce",
+      "away": "AS Roma",
+      "home_score": 0,
+      "away_score": 4,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "亚特兰大 vs 博洛尼亚",
+      "kickoff_utc": "2026-08-31T18:45:00Z",
+      "home": "Atalanta BC",
+      "away": "Bologna FC 1909",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "热那亚 vs 科莫",
+      "kickoff_utc": "2026-09-04T18:45:00Z",
+      "home": "Genoa CFC",
+      "away": "Como 1907",
+      "home_score": 1,
+      "away_score": 4,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "佛罗伦萨 vs 都灵",
+      "kickoff_utc": "2026-09-05T13:00:00Z",
+      "home": "ACF Fiorentina",
+      "away": "Torino FC",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "国际米兰 vs 那不勒斯",
+      "kickoff_utc": "2026-09-05T16:00:00Z",
+      "home": "FC Internazionale Milano",
+      "away": "SSC Napoli",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "罗马 vs 亚特兰大",
+      "kickoff_utc": "2026-09-05T18:45:00Z",
+      "home": "AS Roma",
+      "away": "Atalanta BC",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "帕尔马 vs 蒙扎",
+      "kickoff_utc": "2026-09-06T13:00:00Z",
+      "home": "Parma Calcio 1913",
+      "away": "AC Monza",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "弗罗西诺内 vs 威尼斯",
+      "kickoff_utc": "2026-09-06T13:00:00Z",
+      "home": "Frosinone Calcio",
+      "away": "Venezia FC",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "博洛尼亚 vs 萨索洛",
+      "kickoff_utc": "2026-09-06T16:00:00Z",
+      "home": "Bologna FC 1909",
+      "away": "US Sassuolo Calcio",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "尤文图斯 vs AC米兰",
+      "kickoff_utc": "2026-09-06T18:45:00Z",
+      "home": "Juventus FC",
+      "away": "AC Milan",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "卡利亚里 vs 莱切",
+      "kickoff_utc": "2026-09-07T16:30:00Z",
+      "home": "Cagliari Calcio",
+      "away": "US Lecce",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "乌迪内斯 vs 拉齐奥",
+      "kickoff_utc": "2026-09-07T18:45:00Z",
+      "home": "Udinese Calcio",
+      "away": "SS Lazio",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "威尼斯 vs 佛罗伦萨",
+      "kickoff_utc": "2026-09-11T18:45:00Z",
+      "home": "Venezia FC",
+      "away": "ACF Fiorentina",
+      "home_score": 2,
+      "away_score": 4,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "热那亚 vs 弗罗西诺内",
+      "kickoff_utc": "2026-09-12T13:00:00Z",
+      "home": "Genoa CFC",
+      "away": "Frosinone Calcio",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "拉齐奥 vs AC米兰",
+      "kickoff_utc": "2026-09-12T16:00:00Z",
+      "home": "SS Lazio",
+      "away": "AC Milan",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "亚特兰大 vs 卡利亚里",
+      "kickoff_utc": "2026-09-12T18:45:00Z",
+      "home": "Atalanta BC",
+      "away": "Cagliari Calcio",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "莱切 vs 蒙扎",
+      "kickoff_utc": "2026-09-13T13:00:00Z",
+      "home": "US Lecce",
+      "away": "AC Monza",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "那不勒斯 vs 博洛尼亚",
+      "kickoff_utc": "2026-09-13T16:00:00Z",
+      "home": "SSC Napoli",
+      "away": "Bologna FC 1909",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "萨索洛 vs 尤文图斯",
+      "kickoff_utc": "2026-09-13T18:45:00Z",
+      "home": "US Sassuolo Calcio",
+      "away": "Juventus FC",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "科莫 vs 帕尔马",
+      "kickoff_utc": "2026-09-14T16:30:00Z",
+      "home": "Como 1907",
+      "away": "Parma Calcio 1913",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "都灵 vs 罗马",
+      "kickoff_utc": "2026-09-14T16:30:00Z",
+      "home": "Torino FC",
+      "away": "AS Roma",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "国际米兰 vs 乌迪内斯",
+      "kickoff_utc": "2026-09-14T18:45:00Z",
+      "home": "FC Internazionale Milano",
+      "away": "Udinese Calcio",
+      "home_score": 5,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "蒙扎 vs 萨索洛",
+      "kickoff_utc": "2026-09-18T18:45:00Z",
+      "home": "AC Monza",
+      "away": "US Sassuolo Calcio",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "博洛尼亚 vs 都灵",
+      "kickoff_utc": "2026-09-19T13:00:00Z",
+      "home": "Bologna FC 1909",
+      "away": "Torino FC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "乌迪内斯 vs 卡利亚里",
+      "kickoff_utc": "2026-09-19T13:00:00Z",
+      "home": "Udinese Calcio",
+      "away": "Cagliari Calcio",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "罗马 vs 国际米兰",
+      "kickoff_utc": "2026-09-19T16:00:00Z",
+      "home": "AS Roma",
+      "away": "FC Internazionale Milano",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "威尼斯 vs 拉齐奥",
+      "kickoff_utc": "2026-09-19T18:45:00Z",
+      "home": "Venezia FC",
+      "away": "SS Lazio",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "佛罗伦萨 vs 那不勒斯",
+      "kickoff_utc": "2026-09-20T10:30:00Z",
+      "home": "ACF Fiorentina",
+      "away": "SSC Napoli",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "弗罗西诺内 vs 科莫",
+      "kickoff_utc": "2026-09-20T13:00:00Z",
+      "home": "Frosinone Calcio",
+      "away": "Como 1907",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "帕尔马 vs 热那亚",
+      "kickoff_utc": "2026-09-20T13:00:00Z",
+      "home": "Parma Calcio 1913",
+      "away": "Genoa CFC",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "尤文图斯 vs 亚特兰大",
+      "kickoff_utc": "2026-09-20T16:00:00Z",
+      "home": "Juventus FC",
+      "away": "Atalanta BC",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "AC米兰 vs 莱切",
+      "kickoff_utc": "2026-09-20T18:45:00Z",
+      "home": "AC Milan",
+      "away": "US Lecce",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马赛 vs 斯特拉斯堡",
+      "kickoff_utc": "2026-08-21T18:45:00Z",
+      "home": "Olympique de Marseille",
+      "away": "RC Strasbourg Alsace",
+      "home_score": 4,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "朗斯 vs 欧塞尔",
+      "kickoff_utc": "2026-08-22T15:15:00Z",
+      "home": "Racing Club de Lens",
+      "away": "AJ Auxerre",
+      "home_score": 5,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "勒芒 vs 布雷斯特",
+      "kickoff_utc": "2026-08-22T18:45:00Z",
+      "home": "Le Mans FC",
+      "away": "Stade Brestois 29",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "特鲁瓦 vs 巴黎FC",
+      "kickoff_utc": "2026-08-22T18:45:00Z",
+      "home": "ES Troyes AC",
+      "away": "Paris FC",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "尼斯 vs 洛里昂",
+      "kickoff_utc": "2026-08-22T18:45:00Z",
+      "home": "OGC Nice",
+      "away": "FC Lorient",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "图卢兹 vs 里昂",
+      "kickoff_utc": "2026-08-22T18:45:00Z",
+      "home": "Toulouse FC",
+      "away": "Olympique Lyonnais",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "昂热 vs 里尔",
+      "kickoff_utc": "2026-08-23T13:00:00Z",
+      "home": "Angers SCO",
+      "away": "Lille OSC",
+      "home_score": 0,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "勒阿弗尔 vs 摩纳哥",
+      "kickoff_utc": "2026-08-23T15:15:00Z",
+      "home": "Le Havre AC",
+      "away": "AS Monaco FC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "雷恩 vs 巴黎圣日耳曼",
+      "kickoff_utc": "2026-08-23T18:45:00Z",
+      "home": "Stade Rennais FC 1901",
+      "away": "Paris Saint-Germain FC",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "里尔 vs 巴黎圣日耳曼",
+      "kickoff_utc": "2026-08-28T18:45:00Z",
+      "home": "Lille OSC",
+      "away": "Paris Saint-Germain FC",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "斯特拉斯堡 vs 朗斯",
+      "kickoff_utc": "2026-08-29T15:15:00Z",
+      "home": "RC Strasbourg Alsace",
+      "away": "Racing Club de Lens",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "洛里昂 vs 特鲁瓦",
+      "kickoff_utc": "2026-08-29T18:45:00Z",
+      "home": "FC Lorient",
+      "away": "ES Troyes AC",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "里昂 vs 勒阿弗尔",
+      "kickoff_utc": "2026-08-29T18:45:00Z",
+      "home": "Olympique Lyonnais",
+      "away": "Le Havre AC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "欧塞尔 vs 昂热",
+      "kickoff_utc": "2026-08-29T18:45:00Z",
+      "home": "AJ Auxerre",
+      "away": "Angers SCO",
+      "home_score": 1,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "布雷斯特 vs 图卢兹",
+      "kickoff_utc": "2026-08-29T18:45:00Z",
+      "home": "Stade Brestois 29",
+      "away": "Toulouse FC",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴黎FC vs 尼斯",
+      "kickoff_utc": "2026-08-30T13:00:00Z",
+      "home": "Paris FC",
+      "away": "OGC Nice",
+      "home_score": 3,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "雷恩 vs 勒芒",
+      "kickoff_utc": "2026-08-30T15:15:00Z",
+      "home": "Stade Rennais FC 1901",
+      "away": "Le Mans FC",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "摩纳哥 vs 马赛",
+      "kickoff_utc": "2026-08-30T18:45:00Z",
+      "home": "AS Monaco FC",
+      "away": "Olympique de Marseille",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "图卢兹 vs 里尔",
+      "kickoff_utc": "2026-09-03T18:45:00Z",
+      "home": "Toulouse FC",
+      "away": "Lille OSC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "里昂 vs 欧塞尔",
+      "kickoff_utc": "2026-09-04T17:00:00Z",
+      "home": "Olympique Lyonnais",
+      "away": "AJ Auxerre",
+      "home_score": 3,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴黎圣日耳曼 vs 摩纳哥",
+      "kickoff_utc": "2026-09-04T19:05:00Z",
+      "home": "Paris Saint-Germain FC",
+      "away": "AS Monaco FC",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "朗斯 vs 洛里昂",
+      "kickoff_utc": "2026-09-05T15:15:00Z",
+      "home": "Racing Club de Lens",
+      "away": "FC Lorient",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "勒阿弗尔 vs 布雷斯特",
+      "kickoff_utc": "2026-09-05T18:45:00Z",
+      "home": "Le Havre AC",
+      "away": "Stade Brestois 29",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "尼斯 vs 勒芒",
+      "kickoff_utc": "2026-09-05T18:45:00Z",
+      "home": "OGC Nice",
+      "away": "Le Mans FC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "特鲁瓦 vs 斯特拉斯堡",
+      "kickoff_utc": "2026-09-06T13:00:00Z",
+      "home": "ES Troyes AC",
+      "away": "RC Strasbourg Alsace",
+      "home_score": 2,
+      "away_score": 6,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "昂热 vs 雷恩",
+      "kickoff_utc": "2026-09-06T15:15:00Z",
+      "home": "Angers SCO",
+      "away": "Stade Rennais FC 1901",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马赛 vs 巴黎FC",
+      "kickoff_utc": "2026-09-06T18:45:00Z",
+      "home": "Olympique de Marseille",
+      "away": "Paris FC",
+      "home_score": 2,
+      "away_score": 3,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "雷恩 vs 马赛",
+      "kickoff_utc": "2026-09-11T18:45:00Z",
+      "home": "Stade Rennais FC 1901",
+      "away": "Olympique de Marseille",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "斯特拉斯堡 vs 摩纳哥",
+      "kickoff_utc": "2026-09-12T15:15:00Z",
+      "home": "RC Strasbourg Alsace",
+      "away": "AS Monaco FC",
+      "home_score": 1,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "洛里昂 vs 图卢兹",
+      "kickoff_utc": "2026-09-12T18:45:00Z",
+      "home": "FC Lorient",
+      "away": "Toulouse FC",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "欧塞尔 vs 尼斯",
+      "kickoff_utc": "2026-09-12T18:45:00Z",
+      "home": "AJ Auxerre",
+      "away": "OGC Nice",
+      "home_score": 1,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "勒阿弗尔 vs 昂热",
+      "kickoff_utc": "2026-09-12T18:45:00Z",
+      "home": "Le Havre AC",
+      "away": "Angers SCO",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴黎FC vs 里昂",
+      "kickoff_utc": "2026-09-12T18:45:00Z",
+      "home": "Paris FC",
+      "away": "Olympique Lyonnais",
+      "home_score": 0,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "里尔 vs 特鲁瓦",
+      "kickoff_utc": "2026-09-13T13:00:00Z",
+      "home": "Lille OSC",
+      "away": "ES Troyes AC",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "勒芒 vs 朗斯",
+      "kickoff_utc": "2026-09-13T15:15:00Z",
+      "home": "Le Mans FC",
+      "away": "Racing Club de Lens",
+      "home_score": 2,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "布雷斯特 vs 巴黎圣日耳曼",
+      "kickoff_utc": "2026-09-13T18:45:00Z",
+      "home": "Stade Brestois 29",
+      "away": "Paris Saint-Germain FC",
+      "home_score": 0,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "摩纳哥 vs 朗斯",
+      "kickoff_utc": "2026-09-18T18:45:00Z",
+      "home": "AS Monaco FC",
+      "away": "Racing Club de Lens",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "巴黎FC vs 斯特拉斯堡",
+      "kickoff_utc": "2026-09-19T15:15:00Z",
+      "home": "Paris FC",
+      "away": "RC Strasbourg Alsace",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "勒芒 vs 洛里昂",
+      "kickoff_utc": "2026-09-19T18:45:00Z",
+      "home": "Le Mans FC",
+      "away": "FC Lorient",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "图卢兹 vs 勒阿弗尔",
+      "kickoff_utc": "2026-09-19T18:45:00Z",
+      "home": "Toulouse FC",
+      "away": "Le Havre AC",
+      "home_score": 3,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "昂热 vs 特鲁瓦",
+      "kickoff_utc": "2026-09-19T18:45:00Z",
+      "home": "Angers SCO",
+      "away": "ES Troyes AC",
+      "home_score": 2,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "里昂 vs 雷恩",
+      "kickoff_utc": "2026-09-19T18:45:00Z",
+      "home": "Olympique Lyonnais",
+      "away": "Stade Rennais FC 1901",
+      "home_score": 4,
+      "away_score": 0,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "欧塞尔 vs 布雷斯特",
+      "kickoff_utc": "2026-09-20T13:00:00Z",
+      "home": "AJ Auxerre",
+      "away": "Stade Brestois 29",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "尼斯 vs 里尔",
+      "kickoff_utc": "2026-09-20T15:15:00Z",
+      "home": "OGC Nice",
+      "away": "Lille OSC",
+      "home_score": 2,
+      "away_score": 1,
+      "status": "STATUS_FULL_TIME"
+    },
+    {
+      "id": "马赛 vs 巴黎圣日耳曼",
+      "kickoff_utc": "2026-09-20T18:45:00Z",
+      "home": "Olympique de Marseille",
+      "away": "Paris Saint-Germain FC",
+      "home_score": 1,
+      "away_score": 2,
+      "status": "STATUS_FULL_TIME"
+    }
+  ]
+}

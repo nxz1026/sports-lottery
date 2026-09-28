@@ -1,0 +1,14 @@
+{
+  "home_correction": 0.993,
+  "draw_correction": 0.934,
+  "away_correction": 1.066,
+  "onside_home_correction": 0.996,
+  "onside_away_correction": 1.033,
+  "sample_size": 1191,
+  "sample_weight": 1.0,
+  "actual_home_rate": 0.447,
+  "actual_draw_rate": 0.233,
+  "actual_away_rate": 0.32,
+  "_saved_at": "2026-09-28T01:30:07Z",
+  "_league": "epl"
+}

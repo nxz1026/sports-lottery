@@ -1,0 +1,1 @@
+{"id": "15bbc52e3e52", "status": "failed", "trigger": "timer", "script": "ai_enrich", "args": [], "created_at": 1790559438.0304043, "started_at": 1790559438.0314631, "finished_at": 1790559438.0957897, "exit_code": 1, "timeout": 600, "error": "exit 1: ModuleNotFoundError: No module named 'requests'"}

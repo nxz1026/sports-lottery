@@ -24,7 +24,7 @@ AUTH_USER="${LEAGUE_AUTH_USER:-a}"
 AUTH_PASS="${LEAGUE_AUTH_PASS:-a}"
 JOB_TIMEOUT="${LEAGUE_JOB_TIMEOUT:-3600}"    # 单个作业等待上限（秒）
 POLL_INTERVAL="${LEAGUE_POLL_INTERVAL:-15}"  # 轮询间隔（秒）
-PY="${LEAGUE_PYTHON:-/home/ubuntu/work/sports-lottery/.venv/bin/python}"
+PY="${LEAGUE_PYTHON:-/home/ubuntu/DSH/sports-lottery/.venv/bin/python}"
 
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
