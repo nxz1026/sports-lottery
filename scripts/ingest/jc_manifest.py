@@ -6,19 +6,32 @@ from core.log import logger
 
 
 def _count_lines(path: Path) -> int:
-    with open(path, encoding="utf-8") as f:
-        return sum(1 for s in f if s.strip())
+    try:
+        with open(path, encoding="utf-8") as f:
+            return sum(1 for s in f if s.strip())
+    except PermissionError:
+        logger.warning("permission-denied topic=%s 文件=%s", path.parent.name, path)
+        return 0
 
 
 def body_hash(p: Path) -> str:
     """采集机 .done 第三列定义（队长 14:52 三批真包 7/7 复算命中）：sha256(逐行 utf-8 字节去掉换行按序拼接)。"""
-    return hashlib.sha256("".join(p.read_text(encoding="utf-8").splitlines()).encode("utf-8")).hexdigest()
+    try:
+        return hashlib.sha256("".join(p.read_text(encoding="utf-8").splitlines()).encode("utf-8")).hexdigest()
+    except PermissionError:
+        logger.warning("permission-denied topic=%s 文件=%s", p.parent.name, p)
+        return ""
 
 
 def _manifest(root: Path, marker: Path) -> dict[str, list[tuple[str, int, str]]]:
     """.done 文本清单 → {topic: [(相对路径, 声明行数, 声明哈希)]}；无前缀行挂 ""；0 字节 marker ⇒ {} 走窗口。"""
     out: dict[str, list[tuple[str, int, str]]] = {}
-    for line in marker.read_text(encoding="utf-8").splitlines():
+    try:
+        lines = marker.read_text(encoding="utf-8").splitlines()
+    except PermissionError:
+        logger.warning("permission-denied marker=%s", marker)
+        return out
+    for line in lines:
         if not line.strip():
             continue
         parts = line.split("\t")

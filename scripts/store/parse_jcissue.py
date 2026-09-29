@@ -24,6 +24,9 @@ MATCH = ("matchNum:i>seq gmMatchId:i>gm_match_id startTime:c>start_date "
 
 def parse_jc_issue(payload: dict) -> list[dict]:
     """parent + N match 指令（list[dict]，父在前子在后；matchList 为空 ⇒ 单 parent 指令，len 1）。"""
+    # 网关空结果 bug：lotteryGameNum/lotteryDrawNum 可能为 null（服务端自称成功但缺身份键）→ 跳过
+    if not isinstance(payload.get("lotteryGameNum"), str) or not isinstance(payload.get("lotteryDrawNum"), str):
+        return []
     for key, kind in (("lotteryGameNum", str), ("lotteryDrawNum", str), ("drawNumList", list), ("matchList", list)):
         need(payload, key, kind)
     matches = payload["matchList"]  # need() 已验类型

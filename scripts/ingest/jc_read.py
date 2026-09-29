@@ -55,5 +55,9 @@ def files_for_batch(root: Path, marker: Path,
 
 
 def read_lines(path: Path) -> list[dict]:
-    with open(path, encoding="utf-8") as f:
-        return [json.loads(s) for s in f if s.strip()]
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [json.loads(s) for s in f if s.strip()]
+    except PermissionError:
+        logger.warning("permission-denied topic=%s 文件=%s", path.parent.name, path)
+        return []

@@ -40,9 +40,19 @@ def main(argv: list[str] | None = None) -> int:
             r = load_batch(conn, root, m)
             logger.info("batch %s ups=%d errors=%s", r["marker"],
                         sum(t["ups"] for t in r["topics"]), r["errors"])
-        seen = {p for m in iter_markers(root, args.batch)
-                for cs in files_for_batch(root, m, TOPICS + OPTIONAL).values() for p, _ in cs or [] if p}
-        orph = [p for t in TOPICS + OPTIONAL for p in sorted((root / t).glob("*.jsonl")) if p not in seen]
+        seen = set()
+        try:
+            for m in iter_markers(root, args.batch):
+                for cs in files_for_batch(root, m, TOPICS + OPTIONAL).values():
+                    for p, _ in cs or []:
+                        if p: seen.add(p)
+        except Exception as e:
+            logger.warning("orphan-scan skipped: %s", e)
+        orph = []
+        try:
+            orph = [p for t in TOPICS + OPTIONAL for p in sorted((root / t).glob("*.jsonl")) if p not in seen]
+        except Exception as e:
+            logger.warning("orphan-glob skipped: %s", e)
         try:
             with conn.cursor() as cur:
                 for p in orph: load_topic(cur, root, Path("orphan"), p.parent.name, p, "orphan")

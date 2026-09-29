@@ -40,7 +40,22 @@ def load_file(conn: Connection, path: str | Path, table: str) -> dict:
         raise ValueError(f"unknown stg table {table!r}")
     name, statement = Path(path).name, sql.SQL(INSERT_STG).format(sql.Identifier(table))
     rows_in, rows_ups, rejected = 0, 0, []
-    with open(path, encoding="utf-8") as handle, conn.cursor() as cur:
+    try:
+        with open(path, encoding="utf-8") as handle, conn.cursor() as cur:
+            for lineno, raw in enumerate(handle, 1):
+                line = raw.strip()
+                if not line:
+                    continue
+                rows_in += 1
+                obj, reason = row_error(line, table)
+                if reason:
+                    rejected.append({"lineno": lineno, "reason": reason, "raw": line[:RAW_PREVIEW_CHARS]})
+                else:
+                    cur.execute(statement, (Jsonb(obj), canonical_src_hash(obj["payload"]), name))
+                    rows_ups += cur.rowcount
+    except PermissionError:
+        logger.error("collector_pull: %s 权限拒绝", path)
+        return {"rows_in": 0, "rows_ups": 0, "rejected_n": 1, "rejected": [{"reason": "permission-denied"}]}
         for lineno, raw in enumerate(handle, 1):
             line = raw.strip()
             if not line:
