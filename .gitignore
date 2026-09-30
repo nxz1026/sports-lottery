@@ -68,3 +68,6 @@ predictions/ai_analysis/
 
 # 凭据备份（勿入库）
 .env.bak-*
+
+# 运行期 ELO 状态（服务每轮重写；缺失时 load_elo_ratings() 回退 FIFA 冷启动）
+references/.elo_ratings.json
