@@ -16,7 +16,7 @@ scripts/references/.calibration_state*.json
 
 # Environment
 .env
-.venv/
+.venv*/
 venv/
 
 # IDE

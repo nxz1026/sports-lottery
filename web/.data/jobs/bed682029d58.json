@@ -1,1 +1,0 @@
-{"id": "bed682029d58", "status": "done", "trigger": "timer", "script": "predict", "args": ["--all", "--n-simulations", "3000"], "created_at": 1790513804.6468039, "started_at": 1790513804.648206, "finished_at": 1790513902.7406778, "exit_code": 0, "timeout": 600}

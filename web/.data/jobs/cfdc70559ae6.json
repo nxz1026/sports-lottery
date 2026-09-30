@@ -1,1 +1,0 @@
-{"id": "cfdc70559ae6", "status": "failed", "trigger": "timer", "script": "ai_enrich", "args": [], "created_at": 1790513288.8468783, "started_at": 1790513288.8479745, "finished_at": 1790513288.9128046, "exit_code": 1, "timeout": 600, "error": "exit 1: ModuleNotFoundError: No module named 'requests'"}

@@ -1,1 +1,0 @@
-{"id": "59b7253825a8", "status": "failed", "trigger": "timer", "script": "predict_bball", "args": ["--ahead-days", "90"], "created_at": 1790513273.7471848, "started_at": 1790513273.748248, "finished_at": 1790513273.8634098, "exit_code": 2, "timeout": 600, "error": "exit 2: ODDS_API_KEY 未设置"}
