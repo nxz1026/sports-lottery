@@ -65,3 +65,6 @@ predictions/ai_analysis/
 
 # collector runtime lock
 .collector.lock
+
+# 凭据备份（勿入库）
+.env.bak-*
