@@ -24,13 +24,66 @@ AUTH_USER="${LEAGUE_AUTH_USER:-a}"
 AUTH_PASS="${LEAGUE_AUTH_PASS:-a}"
 JOB_TIMEOUT="${LEAGUE_JOB_TIMEOUT:-3600}"    # 单个作业等待上限（秒）
 POLL_INTERVAL="${LEAGUE_POLL_INTERVAL:-15}"  # 轮询间隔（秒）
-PY="${LEAGUE_PYTHON:-/home/ubuntu/DSH/sports-lottery/.venv/bin/python}"
+# 2026-10-01: venv 已迁到 ~/.venvs/league（仓库内 .venv 不再跟踪，994eef4），
+# 旧路径不存在会让 job_field 解析器静默失败 → 三个作业全判 "响应缺少 job.id"。
+PY="${LEAGUE_PYTHON:-/home/ubuntu/.venvs/league/bin/python}"
+# 告警 webhook 走 ~/.env（仅此一处持有），unit 里不再内联。
+FEISHU_WEBHOOK="${LEAGUE_FEISHU_WEBHOOK:-}"
+if [ -z "$FEISHU_WEBHOOK" ] && [ -r /home/ubuntu/.env ]; then
+  FEISHU_WEBHOOK="$(sed -n 's/^FEISHU_WEBHOOK_URL=//p' /home/ubuntu/.env | head -1)"
+fi
 
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
 rc=0
+FAILURES=()
 
 log() { printf '[%s] %s\n' "$(date -u '+%F %T UTC')" "$*"; }
+
+# 失败即报：本机没有任何单元配 OnFailure=，2026-09-30/10-01 连续两天 exit 1 零通知。
+# 同批多个作业失败合并成一张卡片，不逐条发。
+ALERTS=()
+
+# add_alert <正文>：只入队，不发送
+add_alert() {
+  log "ALERT: $*"
+  ALERTS+=("$*")
+}
+
+# flush_alert：把本批所有问题合成一张卡片推送。空队列直接返回。
+flush_alert() {
+  [ ${#ALERTS[@]} -gt 0 ] || return 0
+  if [ -z "$FEISHU_WEBHOOK" ]; then
+    log "未配置 webhook，${#ALERTS[@]} 条问题仅写日志"
+    return 0
+  fi
+  local body
+  body="$(printf '· %s\n' "${ALERTS[@]}")"
+  "$PY" - "$FEISHU_WEBHOOK" "$body" "${#ALERTS[@]}" <<'PYEOF'
+import json, sys, urllib.request
+webhook, body, n = sys.argv[1], sys.argv[2], sys.argv[3]
+card = {
+    "msg_type": "interactive",
+    "card": {
+        "header": {"title": {"content": f"🔔 每日预测报警：{n} 个问题",
+                             "tag": "plain_text"}, "template": "red"},
+        "elements": [
+            {"tag": "div", "text": {"content": body.rstrip(), "tag": "plain_text"}},
+            {"tag": "hr"},
+            {"tag": "note", "text": {"content": "league-daily-predict.timer", "tag": "plain_text"}},
+        ],
+    },
+}
+req = urllib.request.Request(webhook, data=json.dumps(card).encode("utf-8"),
+                             headers={"Content-Type": "application/json; charset=utf-8"},
+                             method="POST")
+with urllib.request.urlopen(req, timeout=10) as r:
+    if json.loads(r.read()).get("StatusCode") != 0:
+        sys.exit(1)
+PYEOF
+  [ $? = 0 ] || log "飞书推送失败（详见上方异常）"
+  return 0
+}
 
 # api <curl args...>：回显 body，最后一行是 HTTP 状态码
 api() { curl -sS --max-time 30 -b "$JAR" -c "$JAR" -w $'\n%{http_code}' "$@"; }
@@ -74,8 +127,8 @@ trigger() {
     202|409)
       jid="$(sed '$d' <<<"$resp" | job_field id)"
       [ "$code" = "409" ] && log "  已有作业在跑，改为等待 $jid"
-      [ -n "$jid" ] || { log "  $label 响应缺少 job.id"; rc=1; return; }
-      wait_job "$jid" || rc=1
+      [ -n "$jid" ] || { log "  $label 响应缺少 job.id"; rc=1; FAILURES+=("$label 响应缺少 job.id（解析器或 API 变更）"); return; }
+      wait_job "$jid" || { rc=1; FAILURES+=("$label 作业 $jid 未成功"); }
       ;;
     429)
       log "  今日配额已用尽，跳过 $label"
@@ -84,6 +137,7 @@ trigger() {
     *)
       log "  $label 触发失败 HTTP $code: $(sed '$d' <<<"$resp")"
       rc=1
+      FAILURES+=("$label 触发失败 HTTP $code")
       ;;
   esac
 }
@@ -93,6 +147,8 @@ resp="$(api -X POST "$BASE/login" -H 'Content-Type: application/json' \
         -d "{\"username\":\"$AUTH_USER\",\"password\":\"$AUTH_PASS\"}")"
 if [ "$(tail -n1 <<<"$resp")" != "200" ]; then
   log "登录失败 HTTP $(tail -n1 <<<"$resp"): $(sed '$d' <<<"$resp")"
+  add_alert "登录失败 HTTP $(tail -n1 <<<"$resp")：$(sed '$d' <<<"$resp")"
+  flush_alert
   exit 2
 fi
 log "登录成功"
@@ -116,9 +172,10 @@ resp="$(api "$BASE/jc/freshness?threshold_hours=24" || true)"
 fresh_json="$(sed '$d' <<<"$resp" || true)"
 fresh_code="$(tail -n1 <<<"$resp" || echo "000")"
 if [ "$fresh_code" = "200" ] && [ -n "$fresh_json" ]; then
+  fresh_alerts=()
   while IFS= read -r line; do
-    [ -n "$line" ] && log "$line" >> "$ALERT_LOG"
-  done <<<"$(printf '%s' "$fresh_json" | /home/ubuntu/.venvs/league/bin/python -c "
+    [ -n "$line" ] && log "$line" >> "$ALERT_LOG" && fresh_alerts+=("$line")
+  done <<<"$(printf '%s' "$fresh_json" | "$PY" -c "
 import json,sys
 try:
     d=json.load(sys.stdin)
@@ -127,7 +184,14 @@ except Exception:
 for a in d.get('alerts') or []:
     print(a)
 ")"
+  if [ ${#fresh_alerts[@]} -gt 0 ]; then
+    add_alert "${fresh_alerts[@]}"
+  fi
 fi
+
+[ "$rc" = "0" ] || add_alert "$(printf '%s 个作业未完成：%s' "${#FAILURES[@]}" "$(printf '%s；' "${FAILURES[@]}")")"
+
+flush_alert
 
 log "结束，退出码 $rc"
 exit "$rc"
