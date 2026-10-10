@@ -65,11 +65,39 @@ def _resolve_match(payload: dict) -> tuple[str, str, float]:
 @router.get("/haf")
 def haf_get(home: str = "", away: str = "", line: float = 0.0,
             _: None = Depends(require_auth)) -> dict:
+    """半全场九宫格一等预测（GET 版，URL 直传对阵）。
+
+    降级语义（契约 §5.5）：
+      - 未找到匹配预测 → 200 + ``{available: False, reason: "no_prediction"}``
+        （不 404，避免与"对阵不存在"混淆）。
+      - 该场 λ 缺失 → 200 + ``{available: False, reason: "bad_lambda"}``。
+
+    鉴权：``require_auth``（Nginx Basic Auth + 应用 session）。
+
+    Response schema：
+      - 200 : ``{available, home, away, line, probs: {hh/hd/hl/dh/dd/dl/ah/al/al: float},
+        pick: {result, prob} | None, note: str}``
+      - 400 : line 非法（不是数字 / 超范围）
+      - 401 : 未登录
+    """
     return _haf_calc(home, away, line)
 
 
 @router.post("/haf")
 def haf_post(body: dict = Body(...), _: None = Depends(require_auth)) -> dict:
+    """半全场九宫格一等预测（POST 版，支持对阵或场次号反查）。
+
+    降级语义：同 GET（无 404 / 无 500；缺预测或缺 λ 一律 200 + reason）。
+
+    鉴权：``require_auth``（Nginx Basic Auth + 应用 session）。
+
+    Request body 两种形态（择一）：
+      - ``{home: str, away: str, line?: float}``
+      - ``{match_num: str|int, line?: float}`` —— 用今日 BJT 业务日（``bjt_today``）
+        反查五大联赛对阵，避免 ``fixtures_on(None)`` 落到非今日的冷门联赛。
+
+    返回 schema 同 GET 端点；400 出现在 line 非法 / 同时缺 home|away|match_num。
+    """
     home, away, line = _resolve_match(body)
     return _haf_calc(home, away, line)
 

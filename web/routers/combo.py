@@ -125,12 +125,27 @@ def teams_match_safe(h1: str, a1: str, h2: str, a2: str) -> bool:
 def combo_eval(request: Request,
                payload: dict = Body(...),
                _: None = Depends(require_auth)) -> dict:
-    """计算串关 EV / Kelly / 联合 EV / 假设性回报。
+    """串关 EV / Kelly / 联合 EV / 假设性回报（POST，纯函数 + 持久化轮询入口）。
 
-    入参 payload 支持两种形状：
-      1) legs: list[{side, odds, p_model}] 直接算
-      2) selections: list[{match_num, side}] 按竞彩场次号自动装配
-    joint_prob / stake 同 web.services.combo.evaluate_combo。
+    降级语义：
+      - payload 缺 ``legs`` 与 ``selections`` 之一 → 400（HTTPException）。
+      - selections > 32 条 → 400（防组合爆炸）。
+      - 单腿 ``odds <= 1`` 或 ``p_model`` 缺失：忽略计入 warning（不算"不编数"，
+        是"信息不足"）；warning 数组原样回传供 UI 显示。
+      - joint_prob > 1：截断告警；负值 / NaN 钳制为 0。
+      - 任一异常：包到 500（接口纯计算，无外部 IO 失败预期）。
+
+    鉴权：``require_auth``（Nginx Basic Auth + 应用 session）。
+
+    Request payload 两种形态：
+      1) ``legs: list[{side, odds, p_model, p_model_join?}]`` — 直接算
+      2) ``selections: list[{match_num, side}]`` — 按竞彩场次号自动装配 odds / p_model
+         （当业务日无该场次 → warning 提示，不 raise）。
+
+    Response schema：
+      - 200 : ``{ev, kelly_fraction, joint_prob, fair_odds, hypothetical_return,
+        warnings: [str], legs: [{side, odds, p_model, ev_individual, kelly_individual}]}``
+      - 400 : legs/selections 缺 / 超 32
     """
     legs = payload.get("legs")
     if not isinstance(legs, list):

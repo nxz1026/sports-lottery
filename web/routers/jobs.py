@@ -279,7 +279,19 @@ def jobs_ai_analyze(body: dict | None = None,
 
 @router.get("/jobs/{jid}")
 def jobs_get(jid: str, _: None = Depends(require_auth)) -> dict:
-    """查询任务状态（可轮询到终态）。"""
+    """查询单个任务详情（job 字段 + log_tail，可轮询到终态）。
+
+    降级语义：
+      - 任务不存在 → 404 ``code="job_not_found"``。
+      - 日志文件缺失 / 截断 → ``log_tail`` 为空串；任务元数据仍完整。
+
+    鉴权：``require_auth``。
+
+    Response schema：
+      - 200 : ``{job: {id, kind, status, created_at, started_at, finished_at,
+        exit_code, trigger, params, log_tail: str}}``
+      - 404 : job_not_found
+    """
     job = jobs.get_job(jid)
     if job is None:
         raise errors.ApiError("job_not_found", f"任务不存在: {jid}", http_status=404)
@@ -288,7 +300,11 @@ def jobs_get(jid: str, _: None = Depends(require_auth)) -> dict:
 
 @router.get("/jobs")
 def jobs_list(_: None = Depends(require_auth)) -> dict:
-    """最近任务列表（按创建时间倒序）。"""
+    """最近 20 条任务列表（按创建时间倒序）。
+
+    降级语义：磁盘上无任务文件 → 200 + ``{jobs: []}``（绝不 500）。
+    鉴权：``require_auth``。
+    """
     return {"jobs": [_job_view(j) for j in jobs.list_jobs(limit=20)]}
 
 

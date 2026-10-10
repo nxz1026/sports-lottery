@@ -326,7 +326,7 @@ def daily_news(sport: str = "football", _: None = Depends(require_auth)) -> dict
     out = {"sport": sport, "date": today,
            "news": (out.get("news") or "")[:78],
            "pick_reason": (out.get("pick_reason") or "")[:60]}
-    _NEWS_CACHE[key] = out
+    _NEWS_CACHE[(today, sport)] = out
     return out
 
 
