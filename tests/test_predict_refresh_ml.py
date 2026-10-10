@@ -71,7 +71,6 @@ def _mk_intermediate(tmp_path, files):
         if age:
             old = time.time() - age * 86400
             os.utime(p, (old, old))
-    monkeypatch_need = None
     return tmp_path
 
 

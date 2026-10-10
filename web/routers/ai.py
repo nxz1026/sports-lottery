@@ -38,7 +38,6 @@ def ai_analyze_get(date_str: str | None = Query(None, alias="date"),
     date 缺省=今日 BJT；由 ai_analyze 异步 job 落盘 predictions/ai_analysis/{date}.json，
     本端点只读不触发。如文件不存在或缺字段 → available=False + note。
     """
-    from pathlib import Path
     from web.services import ai_analyze as _aa
     target = _aa._today_bjt().isoformat() if not date_str else str(date_str)
     try:

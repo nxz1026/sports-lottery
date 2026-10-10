@@ -18,8 +18,6 @@ for p in (str(REPO_ROOT), str(REPO_ROOT / "scripts")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from web.routers import jc as jc_router  # noqa: E402
-
 
 @pytest.fixture()
 def client(monkeypatch):

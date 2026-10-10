@@ -14,8 +14,6 @@
 """
 from __future__ import annotations
 
-from typing import Iterable
-
 
 # 边角输入钳制
 _ODDS_MIN = 1.01

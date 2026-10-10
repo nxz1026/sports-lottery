@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -96,10 +95,9 @@ def test_finale_all_rollback_no_traces():
     try:
         cur = conn.cursor()
         _run(cur, "jc_issue")
-        mid = {t: cur.execute(f"select count(*) from {tab}").fetchone()[0] for t, tab in TABLE.items()}
         conn.rollback()
     finally:
         conn.close()
     with pg.read_conn("ro") as c:
         after = {t: c.execute(f"select count(*) from {tab}").fetchone()[0] for t, tab in TABLE.items()}
-    assert before == after  # 回滚生效 ⇒ 与开测前逐表一致（mid 只作旁证，upsert 可能等值）
+    assert before == after  # 回滚生效 ⇒ 与开测前逐表一致

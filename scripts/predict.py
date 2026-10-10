@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-League Predict v4.0 — Onside 4+1 Signal Model + Dixon-Coles + Monte Carlo
+League Predict v4.1 — Onside 4+1 Signal Model + Dixon-Coles + Monte Carlo
 CLI entry point.
 
 Usage: python3 predict.py [--league epl] [--data-source football-data] [--monte-carlo]
@@ -47,13 +47,16 @@ from core.elo import get_or_init_elo_ratings, process_match_result, save_elo_rat
 try:
     from ai.feedback_loop import load_ai_adjustments, adjust_prediction
 except Exception:
-    load_ai_adjustments = lambda league_key="": {}
-    adjust_prediction = lambda pred, adj: pred
+    def load_ai_adjustments(league_key: str = "") -> dict:  # noqa: ARG001
+        return {}
+
+    def adjust_prediction(pred, adj):  # noqa: ARG001
+        return pred
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="League Predict v4.0 — Onside 4+1 Signal Model + Dixon-Coles + Monte Carlo"
+        description="League Predict v4.1 — Onside 4+1 Signal Model + Dixon-Coles + Monte Carlo"
     )
     parser.add_argument("--league", default="epl",
                         choices=list(LEAGUE_CONFIG.keys()),
@@ -680,8 +683,6 @@ def _cleanup_intermediate(days: int = 7) -> dict:
     references/ml_model_*.json、references/team_translations.json。
     返回 {predictions,results,references} 各自删除数。
     """
-    from pathlib import Path
-    import os
     import time as _t
     from core.config import FOOTBALL_DIR
     cutoff = _t.time() - days * 86400

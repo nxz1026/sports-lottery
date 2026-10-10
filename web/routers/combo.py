@@ -54,12 +54,11 @@ def _assemble_legs(selections: list[dict]) -> list[dict]:
         if pt and pt not in m["plays"]:
             m["plays"][pt] = f.get("options") or {}
 
-    latest = web_store.latest_by_league()
     try:
         all_docs = web_store.load_prediction_docs()
     except Exception:
         all_docs = []
-    # 模型概率从所有历史预测文件里匹配（latest 偶有当日空文档，回退到最近一份非空）
+    # 模型概率从所有历史预测文件里匹配（当日空文档时回退到最近一份非空）
     pred_index: list[dict] = []
     for doc in (all_docs or []):
         for e in (doc.get("data") or {}).get("predictions", []) or []:

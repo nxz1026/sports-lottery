@@ -94,7 +94,7 @@ def _call_openai(prompt: str, model: str, api_base: str, api_key: str) -> dict:
             if not result:
                 logger.warning("[LLM] Failed to parse response: %s", resp.text[:200])
             return result
-        except requests.RequestException as e:
+        except requests.RequestException:
             logger.error("[LLM] Request failed", exc_info=True)
             return {}
     logger.error("[LLM] Gave up after 3 retries on 429")

@@ -4,6 +4,7 @@ stg 七表列名/类型/可空性 == 期望常量（契约来源 docs/db/infra_p
 
 from __future__ import annotations
 
+# ruff: noqa: F401, F811  # conn 必须显式 import 才能被 pytest fixture 发现（无 conftest.py）
 from tests.collector_helpers import _q, conn
 
 EXPECTED_COLUMNS = [("line", "jsonb", "NO"), ("src_hash", "text", "NO"),

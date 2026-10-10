@@ -7,6 +7,7 @@ rejected_n==0（:67-68），故 rejected_n==0 即"这批干净"的同义表达�
 （原件进 bad/、标记进 done/）；缺 .done（半包）→ 原地不动。
 同批重推幂等 / src_hash 篡改 / kind="error" 落 stg 见 tests/test_collector_v11.py。"""
 
+# ruff: noqa: F401, F811  # conn 必须显式 import 才能被 pytest fixture 发现（无 conftest.py）
 from __future__ import annotations
 
 import json

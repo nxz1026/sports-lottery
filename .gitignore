@@ -42,9 +42,7 @@ docs/web/logs/*.job
 docs/web/logs/*.done
 docs/web/logs/PIPELINE.*
 .fastapicloud/
-docs/web/logs/*.done
 docs/web/logs/*.attempts
-docs/web/logs/*.job
 docs/web/logs/*.paused
 deploy/
 

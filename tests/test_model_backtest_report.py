@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from model import backtest  # noqa: E402
 from store import query  # noqa: E402
-from tests.test_model_backtest_db import EPS_LOSS, build_scenario, conn  # noqa: E402,F401
+# ruff: noqa: F401, F811  # conn 必须显式 import 才能被 pytest fixture 发现（无 conftest.py）
+from tests.test_model_backtest_db import EPS_LOSS, build_scenario, conn  # noqa: E402
 
 
 def test_report_splits_fallback_and_matches_python_metrics(conn):

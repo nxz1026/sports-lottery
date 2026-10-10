@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from core.log import logger
+# 兼容 re-export：tests/test_parse.py 仍 `from core.data.parse import to_cn`
+from core.i18n import to_cn
 
 
 def parse_american_odds(odds_str: str | None) -> float | None:
@@ -31,13 +33,6 @@ def parse_details(details_str: str | None) -> tuple[str | None, str | None, floa
         impl = parse_american_odds(odds_str)
         return team, odds_str, impl
     return None, None, None
-
-
-
-def to_cn(name: str | None) -> str:
-    """英文队名/国名 → 中文（P6：国名走稳定表，队名走 LLM 翻译缓存）。"""
-    from core.i18n import to_cn as _i18n_to_cn
-    return _i18n_to_cn(name)
 
 
 def form_to_score(form_str: str | None) -> float:

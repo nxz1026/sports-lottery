@@ -4,7 +4,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from ingest.jc_manifest import _count_lines, _manifest, _check_entry, _resolve
+from core.log import logger
+from ingest.jc_manifest import _manifest, _check_entry, _resolve
 OPTIONAL = ("jc_odds_history",)
 
 
