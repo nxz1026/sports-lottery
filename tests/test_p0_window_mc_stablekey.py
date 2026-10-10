@@ -21,6 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # 仓库约定：需要 core.* 的测试自行把 scripts 加入 sys.path。
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+from core.constants import DEFAULT_AHEAD_DAYS, DEFAULT_PAST_DAYS  # noqa: E402
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 修复 A：取数窗口回看 30 天（P0-1）
@@ -78,14 +80,17 @@ def test_fix_a_main_window_spans_past_30_days_to_tomorrow(capsys, monkeypatch):
     end = datetime.strptime(d1, "%Y%m%d")
     now_bjt = datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
 
+    # predict.main() 默认 d0 = today - DEFAULT_PAST_DAYS (30)，d2 = today + DEFAULT_AHEAD_DAYS (14)。
+    # 本断言不 pin 具体日期，仅校验窗口语义（past N 天 + ahead M 天）。
     # 起始日 ≤ 今天 - 29 天（即至少回看 30 天含今天本身）
     assert start <= now_bjt - timedelta(days=29)
-    # 结束日是明天（BJT），允许跨日 ±1 天容差
-    tomorrow = (now_bjt + timedelta(days=1)).date()
-    assert abs((end.date() - tomorrow).days) <= 1
-    # 总跨度约 31 天
+    # 结束日 ≈ today + ahead_days（允许 1 天容差吸收跨日）
+    expected_end = (now_bjt + timedelta(days=DEFAULT_AHEAD_DAYS)).date()
+    assert abs((end.date() - expected_end).days) <= 1
+    # 总跨度 = past_days + ahead_days = 30 + 14 = 44
     span = (end - start).days
-    assert 29 <= span <= 32
+    expected_span = DEFAULT_PAST_DAYS + DEFAULT_AHEAD_DAYS
+    assert abs(span - expected_span) <= 2
 
 
 # ══════════════════════════════════════════════════════════════════════════════
