@@ -92,7 +92,21 @@ def _envelope(kind: str, rows: list) -> dict:
 
 @router.get("/fixtures")
 def fixtures(day: str | None = None, _: None = Depends(require_auth)) -> dict:
-    """场次 × 玩法盘口；day 非法直接 400（DASH2-D：脏参数不穿到 store 层，不静默降级成空表）。"""
+    """场次 × 玩法盘口（每场 5 行 had/hhad/crs/ttg/haf，盘口取该 (场,玩法) 最新一版 snap_ts）。
+
+    降级语义（契约 §5.5）：
+      - day 非 ISO 日期 → 400（DASH2-D：脏参数不穿到 store 层，不静默降级成空表）。
+      - DB 不可达 / 缺数据 → 200 + ``{"items": [], "note": "..."}``。
+    鉴权：``require_auth``。
+
+    Query：
+      - day : 业务日 YYYY-MM-DD（缺省 = latest business_date）。
+
+    Response schema：
+      - 200 : ``{items: [{match_num, league_cn, home_cn, away_cn, kickoff_bj,
+        play_type, odds: {home/draw/away, line}, snap_ts}, ...], note: str}``
+      - 400 : day 非法
+    """
     if day is not None:
         try:
             date.fromisoformat(day)
@@ -104,7 +118,22 @@ def fixtures(day: str | None = None, _: None = Depends(require_auth)) -> dict:
 
 @router.get("/issues")
 def issues(limit: str = "20", _: None = Depends(require_auth)) -> dict:
-    """期次 + 开奖；limit 按原始字符串校验（非数字/<1/>200 均 400，脏参数不穿到 store 层）。"""
+    """传统足彩期次 + 开奖（胜负游戏 90 / 任选9场 900129 / 4场进球 94 / 6场半全场 98）。
+
+    降级语义（契约 §5.5）：
+      - limit 非整数 / <1 / >200 → 400（脏参数不穿到 store 层）。
+      - DB 不可达 / 缺数据 → 200 + ``{items: [], note: "..."}``。
+      - head_source="jc_issue_result" 表示期头是合成的（参见 _NOTES）。
+    鉴权：``require_auth``。
+
+    Query：
+      - limit : 返回期次数（1..200，默认 20）。
+
+    Response schema：
+      - 200 : ``{items: [{issue_num, game_code, sale_begin, sale_end, draw_at,
+        head_source, balls: [int, ...], prize_levels: [...]}, ...]}``
+      - 400 : limit 非法
+    """
     try:
         n = int(limit)
     except (TypeError, ValueError):
@@ -117,24 +146,49 @@ def issues(limit: str = "20", _: None = Depends(require_auth)) -> dict:
 
 @router.get("/backtest")
 def backtest(_: None = Depends(require_auth)) -> dict:
-    """基线 Brier/log-loss/hit-rate 聚合（每玩法一行）；异常安全降级为 []。"""
+    """多分类 Brier / log-loss / argmax 命中率（每玩法一行）；异常安全降级为 []。
+
+    降级语义（契约 §5.5）：DB 不可达 → 200 + ``{items: [], note: "..."}``；
+    不抛 500、不编数。
+    鉴权：``require_auth``。
+
+    Response schema：
+      - 200 : ``{items: [{play_type, brier, log_loss, hit_rate, n_fixtures,
+        reconciled, sample_count: int | None}]}``
+    """
     from store import jc_view
     return _envelope("backtest", jc_view.backtest_summary())
 
 
 @v1_router.get("/backtest")
 def backtest_v1(_: None = Depends(require_auth)) -> dict:
-    """Authenticated compatibility alias for the existing JC backtest summary."""
+    """JC backtest summary 兼容别名（``/api/v1/backtest`` 路径）。
+
+    降级语义、鉴权、Response schema 同 ``/api/jc/backtest``。
+    """
     from store import jc_view
     return _envelope("backtest", jc_view.backtest_summary())
 
 
 @router.get("/lottery")
 def lottery(per_type: str = "20", _: None = Depends(require_auth)) -> dict:
-    """各彩种最近 N 期开奖（超级大乐透/排列3/排列5/7星彩）；异常安全降级为 []。
+    """各彩种最近 N 期开奖（超级大乐透 85 / 排列3 35 / 排列5 350133 / 7星彩 04）。
+
+    降级语义（契约 §5.5）：
+      - per_type 非整数 / <1 / >100 → 400（脏参数不穿到 store 层）。
+      - DB 不可达 / 缺数据 → 200 + ``{items: [], note: "..."}``。
+    鉴权：``require_auth``。
 
     彩种清单来自采集端 lottery_draw 主题，解析层无白名单 —— 采集端补采新彩种后
-    本端点自动带出，无需改代码。
+    本端点自动带出，无需改代码（``per_type`` 钳制 1..100，越界 400）。
+
+    Query：
+      - per_type : 每彩种返回期次数（1..100，默认 20）。
+
+    Response schema：
+      - 200 : ``{items: [{game_num, period, draw_date, numbers_raw: str,
+        bonus_raw: str | None}], note: str}``
+      - 400 : per_type 非法
     """
     try:
         n = int(per_type)
