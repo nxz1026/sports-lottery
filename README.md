@@ -45,26 +45,52 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 系统按 **业务层 / 接口层 / 算法层 / LLM层** 四层组织，各层职责与依赖方向如下（这是接口基线的开发约束，改动任何一层不得破坏依赖方向）：
 
 ```
-┌────────────────────────────────────────────────────────┐
-│ 业务层                                 │  细分见「应用层机制」
-│  ├ 应用层 web/app/（编排 → 产出 VM）   │  调接口层组列/判空/汇总
+┌────────────────────────────────────────────────────────────────┐
+│ 业务层                                 │  细分见「应用层机制」节
+│  ├ 应用层 web/routers/*.py            │  路由 + VM 编排合一（端点函数内联
+│  │  （编排 → 产出 VM）                  │  build_rows / 判空 / 汇总 / stats；
+│  │                                     │  详见「应用层机制」段对 web/app/
+│  │                                     │  渐进迁移的说明）
 │  └ 展示层 static/*.html（纯静态渲染）  │  拿 VM 直接画，不做判断
-├────────────────────────────────────────────────────────┤
-│ 接口层  web/services/*                                │  唯一数据编排入口
-│   ├ store.py        读算法层产物 → 结构化数据          │
-│   ├ team_match.py   盘口×预测合并（纯函数，单测覆盖）   │
-│   ├ jobs.py         引擎子进程调度 + 配额守卫           │
-│   └ datasource.py   上游源静态配置（无真实值、无请求）   │
-│   ══ 契约 JSON ── 业务层消费的唯一数据 schema（隐式）══  │
-├────────────────────────────────────────────────────────┤
-│ 算法层  scripts/*（核心引擎）                         │  只产 JSON 产物，不碰展示
-│   ├ core/   足球引擎（Onside/ELO/Dixon-Coles/MC/ML）    │
-│   ├ bball/  NBA 引擎（ELO + The Odds 赔率）             │
-│   ├ derive/ store/ ingest/ market/（纯函数/落库/取数）   │
-│   └ CLI 子进程 → 产物 predictions/*.json               │
-├────────────────────────────────────────────────────────┤
-│ LLM层   scripts/ai/*  （异步、独立于业务）             │  见下「LLM 异步契约」
-└────────────────────────────────────────────────────────┘
+├────────────────────────────────────────────────────────────────┤
+│ 接口层  web/services/*.py                               │  唯一数据编排入口
+│   ├ store.py        读算法层产物 → 结构化数据            │
+│   ├ team_match.py   盘口×预测合并（纯函数，单测覆盖）     │
+│   ├ accuracy.py     命中率 web 版（= core.backtest.       │
+│   │                  league_accuracy 1:1 复制；键用       │
+│   │                  _stable_match_key，详见 §契约 1）     │
+│   ├ haf.py          半全场（haf）九宫格纯函数             │
+│   ├ combo.py        串关 EV / Kelly / 联合 EV             │
+│   ├ lottery.py      数字彩四件（命中 / 复式 / 统计 / 胆拖）│
+│   ├ ticket.py       传统足彩 14场/任九票面                │
+│   ├ jobs.py         引擎子进程调度 + 配额守卫              │
+│   ├ freshness.py    采集新鲜度检查                        │
+│   ├ ai.py           AI 富化只读产物（ai_scores.json）     │
+│   ├ ai_analyze.py   AI 异步分析（per_match / banker /     │
+│   │                  lottery review）                     │
+│   ├ news.py         LLM 客户端网关（web→ai 唯一允许      │
+│   │                  反向 import 点；详见 §契约 1）       │
+│   ├ apifootball.py  API-Football HTTP 客户端包装          │
+│   └ datasource.py   上游源静态配置（无真实值、无请求）     │
+│   ══ 契约 JSON ── 业务层消费的唯一数据 schema（隐式）══    │
+├────────────────────────────────────────────────────────────────┤
+│ 算法层  scripts/*（核心引擎）                           │  只产 JSON 产物，不碰展示
+│   ├ core/    足球引擎（Onside/ELO/Dixon-Coles/MC/ML）    │
+│   ├ bball/   NBA 引擎（ELO + The Odds 赔率）             │
+│   ├ derive/  5 玩法派生（纯 stdlib）                     │
+│   ├ store/   PG 落库层（psycopg 唯一依赖入口）           │
+│   ├ ingest/  PG 取数层 + 采集端 tar 流                  │
+│   ├ market/  去水与 CLV/Brier 校准指标                   │
+│   └ CLI 子进程 → 产物 predictions/*.json                │
+├────────────────────────────────────────────────────────────────┤
+│ LLM层   scripts/ai/*  （异步、独立于业务）              │  见下「LLM 异步契约」
+│   ├ llm_client.py    OpenAI 兼容客户端                   │
+│   ├ batch_pipeline.py 批量富化                          │
+│   └ feedback_loop.py  ai_score 写回 + adjust_prediction  │
+│                                                             │
+│ web → ai 网关（唯一允许的反向 import 点）：              │
+│   └ web/services/news.py::_try_llm（lazy try/except）    │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 **依赖方向（只许向上，不许下行）：**
@@ -77,10 +103,20 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 | LLM 层 | 完全独立于业务，见下 |
 
 **LLM 异步契约（关键纪律）：**
-- LLM 调用是**异步**的，经 job 子进程 `python -m web.enrich` 触发，**业务请求链路永不直接同步等 LLM**。
-- 展示层只读**已完成的 AI 产物**（`ai_scores.json`）；没有就显示「AI 未评分」，**绝不阻塞主请求**。
+- LLM 调用是**异步**的，经 job 子进程 `python -m web.enrich` / `web.services.news.generate_daily_news` 触发，
+  **业务请求链路永不直接同步等 LLM**。
+- 展示层只读**已完成的 AI 产物**（`ai_scores.json`、`predictions/ai_analysis/<date>.json`）；
+  没有就显示「AI 未评分」，**绝不阻塞主请求**。
 - LLM 失败**降级**：`enrich` 返回非 0 并响亮报错，不影响 predictions/展示可用。
-- 语义上 LLM 层独立于业务；代码实体在 `scripts/ai/`（算法层目录），但**作为独立抽象对待**，web 侧只经 `enrich.py` 调用、不直接接触 LLM。
+- 语义上 LLM 层独立于业务；代码实体在 `scripts/ai/`（算法层目录），但**作为独立抽象对待**。
+- **web → ai 的两个合法调用入口**（契约 §5 文档化例外）：
+  1. `python -m web.enrich`（CLI 子进程）— 异步批处理入口；
+  2. `web/services/news.py::generate_daily_news`（同步 web 调用入口）— 唯一的
+     web→ai 反向依赖点：内部 `_try_llm` 函数体 lazy `from ai import llm_client` +
+     try/except；新增 LLM 端点必须经本入口，不要在其它 web 文件内重复
+     `from ai import llm_client`。
+- 业务层 → LLM 层路径：业务端点 → `web.services.news.generate_daily_news` →
+  `_try_llm` → `ai.llm_client.generate` → OpenAI 兼容 LLM（agnes-2.5-flash 等）。
 
 **接口基线的三个给定事实（不得违反）：**
 1. web 层**顶层**绝不 `import scripts.*` / `import ai.*`（见 `web/services/datasource.py` docstring 与 `tests/web/test_no_scripts_import.py` 静态守护）。
@@ -92,19 +128,34 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
      的等价 web 侧实现（读 `web.services.store._stable_match_key`），用于 `jc.py::real_accuracy`
      与 `predictions.py::live_accuracy`，完全去除 web → scripts 的反向依赖；键语义由
      `tests/test_stable_match_key_mirror.py` 与引擎侧 `_bk_stable_key` 锁同。
-2. **应用层编排**在 `web/app/`（见下「应用层机制」），接口层 `web/services/` 只做底层数据读取/单字段合并，写成纯函数 + 单测（`team_match.build_rows` 是样板）。
+2. **应用层编排**目前在 `web/routers/*.py` 内（见下「应用层机制」），接口层 `web/services/` 只做底层数据读取/单字段合并，写成纯函数 + 单测（`team_match.build_rows` 是样板）。
 3. 契约 JSON 目前是**隐式**的（接口层返回 dict、前端自行理解字段）；业务层图片与 web 展示**共同消费同一份接口层数据**，避免业务层重复编排。
 
-### 应用层机制（后端 VM 编排层）
+### 应用层机制（VM 编排层）
 
 应用层 = **应用(编排) + 展示(静态)** 两层，均属 README 四层中的「业务层」，进一步细分为：
 
 ```
-├─ 应用层(编排) web/app/            ← 新：每屏一个编排函数
-│    调接口层(store/team_match) → 组列/判空/算汇总 → 产出 View Model (VM)
-├─ 展示层(静态) static/*.html         ← 纯渲染：拿到 VM 直接画
-│    只保留 jcTable/jcVal/bjTime 等纯渲染函数，删除列定义/字段选择逻辑
+├─ 应用层(编排) web/routers/*.py       ← 路由 + VM 编排合一
+│     ├ 调接口层（store/team_match/jc_view/...） → 组列/判空/算汇总 → 产出 View Model (VM)
+│     ├ 鉴权（require_auth）+ 参数校验 + 降级语义（HTTPException vs available:False）
+│     └ 典型 VM 端点：/api/jc/daily-image（available+rows+main_rows+temp_rows+stats+match_note）
+├─ 展示层(静态) static/*.html              ← 纯渲染：拿到 VM 直接画
+│     只保留 jcTable/jcVal/bjTime 等纯渲染函数，不做列定义/字段选择
 ```
+
+> **历史背景**：早期计划把 VM 编排拆到 `web/app/` 子目录（每屏一个编排函数，
+> 前端 `fetch(/api/v1/app/<screen>)` 直接拿 VM）。该计划在 README 中保留为
+> **迁移方向**，但**当前实现 = `web/routers/*.py` 内联 VM 编排**（`daily-image` /
+> `gap` / `movement` 等端点已经按此模式产出完整 VM 字段）。后续重构方向：
+> - 把 `web/routers/jc.py` 内联的 VM 编排（如 `_daily_image_vm`）抽到
+>   `web/app/jc_daily_image.py`，router 退化为纯 `def daily_image(): return app.vm(...)`
+>   透传；
+> - 路由前缀保持 `/api/jc/*`（前端无感）；
+> - 单测位置 `tests/web/test_jc_daily_image.py` 保留，新 `tests/app/test_*.py`
+>   加 VM 纯函数单测。
+>
+> 在迁移完成前，`web/app/` 不创建（空目录 git 也不会追踪）。
 
 **View Model (VM) 约定** —— 每个「屏 / 图 / 表」对应一个 VM，包含：
 - `columns`：列定义（字段名 + 表头 + 渲染提示），替代前端 `JC_FIX_COLS`/`JC_ISSUE_COLS`
@@ -113,7 +164,7 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 - `actions`：该屏动作（如每日一图的下载 / 二维码）
 
 **展示层契约（前端「取结果就完了」）：**
-- 前端 `fetch(/api/v1/app/<screen>)` → 直接拿 VM → 纯模板渲染
+- 前端 `fetch(/api/jc/<screen>)` 或 `/api/v1/<screen>` → 直接拿 VM → 纯模板渲染
 - 前端**删除**列定义（`JC_FIX_COLS` 等）与 canvas 绘制的字段组装（上移到应用层 VM）
 - 前端**保留** `jcTable`/`jcVal`/`bjTime` 等纯渲染函数（「怎么画」，非「画什么」）
 
@@ -121,7 +172,7 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 - 应用层只调接口层，**不 import 算法层**（延续契约 §5）。
 - 展示层只吃 VM，**不做业务判断**（判断 = 编排 = 应用层）。
 - 一屏一个编排函数，**可单测**。
-- **渐进迁移**：先做一个屏幕做样板（如每日一图 → `/api/v1/app/daily-image` 产出 VM），验证 VM 契约后再推广，不推倒重来。
+- **渐进迁移**：先把 `daily-image` 的 VM 抽出到 `web/app/` 做样板，验证契约后再推广。
 
 ## 数据源对比
 
@@ -545,36 +596,63 @@ python3 scripts/predict.py --league epl --no-ml
 ## 文件结构
 
 ```
-scripts/
-├── predict.py                 # CLI 入口 (run_league 拆分为 6 个子函数)
-├── core/
-│   ├── predictor.py           # 预测计算入口
-│   ├── elo.py                 # ELO 评分系统
-│   ├── config.py              # re-export (向后兼容)
-│   ├── constants.py           # 路径/URL/重试/模型参数/权重/阈值/映射
-│   ├── leagues.py             # 联赛配置 + DC ρ + λ 乘数
-│   ├── cache.py               # 文件缓存 (TTL 过期 + 键生成 + 清理)
-│   ├── log.py                 # 日志 (支持 LEAGUE_PREDICT_LOG_LEVEL)
-│   ├── data/
-│   │   ├── fetch.py           # API-Football / football-data / ESPN 并行聚合
-│   │   ├── parse.py           # 赔率解析 + 去水 + 特征提取
-│   │   ├── odds_enrich.py     # ESPN 1x2 收盘赔率回填（队名归一 + 三层匹配 + 去水，2026-09-18 新增）
-│   │   └── convert.py         # API-Football → ESPN 格式 (含赔率)
-│   ├── model/
-│   │   ├── onside.py              # Onside 4 信号 (FIFA排名/联赛足迹/主场/足联)
-│   │   ├── poisson.py             # Poisson / Dixon-Coles (τ 钳位)
-│   │   ├── monte_carlo.py         # 共享层：单场 DC 采样 + 顶层 monte_carlo_champion 入口
-│   │   │                          #   + SE 收敛诊断；联赛 / 锦标赛语义 re-export 兼容
-│   │   ├── monte_carlo_league.py  # 联赛语义：剩余赛程 + 初始积分榜播种
-│   │   ├── monte_carlo_worldcup.py # 锦标赛语义：小组赛 + 标准 16 强对阵 + 退化配对
-│   │   └── features.py            # 26 维 ML 特征工程 (生产使用)
-│   ├── calibration.py         # 自动校准
-│   ├── backtest.py            # 回测 + 复盘
-│   ├── rankings.py            # FIFA 排名统一入口
-│   └── output.py              # 输出 / 文件清理 (合并策略)
-├── predictions/               # 预测结果 JSON (自动生成)
-├── results/                   # 实际赛果 JSON (自动生成)
-└── references/                # 排名 / 文档 / 趋势
+sports-lottery/
+├── web/                                  # 见「分层架构」节 → 接口层 / 业务层
+│   ├── api.py                            # FastAPI 入口（uvicorn web.api:app）
+│   ├── auth.py / config.py / errors.py / lifecycle.py / session_store.py
+│   ├── enrich.py                         # AI 富化 job CLI（python -m web.enrich）
+│   ├── routers/                          # 业务层：路由 + VM 编排（详见后文）
+│   └── services/                         # 接口层：纯函数 + 单测（详见后文）
+├── scripts/                              # 算法层：纯 stdlib（除 store/ingest 需 psycopg）
+│   ├── predict.py                        # 足球 CLI 入口（run_league 拆 6 子函数）
+│   ├── clv_baseline.py                   # CLV 基线脚本
+│   ├── backfill_seasons.py / backfill_validate.py / import_backfill.py  # 历史回填
+│   ├── config.py                         # 引擎侧 config（与 web.config 区分）
+│   ├── bball/                            # NBA 引擎（v2 引入，独立子包）
+│   │   ├── config_bball.py / elo_bball.py / odds_api.py / predictor.py / run.py
+│   ├── core/                             # v1 冻结的足球核心（v4.x 算法版本）
+│   │   ├── predictor.py / elo.py / calibration.py / backtest.py / rankings.py
+│   │   ├── config.py / constants.py / leagues.py / output.py / log.py / jc_gate.py
+│   │   ├── i18n.py / dashboard.py
+│   │   ├── data/                         # 数据源适配 + 取数
+│   │   │   ├── fetch.py / parse.py / odds_enrich.py / convert.py
+│   │   ├── model/                        # 模型层
+│   │   │   ├── onside.py / poisson.py / features.py / ml_model.py
+│   │   │   ├── monte_carlo.py            # 共享层：单场 DC 采样 + 顶层入口 + SE
+│   │   │   ├── monte_carlo_league.py     # 联赛语义（剩余赛程 + 积分榜播种）
+│   │   │   └── monte_carlo_worldcup.py   # 锦标赛语义（小组 + 标准 16 强 + 退化配对）
+│   ├── derive/                           # v2 新增：5 玩法派生（纯 stdlib）
+│   │   ├── grid.py / handicap.py / totals.py / scores31.py / goals4.py
+│   │   └── registry.py                   # 玩法注册表
+│   ├── store/                            # v2 新增：DB 落库层（PG 唯一 psycopg 入口）
+│   │   ├── pg.py / query.py / selfcheck.py
+│   │   ├── align.py / parse_api.py / parse_collector.py / parse_jcissue.py
+│   │   ├── parse_jczq.py / parse_misc.py / parse_odds_hist.py / parse_values.py
+│   │   ├── jc_view.py / jc_ops_view.py / team_identity.py
+│   │   └── upsert_fixtures.py / upsert_official.py / upsert_results.py
+│   ├── ingest/                           # v2 新增：DB 取数层（PG + 采集端 tar 流）
+│   │   ├── api_get.py / quota.py
+│   │   ├── collector_pull.py / jc_load.py / jc_manifest.py / jc_read.py / jc_topic.py / jc_write.py
+│   │   ├── jc_odds_write.py / jc_issue_write.py / jbq_result_write.py
+│   │   └── run_backfill.py
+│   ├── market/                           # v2 新增：去水与 CLV/Brier 校准指标
+│   │   ├── devig.py / clv.py
+│   ├── model/                            # 旧 ML 建模（v1 路径，新工作走 core.model）
+│   │   └── fit.py / walk.py / backtest.py / sides.py
+│   ├── predictions/                      # 预测结果 JSON（运行期产物，gitignore）
+│   ├── results/                          # 实际赛果 JSON（运行期产物，gitignore）
+│   └── references/                       # 排名 / 文档 / 趋势（historical_past_matches.json 入库）
+├── ai/                                   # LLM 层（v2.x 异步，独立抽象；详见「LLM 异步契约」节）
+│   ├── llm_client.py                     # OpenAI 兼容客户端（agnes-2.5-flash 等）
+│   ├── batch_pipeline.py                 # 批量富化 pipeline
+│   └── feedback_loop.py                  # ai_score 写回 + adjust_prediction
+├── collector-cn/                         # 国内采集机（cn-collector，v1.3 契约，独立子目录）
+├── references/                           # 静态参考数据（fifa_rankings.json / historical_past_matches.json）
+├── docs/                                 # 项目文档（DATA_CONTRACT / DECISIONS / WO-Mx / reports）
+├── ops/                                  # systemd unit / shell 脚本（部署链路）
+├── static/                               # 业务层 → 展示层：纯静态渲染（dashboard.html 等）
+├── tickets/                              # 历史工单（P0-* 系列）
+└── tests/                                # 全量回归（详见 tests/web/README.md）
 ```
 
 ## 支持的联赛
