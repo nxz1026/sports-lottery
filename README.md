@@ -625,7 +625,35 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
   - 美式→十进制赔率转换，三向去水出 `home/draw/away_true_prob`（和 ≈ 1.0）；
   - 非致命：ESPN 抓取失败仅记 warning，不阻断预测主流程。五大联赛实测 **28/28 场回填成功**。
 
-## v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
+## 变更日志（按时间倒序）
+
+> **版本号约定**：
+> - **引擎算法版本**（`scripts/core/__init__.py::__version__`）：当前 4.1.0，对应 `v4.x` 系列；
+>   改权重 / 加模型信号时升 v4.x。
+> - **DB / 分层分支名**：`v2`（2026-09 起，PG 库 + 全玩法覆盖，对应 `v2.x` 系列）；
+>   引擎内核 v1 冻结，只 import 不改，新逻辑走 `scripts/store/`、`scripts/ingest/`、`scripts/derive/`。
+> - `v2.x` 与 `v4.x` 时间倒序在下方；二者版本号**互不影响**。
+
+## v2.x — DB / 全玩法分支（2026-09 起）
+
+### v2.1 (2026-10) 精修本轮（5 commit）
+
+- **`docs+test: 契约 §5 明文 + 静态守护`**（`a83769d`）— README 重写 §1「web 层顶层禁 / 函数体 lazy-in-try 是文档化例外」，
+  新增 `tests/web/test_no_scripts_import.py`（AST 静态检查仅挡顶层 import，函数体 lazy 自动豁免）。
+- **`fix(bball): load_ratings 真吞异常改 logger.warning`**（`26c16d4`）— `scripts/bball/elo_bball.py:24-25`
+  静默 `pass` 改记 WARNING（带文件路径 + 异常类型），NBA 评分文件损坏时拿得到运维信号。
+- **`test: 补三块关键路径单测`**（`f583212`）— 21 用例：连接键双侧镜像 / MC 降级路径 /
+  bball CLI 装配（`_save` 文件名带 `_nba` 后缀 + 0-0 比赛 actual 写入）。
+- **`refactor(model): 拆 monte_carlo.py 为共享层 + league + worldcup 三文件`**（`c0acf27`）—
+  472 → 172 行共享层 + 两个语义独立文件，老路径 re-export 保持兼容。
+- **`docs: 同步依赖清单 / 版本号 / 信号权重公式`**（`518bea5`）—
+  `requirements.txt` 补 `psycopg[binary]`；`requirements-web.txt` 补 `qrcode`；
+  `SKILL.md` / `predict.py` / `core/__init__.py` 版本号统一 4.1.0；
+  README 信号融合公式权重 20%/70%/18% → 45%/45%/18%（与 `MARKET_ODDS_WEIGHT = 0.45` 对齐）。
+- **`fix: 修 jc_read.py NameError + ruff F401/F841/F811/F821 清零`**（`222fa65`）—
+  `jc_read.py:62` PermissionError 触发即 NameError 崩溃修；NBA 翻译表 / `to_cn` shim / 多余 import 一并清理（19 处）。
+
+### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 
 对 scripts/ 与 web/ 全仓（101 个 .py，~12k 行）做了**结构审查**（健壮性 / 模块化 / 死代码 / 逻辑错误），
 经逐条核实后修复真实问题；子代理报告含大量误报（门面 re-export、副作用导入、告警抑制机制、
@@ -651,7 +679,7 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 
 验收：**660 passed**（新增 ESPN 富化 34 例 + 幽灵守卫 7 例 + 跨文件结算 5 例）。
 
-## v2 (2026-09-18) 缺陷修复：ESPN 赔率富化 + 取数窗口 / 命中率连接键 / 蒙特卡洛
+### v2 (2026-09-18) 缺陷修复：ESPN 赔率富化 + 取数窗口 / 命中率连接键 / 蒙特卡洛
 
 真浏览器（Playwright + Chromium）逐页核对线上 Dashboard 后定位的三个 P0 及后续 P0-2 增强：
 
@@ -672,59 +700,61 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
   导致今日页足球 28/28 行「时间待定」、「数据窗口 —」，前端时间筛选恒为 0 场；
   彩票页号码分组展示；`Number(null)===0` 把 NBA 缺失信心分当 0；390px 视口两处既有横向溢出。
 
-## v2 (2026-09-15) 变更日志
+### v2 (2026-09-15) 变更日志
 - 新增 `scripts/derive/`（网格与五玩法派生，纯 stdlib）、`scripts/store/`、`scripts/ingest/`（落库与取数）、7 个常驻测试文件
 - 新增 DB 底座：`league` 库 + `ref/stg/ops/raw/fact` 五 schema + `league_ing/app/ro` 三角色最小权限 + `ts_snap/ts_stg` 表空间
 - 修正文档：`fetch.py` 关于"免费档不支持 season 过滤"的注释已失效（内核冻结未改，本 README 与 v2 段为准）
 
-## v4.3 变更日志
+## v4.x — 引擎算法版本（历史）
 
-### 变更 (P5)
+### v4.3 变更日志
+
+#### 变更 (P5)
 - **移除 MLS 预测**: 从 `LEAGUE_CONFIG` 及 ρ/λ 映射中移除美职联，`--all` 不再运行
 - **中超队名中文化**: `COUNTRY_CN` 新增 15 支中超俱乐部中文映射（青岛海牛、上海申花、浙江队、成都蓉城等）
 - **GHA 触发时间**: 调整为每日 21:33 (BJT)
 
-## v4.2 变更日志
+### v4.2 变更日志
 
-### 修复 (P0)
+#### 修复 (P0)
 - **ESPN 403 修复**: ESPN 封锁 `Mozilla/5.0` 与 `LeaguePredict/4.1` 等 User-Agent，改用 `python-requests/2.31`，恢复 ESPN 数据源可用性（MLS/中超降级路径）
 
-### 增强 (P5)
+#### 增强 (P5)
 - **.env 自动加载**: 支持在项目根目录 `.env` 写入 `API_FOOTBALL_KEY` / `FOOTBALL_DATA_API_KEY`，启动自动加载，免手动 export
 
-## v4.1 变更日志
+### v4.1 变更日志
 
-### 致命修复 (P0)
+#### 致命修复 (P0)
 - **ELO 公式符号**: `expected_score` 指数项 `(effective_a - elo_b)` → `(elo_b - effective_a)`, 修复强队系统性低估
 - **Dixon-Coles 负概率**: `tau_correction` 加 `max(0, tau)` 钳位, 防止 1-1 比分时 ρ×λ_h×λ_a 超限
 - **Calibration 双重修正**: Onside 信号使用专用 `onside_home_correction` 减半因子, 不再与 market odds 重复修正
 
-### 高优先级 (P1)
+#### 高优先级 (P1)
 - 测试 mock 字段名统一 (`home_prob` → `home_true_prob`)
 - 移除 MyMemory 翻译 API (COUNTRY_CN 字典已覆盖)
 - Backtest 移除硬编码数据源检查, 新增 `_backtest_api_football()`
 - Monte Carlo 标准世界杯淘汰赛对阵表 (A1vB2 模式)
 - Fetch API 响应结构校验 (`_validate_api_response`)
 
-### 中优先级 (P2)
+#### 中优先级 (P2)
 - `ELO_WEIGHT` 移入 `THRESHOLDS` 配置化
 - FIFA 排名获取统一委托 `rankings.py`
 - `COUNTRY_CONFEDERATION` 重复键清理
 - API-Football 速率限制追踪 (`_rate_limit_info`)
 - 日志级别环境变量支持 (`LEAGUE_PREDICT_LOG_LEVEL`)
 
-### 低优先级 (P3)
+#### 低优先级 (P3)
 - `__import__` 改顶部 import
 - 线程安全问题随 MyMemory API 移除消除
 - ELO 测试覆盖 20 个用例
 - `save_results` 改合并策略
 
-### 重构 (P4)
+#### 重构 (P4)
 - P-label 注释清理
 - `run_league` 拆分为 6 个子函数
 - `config.py` 拆分为 `constants.py` + `leagues.py` + `config.py` (re-export)
 
-### 增强 (P5)
+#### 增强 (P5)
 - ML 特征管线标记为实验性
 - Cache 补全 TTL 过期清理 + URL 键生成 + `purge_expired()`
 - API-Football + ESPN fallback 并行获取 (`ThreadPoolExecutor`)
