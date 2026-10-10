@@ -229,7 +229,8 @@ _ACC_TTL = 600  # 秒：实时对账带缓存，避免每次请求重扫预测�
 def _live_accuracy(league: str) -> dict | None:
     """存量 accuracy_summary 缺失时，实时对账已结算赛果得真实命中率。
 
-    复用既有 core.backtest.league_accuracy（纯函数）；无已结算样本返回 None。
+    复用 ``web.services.accuracy.league_accuracy_web``（契约 §5 不允许反向
+    import scripts/，故 web 端走独立实现）；无已结算样本返回 None。
     带 10 分钟缓存；异常降级为 None（绝不编数）。
     """
     now = time.time()
@@ -238,10 +239,10 @@ def _live_accuracy(league: str) -> dict | None:
         return cached[1]
     result: dict | None = None
     try:
-        from core.backtest import league_accuracy
+        from web.services.accuracy import league_accuracy_web
         windows: dict = {}
         for days in (7, 30):
-            acc = league_accuracy(league, days=days)
+            acc = league_accuracy_web(league, days=days)
             if acc:
                 windows[f"{days}d"] = acc
         result = windows or None

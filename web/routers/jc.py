@@ -61,19 +61,19 @@ def _hit_stats() -> dict:
 
     reconciled=0（无已结算样本）→ available=False，页面显示"数据积累中"，绝不编数。
     优先 30d 窗口（样本更大），空则退回 7d。
+    算法与 keys 见 ``web/services/accuracy.py::league_accuracy_web``（契约 §5：
+    不允许反向 import scripts/，故 web 端走独立实现；键语义由
+    tests/test_stable_match_key_mirror.py 与引擎侧 _bk_stable_key 锁同）。
     """
+    from web.services.accuracy import league_accuracy_web
     n = hit = 0
-    try:
-        from core.backtest import league_accuracy
-        for lk in _BIG5_KEYS.values():
-            for days in (30, 7):
-                acc = league_accuracy(lk, days=days)
-                if acc and acc.get("reconciled"):
-                    n += int(acc["reconciled"])
-                    hit += int(round(acc["reconciled"] * float(acc.get("direction_accuracy") or 0)))
-                    break
-    except Exception:
-        pass
+    for lk in _BIG5_KEYS.values():
+        for days in (30, 7):
+            acc = league_accuracy_web(lk, days=days)
+            if acc and acc.get("reconciled"):
+                n += int(acc["reconciled"])
+                hit += int(round(acc["reconciled"] * float(acc.get("direction_accuracy") or 0)))
+                break
     if n > 0:
         return {"available": True, "n": n, "hit": hit, "note": ""}
     return {"available": False, "n": 0, "hit": 0, "note": "数据积累中"}
@@ -306,53 +306,26 @@ def daily_news(sport: str = "football", _: None = Depends(require_auth)) -> dict
     返回两条 LLM 生成文本（前端 Promise.race 300s 等，超时走占位）：
       news        实时要闻（≤78 字 / 3 行，每行 ≤26 字，\\n 分隔）
       pick_reason 今日精选推荐理由（≤60 字；精选为 0 条时为空字符串）
+    LLM 调用统一由 ``web.services.news.generate_daily_news`` 承载（契约 §5
+    文档化例外：本端点是 web → ai 的唯一汇聚点；新增 LLM 端点请调用该服务
+    函数而不是直接 ``from ai import llm_client``）。
     LLM 失败/超时/字段缺失 → news/pick_reason 回退占位，**绝不编造赛果/收益**。
     """
     from web.services import store as web_store
+    from web.services import news as news_service
     today = web_store.bjt_today().isoformat()
-    key = (today, sport)
-    hit = _NEWS_CACHE.get(key)
-    if hit and (hit.get("news") or hit.get("pick_reason")):
-        return hit
     label = "竞彩篮球" if sport == "basketball" else "竞彩足球"
     context = _news_context(sport)
     picks_ctx = _picks_context(sport, limit=2)
-    prompt = (
-        "你是面向彩民的赛事资讯编辑。用户是买彩票的球迷，他们关心：球队状态/伤停/主客场/赛季压力/让球线合理性等\n"
-        "会影响判断的信号。**禁止编造具体伤员、历史比分、天气等你没有的事实**——\n"
-        "没有信息就给'看角度'，不要假装你查了数据。\n\n"
-        "基于下面『今日在售赛事』与『精选候选』，生成两条短文：\n"
-        "① news：3 行今日可关注的客观角度，每行 ≤26 字、共 3 行（用 \\n 分隔），总计 ≤78 字。\n"
-        "   **不要复述对阵名/场次号**（表格里已有）——只写角度。\n"
-        "   可用角度（每行挑一个，写'今日 + 角度 + 含义'，如'今日多场 +1 深盘需核合理'）：\n"
-        "   - 让球盘深度（多场 +1/-1 深盘：是否反映真实实力差）\n"
-        "   - 赛季阶段（争冠/保级压力差）\n"
-        "   - 主客场近期形态（哪边有主场上风）\n"
-        "   - 赛程密度（周中杯赛 + 周末联赛、连场消耗）\n"
-        "   - 大球场次（榜首/榜尾/欧战资格争夺）\n"
-        "   禁止：收益承诺、感叹号、预测比分、人名/伤员/历史编造。\n"
-        "② pick_reason：精选候选为什么值得跟进，≤60 字。\n"
-        "   应给玩家'怎么核验这场'的角度（让球合理性 + 主客形态 + 赛季重要性），不要只复述模型方向。\n"
-        "   如果精选候选为空 → 返回空字符串。\n\n"
-        f"今日在售赛事（按业务日列出 8 场，含主客）：\n{context}\n\n"
-        f"精选候选（前 2 条，含官方让球线与模型方向）：\n{picks_ctx}\n\n"
-        "只输出严格 JSON：{\"news\":\"line1\\nline2\\nline3\",\"pick_reason\":\"...\"}"
+    out = news_service.generate_daily_news(
+        date_iso=today, sport=sport, context=context, picks_ctx=picks_ctx, label=label,
     )
-    news = ""
-    pick_reason = ""
-    try:
-        from ai import llm_client
-        res = llm_client.generate(prompt) or {}
-        news = str(res.get("news") or "").strip()
-        pick_reason = str(res.get("pick_reason") or "").strip()
-    except Exception:
-        pass
-    if not news:
-        news = (f"{label}暂无在售赛事，数据同步中"
-                if sport == "basketball" else f"{label}今日有多场五大联赛在售，详情见下表")
-    if not pick_reason:
-        pick_reason = ""
-    out = {"sport": sport, "date": today, "news": news[:78], "pick_reason": pick_reason[:60]}
+    if not out.get("news"):
+        out["news"] = (f"{label}暂无在售赛事，数据同步中"
+                       if sport == "basketball" else f"{label}今日有多场五大联赛在售，详情见下表")
+    out = {"sport": sport, "date": today,
+           "news": (out.get("news") or "")[:78],
+           "pick_reason": (out.get("pick_reason") or "")[:60]}
     _NEWS_CACHE[key] = out
     return out
 

@@ -84,10 +84,14 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 
 **接口基线的三个给定事实（不得违反）：**
 1. web 层**顶层**绝不 `import scripts.*` / `import ai.*`（见 `web/services/datasource.py` docstring 与 `tests/web/test_no_scripts_import.py` 静态守护）。
-   - **函数体内 `try/except` 包裹的 lazy import** 是文档化例外（`docs/web/WO-M6R.md` §1），
-     用于 `ai/llm_client` 等 LLM 客户端的优雅降级；模块加载仍与 `scripts/`、`ai/` 解耦。
-     落点参考：`web/routers/jc.py::daily_news`（LLM news 占位）、`web/enrich.py::main`（enrich job CLI）。
-   - 凡新增 `from scripts.*` / `from ai.*`，先尝试把它移进 `web/services/*`（已存在的副本模式：`web/services/ai._score_key`）。
+   - **唯一允许的 lazy import 边界**：`web/services/news.py::_try_llm` 内部 `from ai import llm_client`
+     是文档化例外（详见 `docs/web/WO-M6R.md` §1），用于 LLM 客户端的优雅降级；
+     新增 LLM 端点必须经 `web.services.news.generate_daily_news` 调用，不在其它 web 文件内
+     重复 `from ai import llm_client`。
+   - `web/services/accuracy.py::league_accuracy_web` 是 `core.backtest.league_accuracy`
+     的等价 web 侧实现（读 `web.services.store._stable_match_key`），用于 `jc.py::real_accuracy`
+     与 `predictions.py::live_accuracy`，完全去除 web → scripts 的反向依赖；键语义由
+     `tests/test_stable_match_key_mirror.py` 与引擎侧 `_bk_stable_key` 锁同。
 2. **应用层编排**在 `web/app/`（见下「应用层机制」），接口层 `web/services/` 只做底层数据读取/单字段合并，写成纯函数 + 单测（`team_match.build_rows` 是样板）。
 3. 契约 JSON 目前是**隐式**的（接口层返回 dict、前端自行理解字段）；业务层图片与 web 展示**共同消费同一份接口层数据**，避免业务层重复编排。
 
