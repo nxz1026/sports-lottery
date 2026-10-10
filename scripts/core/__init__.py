@@ -1,4 +1,4 @@
-"""League Predict v4.0 — core package."""
+"""League Predict v4.1 — core package."""
 
 __version__ = "4.1.0"
 

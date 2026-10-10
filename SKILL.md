@@ -1,10 +1,13 @@
 ---
 name: league-predict
 description: 联赛预测引擎 — 五联赛（英超/西甲/德甲/意甲/法甲）赔率加权预测
-version: 4.1
+version: 4.1.0
 category: sports-prediction
 tags: [football, prediction, odds, poisson, elo]
 ---
+
+> 版本说明：SKILL.md 的 `version` 与 `scripts/core/__init__.py::__version__` 必须保持一致。
+> README 中的 "v2" 是 DB / 落库分层架构的分支名（覆盖全玩法），**不是引擎版本号**。
 
 # League Predict — 联赛预测引擎
 

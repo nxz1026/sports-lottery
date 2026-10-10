@@ -1,7 +1,11 @@
 # league-predict Web 层依赖（M1；M3 再加 apscheduler）
 # 与引擎 requirements.txt 完全隔离；禁止 pandas/sklearn/xgboost。
+# fastapi[standard] 透传 httpx/Starlette/TestClient 等测试用依赖。
 fastapi[standard]>=0.115
 uvicorn>=0.30
 pydantic>=2.7
 python-dotenv>=1.0
 loguru>=0.7
+# 每日一图 QR 端点（web/routers/jc.py::daily_qr）；pyproject.toml 里 web extras 也列了，
+# 这里同步列一份便于 `pip install -r requirements-web.txt` 单一入口装齐。
+qrcode>=8.0

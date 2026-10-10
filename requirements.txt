@@ -1,4 +1,7 @@
 # 核心预测引擎使用纯 stdlib（urllib.request, json, gzip, math, pathlib），零外部依赖。
-# 但 AI 富化模块（ai/）依赖以下第三方包；本地复现 AI 功能需安装：
+# 但下列模块有第三方依赖，本地复现对应功能需安装：
+#   AI 富化（ai/llm_client.py）：requests / pyyaml
+#   DB 落库（scripts/store/、scripts/ingest/）：psycopg[binary]（v2 起新增的唯一引擎侧依赖）
 requests>=2.28
 pyyaml>=6.0
+psycopg[binary]>=3.1

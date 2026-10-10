@@ -2,9 +2,12 @@
 
 联赛预测引擎。多数据源融合 + 信号模型 + ELO + Dixon-Coles 双变量泊松 + 蒙特卡洛模拟。
 
+**当前引擎版本**：`__version__ = "4.1.0"`（`scripts/core/__init__.py`）。SKILL.md / README / 代码必须保持一致。
+**分支命名约定**：README 中的 "v2" 指 DB / 落库分层架构的**分支名**（覆盖全玩法），**不是引擎版本号**。
+
 推理内核零外部依赖（纯 stdlib）。**v2 起 `scripts/store/`、`scripts/ingest/` 另需 `psycopg[binary]`（唯一新增依赖，只用于落库/取数，不进预测链路）**。统一运行在 `league-api`（本机 systemd + Nginx，见「运行与部署」）。GitHub Actions 已于 2026-09-11 下线。
 
-## v2 进行中：全玩法覆盖（分支 `v2`，2026-09-15 起）
+## 全玩法覆盖（分支 `v2`，2026-09-15 起）
 
 目标：从"五大联赛预测引擎"升级为覆盖**竞彩足球全部玩法 + 传统足彩 + 篮彩**的引擎（数字彩只做开奖对照，不预测）。
 
@@ -210,12 +213,16 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 ### 信号融合公式
 
 ```
-home_strength = market_home × 20% + onside_home × ~70% + elo_home × 18% + spread_movement × 0.5
-away_strength = market_away × 20% + onside_away × ~70% + elo_away × 18% - spread_movement × 0.5
-draw_strength = market_draw × 20% + draw_base
+home_strength = market_home × 45% + onside_home × ~45% + elo_home × 18% + spread_movement × 0.5
+away_strength = market_away × 45% + onside_away × ~45% + elo_away × 18% - spread_movement × 0.5
+draw_strength = market_draw × 45% + draw_base
 
 P(home) = home_strength / sum
 ```
+
+> 权重常量见 `scripts/core/constants.py::MARKET_ODDS_WEIGHT = 0.45` 与 `THRESHOLDS["elo_weight"] = 0.18`；
+> Onside 系数为 `(1 - market_weight) × (1 - elo_weight) ≈ 0.45`，由 `scripts/core/predictor.py` 装配。
+> README 与代码必须保持同步；改权重请同时更新两边。
 
 ### ELO 评分
 
