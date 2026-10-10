@@ -557,10 +557,13 @@ scripts/
 │   │   ├── odds_enrich.py     # ESPN 1x2 收盘赔率回填（队名归一 + 三层匹配 + 去水，2026-09-18 新增）
 │   │   └── convert.py         # API-Football → ESPN 格式 (含赔率)
 │   ├── model/
-│   │   ├── onside.py          # Onside 4 信号 (FIFA排名/联赛足迹/主场/足联)
-│   │   ├── poisson.py         # Poisson / Dixon-Coles (τ 钳位)
-│   │   ├── monte_carlo.py     # 蒙特卡洛 10k 模拟 (标准淘汰赛对阵)
-│   │   └── features.py          # 26 维 ML 特征工程 (生产使用)
+│   │   ├── onside.py              # Onside 4 信号 (FIFA排名/联赛足迹/主场/足联)
+│   │   ├── poisson.py             # Poisson / Dixon-Coles (τ 钳位)
+│   │   ├── monte_carlo.py         # 共享层：单场 DC 采样 + 顶层 monte_carlo_champion 入口
+│   │   │                          #   + SE 收敛诊断；联赛 / 锦标赛语义 re-export 兼容
+│   │   ├── monte_carlo_league.py  # 联赛语义：剩余赛程 + 初始积分榜播种
+│   │   ├── monte_carlo_worldcup.py # 锦标赛语义：小组赛 + 标准 16 强对阵 + 退化配对
+│   │   └── features.py            # 26 维 ML 特征工程 (生产使用)
 │   ├── calibration.py         # 自动校准
 │   ├── backtest.py            # 回测 + 复盘
 │   ├── rankings.py            # FIFA 排名统一入口
