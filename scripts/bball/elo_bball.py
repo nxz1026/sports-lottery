@@ -1,9 +1,12 @@
 """篮球 ELO 评分持久化与更新。"""
 
 import json
+import logging
 from json import JSONDecodeError
 
 from .config_bball import ELO, ELO_FILE, TEAM_CN, TEAMS_SEED_FILE
+
+_LOGGER = logging.getLogger("bball.elo_bball")
 
 
 def _seed_ratings() -> dict[str, float]:
@@ -16,13 +19,17 @@ def _seed_ratings() -> dict[str, float]:
 
 
 def load_ratings() -> dict[str, float]:
-    """读取评分；文件异常时用球队种子并持久化初始评分。"""
+    """读取评分；文件异常时用球队种子并持久化初始评分。
+
+    文件损坏 / PermissionError → 记 warning 后退回种子并持久化初始评分。
+    静默回退会丢失运维线索：评级文件被外部破坏时拿不到任何信号。
+    """
     try:
         ratings = json.loads(ELO_FILE.read_text(encoding="utf-8"))
         if isinstance(ratings, dict):
             return {str(team): float(value) for team, value in ratings.items()}
-    except (JSONDecodeError, OSError, TypeError, ValueError):
-        pass
+    except (JSONDecodeError, OSError, TypeError, ValueError) as exc:
+        _LOGGER.warning("nba elo ratings 文件 %s 损坏/不可读, 退回种子: %s", ELO_FILE, exc)
     ratings = _seed_ratings()
     save_ratings(ratings)
     return ratings
