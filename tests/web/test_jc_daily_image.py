@@ -132,8 +132,9 @@ def test_temp_and_big5_split_into_groups(monkeypatch, client):
     _login(client)
     d = client.get("/api/jc/daily-image?sport=football").json()
     assert d["available"] is True
-    # 三大联赛 + 2 临时赛事都进 rows（兜底兼容旧前端）
-    assert len(d["rows"]) == 3
+    # rows 字段 = main_rows（兜底主面板）；temp_rows 单独暴露（避免前端同场重复）
+    assert len(d["rows"]) == 1
+    assert d["rows"][0]["league_cn"] == "英格兰超级联赛"
     # main / temp 分组
     assert len(d["main_rows"]) == 1
     assert d["main_rows"][0]["league_cn"] == "英格兰超级联赛"
@@ -150,9 +151,13 @@ def test_temp_and_big5_split_into_groups(monkeypatch, client):
 # ---------- NBA 回归 ----------
 
 def test_basketball_off_season_returns_available_false(monkeypatch, client):
-    """NBA 休赛期：已有 available=False 逻辑不变（回归测试）。"""
+    """NBA 休赛期：已有 available=False 逻辑不变（回归测试）。
+
+    ``_nba_available`` 已迁到 ``web.app.jc``（Stage A）；此处 stub
+    ``web.app.jc._nba_available`` 即可。
+    """
     monkeypatch.setattr("web.services.team_match.nba_rows", lambda preds: [])
-    monkeypatch.setattr("web.routers.jc._nba_available", lambda preds, today: False)
+    monkeypatch.setattr("web.app.jc._nba_available", lambda preds, today: False)
     _login(client)
     d = client.get("/api/jc/daily-image?sport=basketball").json()
     assert d["available"] is False

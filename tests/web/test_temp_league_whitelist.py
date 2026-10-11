@@ -140,6 +140,8 @@ def test_daily_image_filter_includes_temp_league(monkeypatch, client):
     d = client.get("/api/jc/daily-image?sport=football").json()
     # Step 1 仅扩白名单，过滤后 rows 应包含亚运会女足
     assert d["available"] is True
-    leagues = [r["league_cn"] for r in d["rows"]]
-    assert "亚运会女足" in leagues
-    assert "英格兰超级联赛" in leagues
+    # rows 字段 = main_rows（兜底主面板），临时赛事在 temp_rows 单独暴露
+    leagues_main = [r["league_cn"] for r in d["main_rows"]]
+    leagues_temp = [r["league_cn"] for r in d["temp_rows"]]
+    assert "亚运会女足" in leagues_temp
+    assert "英格兰超级联赛" in leagues_main
