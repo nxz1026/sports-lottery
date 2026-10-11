@@ -157,8 +157,16 @@ details>summary{cursor:pointer;color:var(--blue);font-size:11.5px}
 /* 多维筛选（今日 / 竞彩 / 彩票）与开奖号码分组：纯样式，无外部依赖 */
 .fgroup{display:flex;align-items:flex-start;gap:9px;margin:0 0 9px;flex-wrap:wrap}
 .flabel{color:var(--dim);font-size:11px;font-weight:600;min-width:50px;padding-top:5px;letter-spacing:.04em}
-.chipwrap{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0;max-height:112px;overflow:auto}
+/* P2-B1：filter chips（开球时间 / 星级 / 信心阈值 / 玩法）容器窄时换行混乱。
+ * 旧实现用 flex-wrap + max-height:112px;overflow:auto → 横向滚动且看着"乱换行"。
+ * 改为 grid auto-fit minmax(60px, 1fr)：窄容器自动堆成多行，宽容器保留横向布局，
+ * 每个 chip 至少 60px 宽（够 4 字 + padding）。 */
+.chipwrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(60px,1fr));gap:6px;flex:1;min-width:0}
+/* .fgroup 直接放 chips 的情况（如 #timeFilters/awardFilters）也用同一布局兜底 */
+.fgroup>.chip,#filters>.chip,#timeFilters>.chip,#starFilters>.chip,#confFilters>.chip,#sportFilters>.chip{display:block;text-align:center}
 .chip.sm{padding:3px 9px;font-size:12px}
+/* P2-B2：联赛 chip 按运动维度分组的行标 */
+.chip-group-label{font-size:11px;color:var(--dim);font-weight:600;letter-spacing:.04em;margin-right:4px;align-self:center}
 .kw{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:5px 10px;min-width:220px;flex:1}
 .kw:focus{outline:1px solid var(--link);border-color:var(--link)}
 .lball{display:inline-grid;place-items:center;min-width:25px;height:25px;padding:0 3px;border-radius:6px;background:var(--hover);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-variant-numeric:tabular-nums}
@@ -231,7 +239,9 @@ function markActive(boxSel,attr,val){const el=$(boxSel);if(!el)return;el.querySe
 function bindSingleChips(boxSel,attr,apply){const el=$(boxSel);if(!el)return;el.addEventListener("click",e=>{const b=e.target.closest(".chip");if(!b)return;markActive(boxSel,attr,b.dataset[attr]);apply(b)})}
 function bindMultiChips(boxSel,attr,listKey,rerender){const el=$(boxSel);if(!el)return;el.addEventListener("click",e=>{const b=e.target.closest(".chip");if(!b)return;const k=b.dataset[attr],arr=state[listKey],i=arr.indexOf(k);if(i<0)arr.push(k);else arr.splice(i,1);b.classList.toggle("active",i<0);rerender()})}
 function bindKwInput(sel,key,rerender){const el=$(sel);if(!el)return;el.addEventListener("input",()=>{state[key]=el.value;rerender()})}
-function buildLeagueChips(){const el=$("#leagueFilters");if(!el)return;const keys=[...new Set(state.all.map(leagueKey))].sort((a,b)=>a.localeCompare(b));if(!keys.length){el.innerHTML='<span class="cellnote">等待今日数据…</span>';return}el.innerHTML=keys.map(k=>`<button class="chip sm${state.leagueSel.includes(k)?" active":""}" data-league="${esc(k)}">${leagueLabel(k)}</button>`).join("")+(state.leagueSel.length?`<button class="btn" style="padding:3px 9px" data-action="league-clear">清空已选联赛（${state.leagueSel.length}）</button>`:"")}
+// P2-B2：联赛 chip 按运动维度分行（足球 ⚽ / 篮球 🏀）。
+// 当 sportFilter=篮球 → 隐藏足球组；sportFilter=足球 → 隐藏篮球组；all → 都显示。
+function buildLeagueChips(){const el=$("#leagueFilters");if(!el)return;const keys=[...new Set(state.all.map(leagueKey))].sort((a,b)=>a.localeCompare(b));if(!keys.length){el.innerHTML='<span class="cellnote">等待今日数据…</span>';return}const renderChip=k=>`<button class="chip sm${state.leagueSel.includes(k)?" active":""}" data-league="${esc(k)}">${leagueLabel(k)}</button>`;const fbKeys=keys.filter(k=>!isBasketball({league:k}));const bbKeys=keys.filter(k=>isBasketball({league:k}));const sf=state.sportFilter;const fbBlock=sf!=="basketball"&&fbKeys.length?`<span class="chip-group-label">⚽ 足球</span>${fbKeys.map(renderChip).join("")}`:"";const bbBlock=sf!=="football"&&bbKeys.length?`<span class="chip-group-label">🏀 篮球</span>${bbKeys.map(renderChip).join("")}`:"";const clearBlock=state.leagueSel.length?`<button class="btn" style="padding:3px 9px" data-action="league-clear">清空已选联赛（${state.leagueSel.length}）</button>`:"";el.innerHTML=`${fbBlock}${bbBlock}${clearBlock}`}
 function renderFilterNotes(){if(!$("#timeNote"))return;const known=state.all.filter(p=>kickInfo(p).known).length,withConf=state.all.filter(p=>confRatio(p)!==null).length;$("#timeNote").textContent=`开球时间可用 ${known}/${state.all.length} 场；其余为时间待定（足球预测行 API 未给 kickoff_utc）`;$("#confNote").textContent=`confidence_score 可用 ${withConf}/${state.all.length} 场；缺失者（如 NBA）在设置阈值后被排除`;const fs=$("#followSummary");if(fs){const f=followRead(),nL=(f.leagues||[]).length,nT=(f.teams||[]).length;fs.textContent=nL||nT?`关注联赛 ${nL} · 球队 ${nT} · ${state.personalized?"已生效":"未启用"}`:`本地偏好未设置（点卡片上 ○关注 添加）`}document.querySelectorAll('[data-action="personalize"]').forEach(btn=>{btn.classList.toggle("active",!!state.personalized)})}
 function resetFilters(){state.sportFilter="all";state.playFilter="all";state.confidenceStars=0;state.leagueSel=[];state.timeRange="all";state.minConf=0;state.kw="";const kw=$("#kwInput");if(kw)kw.value="";markActive("#sportFilters","sport","all");markActive("#filters","filter","all");markActive("#timeFilters","time","all");markActive("#starFilters","stars","0");markActive("#confFilters","conf","0");buildLeagueChips();renderMatches()}
 function savedFavs(){try{return JSON.parse(localStorage.getItem("jc_dashboard_favs")||"{}")}catch(_){return {}}}
