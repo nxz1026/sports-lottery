@@ -102,6 +102,11 @@ code{background:var(--code-bg);color:var(--fg);border-radius:4px;padding:1px 4px
 .stars{color:var(--gold);letter-spacing:1px}
 .odds{margin-left:auto;text-align:right;color:var(--fg);font-size:17px;font-weight:600;font-family:var(--font-mono)}
 .odds small{display:block;color:var(--dim);font-size:10px;font-weight:400}
+/* P1-A5：模型未给概率时的「—」给中性色（不再用 --fg 误导） */
+.odds.odds-na{color:var(--mut)}
+.odds.odds-na small{color:var(--dim);font-weight:500}
+/* P1-A9：「胜(接近) · 倾向平 30%」的弱信号补充；用 --warn 暖色区别于主方向 */
+.close-hint{color:var(--warn-border);font-size:11px;font-weight:500;letter-spacing:.02em;margin-left:5px}
 .meta{margin-top:9px;flex-wrap:wrap}
 .mini{padding:2px 8px;border-radius:4px;background:var(--hover);color:var(--mut);font-size:11px}
 .mini.good{background:var(--subtle);color:var(--ok)}
@@ -256,7 +261,7 @@ const todayStr=bjtTodayStr();
 const isPlayed=p=>{if(p.score&&String(p.score).trim()!=="")return true;const k=kickInfo(p);if(k.known&&k.date&&k.date<todayStr)return true;return false};
 const playedCards=cards.filter(isPlayed).sort((a,b)=>(kickInfo(b).date||"").localeCompare(kickInfo(a).date||""));
 const upcomingCards=cards.filter(p=>!isPlayed(p)).sort((a,b)=>(Number(b.confidence_score)||Number(b.stars)||0)-(Number(a.confidence_score)||Number(a.stars)||0));
-const renderCard=p=>{const home=p.home||String(p.match||"").split(/\s+vs\s+/i)[0]||"主队",away=p.away||String(p.match||"").split(/\s+vs\s+/i)[1]||"客队";const dir=p.direction||p.predicted_score||"待定", score=p.predicted_score||"—", kick=kickLabel(p);const id=matchId(p), fav=savedFavs()[id], picked=state.selected.includes(id);return `<article class="match${isPlayed(p)?" played":""}"><div class="m-top"><span class="league">${esc(isBasketball(p)?"NBA · 篮球":p.league)}</span><time>${esc(kick)}</time>${isPlayed(p)?'<span class="badge-status">已完赛</span>':""}<button class="btn" style="padding:2px 7px;margin-left:4px" data-action="favorite" data-match-id="${esc(id)}">${fav?"★":"☆"}</button><button class="btn" style="padding:2px 7px;margin-left:4px" data-action="follow-match" data-match-id="${esc(id)}" title="关注此联赛/球队">${followedMatch(p)?"◎关注中":"○关注"}</button><button class="btn" style="padding:2px 7px;margin-left:4px" data-action="detail" data-match-id="${esc(id)}" aria-expanded="false">查看详情</button></div><div class="teams"><div class="team"><span class="badge">${esc(home.slice(0,1))}</span>${esc(home)}</div><span class="vs">VS</span><div class="team away">${esc(away)}<span class="badge">${esc(away.slice(0,1))}</span></div></div>${probBlock(p,score)}<div class="pick"><span class="tag">${esc(dir)}</span><span class="stars">${stars(p.stars)}</span>${confBlock(p)}</div><div class="meta">${metaBlock(p)}<button class="btn" style="margin-left:auto;padding:3px 8px" data-action="combo" data-match-id="${esc(id)}">${picked?"已加入串关":"加入串关"}</button><button class="btn" style="padding:3px 8px" data-action="detail" data-match-id="${esc(id)}" aria-expanded="false">查看详情</button></div><section class="match-detail" data-detail-for="${esc(id)}" hidden></section></article>`};
+const renderCard=p=>{const home=p.home||String(p.match||"").split(/\s+vs\s+/i)[0]||"主队",away=p.away||String(p.match||"").split(/\s+vs\s+/i)[1]||"客队";const dir=p.direction||p.predicted_score||"待定", score=p.predicted_score||"—", kick=kickLabel(p);const id=matchId(p), fav=savedFavs()[id], picked=state.selected.includes(id);return `<article class="match${isPlayed(p)?" played":""}"><div class="m-top"><span class="league">${esc(isBasketball(p)?"NBA · 篮球":p.league)}</span><time>${esc(kick)}</time>${isPlayed(p)?'<span class="badge-status">已完赛</span>':""}<button class="btn" style="padding:2px 7px;margin-left:4px" data-action="favorite" data-match-id="${esc(id)}">${fav?"★":"☆"}</button><button class="btn" style="padding:2px 7px;margin-left:4px" data-action="follow-match" data-match-id="${esc(id)}" title="关注此联赛/球队">${followedMatch(p)?"◎关注中":"○关注"}</button><button class="btn" style="padding:2px 7px;margin-left:4px" data-action="detail" data-match-id="${esc(id)}" aria-expanded="false">查看详情</button></div><div class="teams"><div class="team"><span class="badge">${esc(home.slice(0,1))}</span>${esc(home)}</div><span class="vs">VS</span><div class="team away">${esc(away)}<span class="badge">${esc(away.slice(0,1))}</span></div></div>${probBlock(p,score)}<div class="pick"><span class="tag">${esc(dir)}</span>${closeHint(p,dir)}<span class="stars">${stars(p.stars)}</span>${confBlock(p)}</div><div class="meta">${metaBlock(p)}<button class="btn" style="margin-left:auto;padding:3px 8px" data-action="combo" data-match-id="${esc(id)}">${picked?"已加入串关":"加入串关"}</button><button class="btn" style="padding:3px 8px" data-action="detail" data-match-id="${esc(id)}" aria-expanded="false">查看详情</button></div><section class="match-detail" data-detail-for="${esc(id)}" hidden></section></article>`};
 // P1-B5：136 卡片 DOM 过大导致 22047px 长页 + 滚动卡顿。按 chunk 1×24 渐进渲染，
 // 借 IntersectionObserver 在 sentinel 进入视口时追加下一批。组件 scroll 监听器易乱，
 // IntersectionObserver 是浏览器原生且一帧一次，无须节流。
@@ -398,9 +403,37 @@ function followPasses(p){const f=followRead(),ls=f.leagues||[],ts=f.teams||[];if
 // 篮球 kickoff_utc 恒为空串、只有 kickoff_date；足球两者都为空时仍显示"时间待定"（既有行为不变）。
 function kickLabel(p){if(p.kickoff_utc){const d=new Date(p.kickoff_utc);if(!Number.isNaN(d.getTime()))return d.toLocaleString("zh-CN",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}if(p.kickoff_date)return `${p.kickoff_date}（仅日期）`;return "时间待定"}
 function probBlock(p,score){const q=modelProbs(p);if(q)return `<div class="prob"><i class="h" style="width:${q[0]*100}%"></i><i class="d" style="width:${q[1]*100}%"></i><i class="a" style="width:${q[2]*100}%"></i></div><div class="prob-legend"><span>主 ${pct(q[0])}</span><span>平 ${pct(q[1])}</span><span>客 ${pct(q[2])}</span></div>`;const w=Number(p.win_prob);if(isBasketball(p)&&Number.isFinite(w)){const h=Math.max(0,Math.min(1,w)),a=1-h;return `<div class="prob"><i class="h" style="width:${(h*100).toFixed(1)}%"></i><i class="a" style="width:${(a*100).toFixed(1)}%"></i></div><div class="prob-legend"><span>主胜 ${pct(h)}</span><span>客胜 ${pct(a)}</span><span class="cellnote">win_prob（篮球无平局）</span></div>`}return `<div class="prob-legend"><span>模型概率不可用</span><span>比分 ${esc(score)}</span></div>`}
-// 篮球 confidence_score 为 null：不落进 pct(null)=="0.0%" 的假数字路径，改用 win_prob。
-function confBlock(p){const w=Number(p.win_prob);if(p.confidence_score!=null)return `<span class="odds">${pct(p.confidence_score)}<small>信心参考</small></span>`;if(isBasketball(p)&&Number.isFinite(w))return `<span class="odds">${pct(w)}<small>主队胜率 win_prob</small></span>`;return `<span class="odds">—<small>信心参考</small></span>`}
+// P1-A5：confidence_score 表示「模型给所选方向的概率」（非信心分 / 非胜率赔率）；
+// 旧标签「信心参考」语义模糊 + 双重出现（无值时也写「信心参考 —」）。改为：
+//   - 有 confidence_score    → 「方向概率 X%」（明确是该方向上模型的概率）
+//   - 篮球 + win_prob       → 「主胜率 X%」（篮球无平局）
+//   - 都没有                → 数字「—」+ 角标「模型未给」（不再硬塞「信心参考」标签）
+function confBlock(p){const w=Number(p.win_prob);if(p.confidence_score!=null)return `<span class="odds">${pct(p.confidence_score)}<small>方向概率</small></span>`;if(isBasketball(p)&&Number.isFinite(w))return `<span class="odds">${pct(w)}<small>主胜率</small></span>`;return `<span class="odds odds-na">—<small>模型未给</small></span>`}
 function metaBlock(p){const bb=isBasketball(p),m=market(p),st=m&&m.status;const sportMini=bb?`篮球 · 让分 ${p.spread_pred!=null?esc(p.spread_pred):"—"} · 总分 ${p.total_pred!=null?esc(p.total_pred):"—"}`:esc(p.over_under||p.btts||p.sport||"预测");const marketMini=bb?((st&&st!=="missing")?marketLabel(p):`无盘口（market.status=${esc(st||"missing")}）`):marketLabel(p);return `<span class="mini">${sportMini}</span><span class="mini good">数据窗口 ${esc(p.data_window||"—")}</span><span class="mini">${marketMini}</span>`}
+
+// P1-A9：direction 含「(接近)」= 弱信号（首二差距 < draw_threshold）。与「★☆☆☆☆ 20.7%」并存
+// 重复传达弱信号；明确改成「胜(接近) · 倾向平 30%」——后者来自 modelProbs 第二高项。
+// modelProbs 缺失或主向差距过大 → 仅原 direction，不强加伪数字。
+function closeHint(p, dir){
+  if(!String(dir||"").includes("(接近)")) return "";
+  const q = modelProbs(p);
+  if(!q) return "";
+  const labels = ["主胜", "平", "客胜"];
+  let chosenIdx = -1;
+  if(dir.includes("主")) chosenIdx = 0;
+  else if(dir.includes("平")) chosenIdx = 1;
+  else if(dir.includes("客")) chosenIdx = 2;
+  if(chosenIdx < 0) return "";
+  // 找出非 chosen 项里的最高概率
+  let altIdx = -1, altP = -1;
+  for(let i=0;i<3;i++)
+  {
+    if(i===chosenIdx) continue;
+    if(q[i]>altP){altP=q[i];altIdx=i}
+  }
+  if(altIdx < 0 || altP <= 0) return "";
+  return ` <span class="close-hint">· 倾向 ${labels[altIdx]} ${pct(altP)}</span>`;
+}
 
 /* ================= B/C. 竞彩盘口 + 彩票开奖（只读 API，同源带 cookie） ================= */
 // play_type 中文释义仅来自本次任务规格（用户给定，jc.html 本身只原样展示代码）；

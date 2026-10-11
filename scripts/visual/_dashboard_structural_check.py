@@ -21,6 +21,13 @@ checks = [
     ("P1-B5 lazy-sentinel CSS", r"\.lazy-sentinel"),
     ("P1-B5 IntersectionObserver", r"IntersectionObserver"),
     ("P1-B5 observer disconnect guard", r"state\._lazyObserver.*disconnect"),
+    ("P1-A5 方向概率 label", r"<small>方向概率</small>"),
+    ("P1-A5 主胜率 label for basketball", r"<small>主胜率</small>"),
+    ("P1-A5 模型未给 fallback", r"<small>模型未给</small>"),
+    ("P1-A5 .odds-na CSS class", r"\.odds\.odds-na"),
+    ("P1-A9 closeHint function", r"function\s+closeHint"),
+    ("P1-A9 .close-hint CSS class", r"\.close-hint"),
+    ("P1-A9 closeHint called in renderCard", r"\$\{closeHint\(p,dir\)\}"),
 ]
 fail = []
 for name, pat in checks:
