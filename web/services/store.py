@@ -70,11 +70,22 @@ def iter_prediction_files() -> list[Path]:
 
 
 def load_prediction_docs() -> list[dict]:
-    """全部可解析预测文件，附解析元数据；坏文件跳过。"""
+    """全部可解析预测文件，附解析元数据；坏文件跳过。
+
+    返回 doc 含 ``path`` / ``name`` / ``generated_at``（ISO 字符串 + datetime）
+    / ``data``（原始 JSON）/ ``mtime``（文件 stat mtime，float epoch 秒）。
+    ``mtime`` 是 web 侧 ``league_accuracy_web`` 的窗口过滤（cutoff）所必须；
+    早期版本漏写 ``mtime`` 字段，导致 ``_collect_league_data`` 拿 ``doc.get("mtime", 0)``
+    永远为 0，cutoff 过滤把所有文件跳过，命中率永远"数据积累中"。
+    """
     docs: list[dict] = []
     for f in iter_prediction_files():
         data = _json_load(f)
         if data is None:
+            continue
+        try:
+            mtime = f.stat().st_mtime
+        except OSError:
             continue
         docs.append({
             "path": f,
@@ -82,6 +93,7 @@ def load_prediction_docs() -> list[dict]:
             "generated_at_iso": data.get("generated_at"),
             "generated_at": _parse_dt(data.get("generated_at")),
             "data": data,
+            "mtime": mtime,
         })
     return docs
 
