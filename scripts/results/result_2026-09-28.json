@@ -8,7 +8,9 @@
       "away": "Coventry City FC",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Arsenal FC",
+      "away_en": "Coventry City FC"
     },
     {
       "id": "赫尔城 vs 曼联",
@@ -17,7 +19,9 @@
       "away": "Manchester United FC",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Hull City AFC",
+      "away_en": "Manchester United FC"
     },
     {
       "id": "伊普斯维奇 vs 桑德兰",
@@ -26,7 +30,9 @@
       "away": "Sunderland AFC",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Ipswich Town FC",
+      "away_en": "Sunderland AFC"
     },
     {
       "id": "诺丁汉森林 vs 利兹联",
@@ -35,7 +41,9 @@
       "away": "Leeds United FC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Nottingham Forest FC",
+      "away_en": "Leeds United FC"
     },
     {
       "id": "埃弗顿 vs 水晶宫",
@@ -44,7 +52,9 @@
       "away": "Crystal Palace FC",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Everton FC",
+      "away_en": "Crystal Palace FC"
     },
     {
       "id": "布伦特福德 vs 热刺",
@@ -53,7 +63,9 @@
       "away": "Tottenham Hotspur FC",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Brentford FC",
+      "away_en": "Tottenham Hotspur FC"
     },
     {
       "id": "曼城 vs 伯恩茅斯",
@@ -62,7 +74,9 @@
       "away": "AFC Bournemouth",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Manchester City FC",
+      "away_en": "AFC Bournemouth"
     },
     {
       "id": "布莱顿 vs 阿斯顿维拉",
@@ -71,7 +85,9 @@
       "away": "Aston Villa FC",
       "home_score": 4,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Brighton & Hove Albion FC",
+      "away_en": "Aston Villa FC"
     },
     {
       "id": "纽卡斯尔联 vs 利物浦",
@@ -80,7 +96,9 @@
       "away": "Liverpool FC",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Newcastle United FC",
+      "away_en": "Liverpool FC"
     },
     {
       "id": "富勒姆 vs 切尔西",
@@ -89,7 +107,9 @@
       "away": "Chelsea FC",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Fulham FC",
+      "away_en": "Chelsea FC"
     },
     {
       "id": "水晶宫 vs 曼城",
@@ -98,7 +118,9 @@
       "away": "Manchester City FC",
       "home_score": 1,
       "away_score": 4,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Crystal Palace FC",
+      "away_en": "Manchester City FC"
     },
     {
       "id": "利物浦 vs 诺丁汉森林",
@@ -107,7 +129,9 @@
       "away": "Nottingham Forest FC",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Liverpool FC",
+      "away_en": "Nottingham Forest FC"
     },
     {
       "id": "伯恩茅斯 vs 埃弗顿",
@@ -116,7 +140,9 @@
       "away": "Everton FC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AFC Bournemouth",
+      "away_en": "Everton FC"
     },
     {
       "id": "考文垂 vs 赫尔城",
@@ -125,7 +151,9 @@
       "away": "Hull City AFC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Coventry City FC",
+      "away_en": "Hull City AFC"
     },
     {
       "id": "热刺 vs 纽卡斯尔联",
@@ -134,7 +162,9 @@
       "away": "Newcastle United FC",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Tottenham Hotspur FC",
+      "away_en": "Newcastle United FC"
     },
     {
       "id": "桑德兰 vs 富勒姆",
@@ -143,7 +173,9 @@
       "away": "Fulham FC",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Sunderland AFC",
+      "away_en": "Fulham FC"
     },
     {
       "id": "切尔西 vs 布莱顿",
@@ -152,7 +184,9 @@
       "away": "Brighton & Hove Albion FC",
       "home_score": 4,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Chelsea FC",
+      "away_en": "Brighton & Hove Albion FC"
     },
     {
       "id": "利兹联 vs 布伦特福德",
@@ -161,7 +195,9 @@
       "away": "Brentford FC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Leeds United FC",
+      "away_en": "Brentford FC"
     },
     {
       "id": "曼联 vs 伊普斯维奇",
@@ -170,7 +206,9 @@
       "away": "Ipswich Town FC",
       "home_score": 5,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Manchester United FC",
+      "away_en": "Ipswich Town FC"
     },
     {
       "id": "阿斯顿维拉 vs 阿森纳",
@@ -179,7 +217,9 @@
       "away": "Arsenal FC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Aston Villa FC",
+      "away_en": "Arsenal FC"
     },
     {
       "id": "伊普斯维奇 vs 利物浦",
@@ -188,7 +228,9 @@
       "away": "Liverpool FC",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Ipswich Town FC",
+      "away_en": "Liverpool FC"
     },
     {
       "id": "纽卡斯尔联 vs 伯恩茅斯",
@@ -197,7 +239,9 @@
       "away": "AFC Bournemouth",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Newcastle United FC",
+      "away_en": "AFC Bournemouth"
     },
     {
       "id": "诺丁汉森林 vs 热刺",
@@ -206,7 +250,9 @@
       "away": "Tottenham Hotspur FC",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Nottingham Forest FC",
+      "away_en": "Tottenham Hotspur FC"
     },
     {
       "id": "曼城 vs 考文垂",
@@ -215,7 +261,9 @@
       "away": "Coventry City FC",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Manchester City FC",
+      "away_en": "Coventry City FC"
     },
     {
       "id": "布莱顿 vs 利兹联",
@@ -224,7 +272,9 @@
       "away": "Leeds United FC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Brighton & Hove Albion FC",
+      "away_en": "Leeds United FC"
     },
     {
       "id": "布伦特福德 vs 桑德兰",
@@ -233,7 +283,9 @@
       "away": "Sunderland AFC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Brentford FC",
+      "away_en": "Sunderland AFC"
     },
     {
       "id": "富勒姆 vs 水晶宫",
@@ -242,7 +294,9 @@
       "away": "Crystal Palace FC",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Fulham FC",
+      "away_en": "Crystal Palace FC"
     },
     {
       "id": "赫尔城 vs 阿斯顿维拉",
@@ -251,7 +305,9 @@
       "away": "Aston Villa FC",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Hull City AFC",
+      "away_en": "Aston Villa FC"
     },
     {
       "id": "埃弗顿 vs 曼联",
@@ -260,7 +316,9 @@
       "away": "Manchester United FC",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Everton FC",
+      "away_en": "Manchester United FC"
     },
     {
       "id": "阿森纳 vs 切尔西",
@@ -269,7 +327,9 @@
       "away": "Chelsea FC",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Arsenal FC",
+      "away_en": "Chelsea FC"
     },
     {
       "id": "水晶宫 vs 伊普斯维奇",
@@ -278,7 +338,9 @@
       "away": "Ipswich Town FC",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Crystal Palace FC",
+      "away_en": "Ipswich Town FC"
     },
     {
       "id": "利物浦 vs 富勒姆",
@@ -287,7 +349,9 @@
       "away": "Fulham FC",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Liverpool FC",
+      "away_en": "Fulham FC"
     },
     {
       "id": "阿斯顿维拉 vs 诺丁汉森林",
@@ -296,7 +360,9 @@
       "away": "Nottingham Forest FC",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Aston Villa FC",
+      "away_en": "Nottingham Forest FC"
     },
     {
       "id": "伯恩茅斯 vs 布伦特福德",
@@ -305,7 +371,9 @@
       "away": "Brentford FC",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AFC Bournemouth",
+      "away_en": "Brentford FC"
     },
     {
       "id": "切尔西 vs 赫尔城",
@@ -314,7 +382,9 @@
       "away": "Hull City AFC",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Chelsea FC",
+      "away_en": "Hull City AFC"
     },
     {
       "id": "热刺 vs 埃弗顿",
@@ -323,7 +393,9 @@
       "away": "Everton FC",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Tottenham Hotspur FC",
+      "away_en": "Everton FC"
     },
     {
       "id": "桑德兰 vs 阿森纳",
@@ -332,7 +404,9 @@
       "away": "Arsenal FC",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Sunderland AFC",
+      "away_en": "Arsenal FC"
     },
     {
       "id": "考文垂 vs 布莱顿",
@@ -341,7 +415,9 @@
       "away": "Brighton & Hove Albion FC",
       "home_score": 0,
       "away_score": 5,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Coventry City FC",
+      "away_en": "Brighton & Hove Albion FC"
     },
     {
       "id": "曼联 vs 曼城",
@@ -350,7 +426,9 @@
       "away": "Manchester City FC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Manchester United FC",
+      "away_en": "Manchester City FC"
     },
     {
       "id": "利兹联 vs 纽卡斯尔联",
@@ -359,7 +437,9 @@
       "away": "Newcastle United FC",
       "home_score": 4,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Leeds United FC",
+      "away_en": "Newcastle United FC"
     },
     {
       "id": "布伦特福德 vs 切尔西",
@@ -368,7 +448,9 @@
       "away": "Chelsea FC",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Brentford FC",
+      "away_en": "Chelsea FC"
     },
     {
       "id": "热刺 vs 阿斯顿维拉",
@@ -377,7 +459,9 @@
       "away": "Aston Villa FC",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Tottenham Hotspur FC",
+      "away_en": "Aston Villa FC"
     },
     {
       "id": "埃弗顿 vs 伊普斯维奇",
@@ -386,7 +470,9 @@
       "away": "Ipswich Town FC",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Everton FC",
+      "away_en": "Ipswich Town FC"
     },
     {
       "id": "布莱顿 vs 阿森纳",
@@ -395,7 +481,9 @@
       "away": "Arsenal FC",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Brighton & Hove Albion FC",
+      "away_en": "Arsenal FC"
     },
     {
       "id": "纽卡斯尔联 vs 赫尔城",
@@ -404,7 +492,9 @@
       "away": "Hull City AFC",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Newcastle United FC",
+      "away_en": "Hull City AFC"
     },
     {
       "id": "诺丁汉森林 vs 考文垂",
@@ -413,7 +503,9 @@
       "away": "Coventry City FC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Nottingham Forest FC",
+      "away_en": "Coventry City FC"
     },
     {
       "id": "伯恩茅斯 vs 利物浦",
@@ -422,7 +514,9 @@
       "away": "Liverpool FC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AFC Bournemouth",
+      "away_en": "Liverpool FC"
     },
     {
       "id": "利兹联 vs 水晶宫",
@@ -431,7 +525,9 @@
       "away": "Crystal Palace FC",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Leeds United FC",
+      "away_en": "Crystal Palace FC"
     },
     {
       "id": "曼城 vs 桑德兰",
@@ -440,7 +536,9 @@
       "away": "Sunderland AFC",
       "home_score": 5,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Manchester City FC",
+      "away_en": "Sunderland AFC"
     },
     {
       "id": "富勒姆 vs 曼联",
@@ -449,7 +547,9 @@
       "away": "Manchester United FC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Fulham FC",
+      "away_en": "Manchester United FC"
     },
     {
       "id": "阿拉维斯 vs 赫塔菲",
@@ -458,7 +558,9 @@
       "away": "Getafe CF",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Deportivo Alavés",
+      "away_en": "Getafe CF"
     },
     {
       "id": "塞维利亚 vs 巴列卡诺",
@@ -467,7 +569,9 @@
       "away": "Rayo Vallecano de Madrid",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Sevilla FC",
+      "away_en": "Rayo Vallecano de Madrid"
     },
     {
       "id": "桑坦德竞技 vs 比利亚雷亚尔",
@@ -476,7 +580,9 @@
       "away": "Villarreal CF",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Racing Club de Santander",
+      "away_en": "Villarreal CF"
     },
     {
       "id": "西班牙人 vs 莱万特",
@@ -485,7 +591,9 @@
       "away": "Levante UD",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RCD Espanyol de Barcelona",
+      "away_en": "Levante UD"
     },
     {
       "id": "拉科鲁尼亚 vs 埃尔切",
@@ -494,7 +602,9 @@
       "away": "Elche CF",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Deportivo La Coruña",
+      "away_en": "Elche CF"
     },
     {
       "id": "马德里竞技 vs 马拉加",
@@ -503,7 +613,9 @@
       "away": "Málaga CF",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Club Atlético de Madrid",
+      "away_en": "Málaga CF"
     },
     {
       "id": "巴列卡诺 vs 阿拉维斯",
@@ -512,7 +624,9 @@
       "away": "Deportivo Alavés",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Rayo Vallecano de Madrid",
+      "away_en": "Deportivo Alavés"
     },
     {
       "id": "皇家贝蒂斯 vs 皇家社会",
@@ -521,7 +635,9 @@
       "away": "Real Sociedad de Fútbol",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Betis Balompié",
+      "away_en": "Real Sociedad de Fútbol"
     },
     {
       "id": "毕尔巴鄂竞技 vs 塞维利亚",
@@ -530,7 +646,9 @@
       "away": "Sevilla FC",
       "home_score": 1,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Athletic Club",
+      "away_en": "Sevilla FC"
     },
     {
       "id": "瓦伦西亚 vs 维戈塞尔塔",
@@ -539,7 +657,9 @@
       "away": "RC Celta de Vigo",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Valencia CF",
+      "away_en": "RC Celta de Vigo"
     },
     {
       "id": "西班牙人 vs 皇家马德里",
@@ -548,7 +668,9 @@
       "away": "Real Madrid CF",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RCD Espanyol de Barcelona",
+      "away_en": "Real Madrid CF"
     },
     {
       "id": "马德里竞技 vs 比利亚雷亚尔",
@@ -557,7 +679,9 @@
       "away": "Villarreal CF",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Club Atlético de Madrid",
+      "away_en": "Villarreal CF"
     },
     {
       "id": "赫塔菲 vs 桑坦德竞技",
@@ -566,7 +690,9 @@
       "away": "Real Racing Club de Santander",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Getafe CF",
+      "away_en": "Real Racing Club de Santander"
     },
     {
       "id": "埃尔切 vs 巴塞罗那",
@@ -575,7 +701,9 @@
       "away": "FC Barcelona",
       "home_score": 0,
       "away_score": 5,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Elche CF",
+      "away_en": "FC Barcelona"
     },
     {
       "id": "奥萨苏纳 vs 莱万特",
@@ -584,7 +712,9 @@
       "away": "Levante UD",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "CA Osasuna",
+      "away_en": "Levante UD"
     },
     {
       "id": "马拉加 vs 拉科鲁尼亚",
@@ -593,7 +723,9 @@
       "away": "RC Deportivo La Coruña",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Málaga CF",
+      "away_en": "RC Deportivo La Coruña"
     },
     {
       "id": "瓦伦西亚 vs 皇家贝蒂斯",
@@ -602,7 +734,9 @@
       "away": "Real Betis Balompié",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Valencia CF",
+      "away_en": "Real Betis Balompié"
     },
     {
       "id": "皇家马德里 vs 皇家社会",
@@ -611,7 +745,9 @@
       "away": "Real Sociedad de Fútbol",
       "home_score": 4,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Madrid CF",
+      "away_en": "Real Sociedad de Fútbol"
     },
     {
       "id": "维戈塞尔塔 vs 奥萨苏纳",
@@ -620,7 +756,9 @@
       "away": "CA Osasuna",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Celta de Vigo",
+      "away_en": "CA Osasuna"
     },
     {
       "id": "巴塞罗那 vs 毕尔巴鄂竞技",
@@ -629,7 +767,9 @@
       "away": "Athletic Club",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Barcelona",
+      "away_en": "Athletic Club"
     },
     {
       "id": "桑坦德竞技 vs 埃尔切",
@@ -638,7 +778,9 @@
       "away": "Elche CF",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Racing Club de Santander",
+      "away_en": "Elche CF"
     },
     {
       "id": "阿拉维斯 vs 比利亚雷亚尔",
@@ -647,7 +789,9 @@
       "away": "Villarreal CF",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Deportivo Alavés",
+      "away_en": "Villarreal CF"
     },
     {
       "id": "莱万特 vs 皇家贝蒂斯",
@@ -656,7 +800,9 @@
       "away": "Real Betis Balompié",
       "home_score": 5,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Levante UD",
+      "away_en": "Real Betis Balompié"
     },
     {
       "id": "皇家社会 vs 西班牙人",
@@ -665,7 +811,9 @@
       "away": "RCD Espanyol de Barcelona",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Sociedad de Fútbol",
+      "away_en": "RCD Espanyol de Barcelona"
     },
     {
       "id": "塞维利亚 vs 马德里竞技",
@@ -674,7 +822,9 @@
       "away": "Club Atlético de Madrid",
       "home_score": 1,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Sevilla FC",
+      "away_en": "Club Atlético de Madrid"
     },
     {
       "id": "皇家马德里 vs 马拉加",
@@ -683,7 +833,9 @@
       "away": "Málaga CF",
       "home_score": 4,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Madrid CF",
+      "away_en": "Málaga CF"
     },
     {
       "id": "拉科鲁尼亚 vs 瓦伦西亚",
@@ -692,7 +844,9 @@
       "away": "Valencia CF",
       "home_score": 3,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Deportivo La Coruña",
+      "away_en": "Valencia CF"
     },
     {
       "id": "维戈塞尔塔 vs 毕尔巴鄂竞技",
@@ -701,7 +855,9 @@
       "away": "Athletic Club",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Celta de Vigo",
+      "away_en": "Athletic Club"
     },
     {
       "id": "奥萨苏纳 vs 赫塔菲",
@@ -710,7 +866,9 @@
       "away": "Getafe CF",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "CA Osasuna",
+      "away_en": "Getafe CF"
     },
     {
       "id": "巴塞罗那 vs 巴列卡诺",
@@ -719,7 +877,9 @@
       "away": "Rayo Vallecano de Madrid",
       "home_score": 5,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Barcelona",
+      "away_en": "Rayo Vallecano de Madrid"
     },
     {
       "id": "皇家社会 vs 维戈塞尔塔",
@@ -728,7 +888,9 @@
       "away": "RC Celta de Vigo",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Sociedad de Fútbol",
+      "away_en": "RC Celta de Vigo"
     },
     {
       "id": "皇家贝蒂斯 vs 皇家马德里",
@@ -737,7 +899,9 @@
       "away": "Real Madrid CF",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Betis Balompié",
+      "away_en": "Real Madrid CF"
     },
     {
       "id": "毕尔巴鄂竞技 vs 马德里竞技",
@@ -746,7 +910,9 @@
       "away": "Club Atlético de Madrid",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Athletic Club",
+      "away_en": "Club Atlético de Madrid"
     },
     {
       "id": "巴列卡诺 vs 桑坦德竞技",
@@ -755,7 +921,9 @@
       "away": "Real Racing Club de Santander",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Rayo Vallecano de Madrid",
+      "away_en": "Real Racing Club de Santander"
     },
     {
       "id": "比利亚雷亚尔 vs 拉科鲁尼亚",
@@ -764,7 +932,9 @@
       "away": "RC Deportivo La Coruña",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Villarreal CF",
+      "away_en": "RC Deportivo La Coruña"
     },
     {
       "id": "瓦伦西亚 vs 巴塞罗那",
@@ -773,7 +943,9 @@
       "away": "FC Barcelona",
       "home_score": 0,
       "away_score": 5,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Valencia CF",
+      "away_en": "FC Barcelona"
     },
     {
       "id": "阿拉维斯 vs 奥萨苏纳",
@@ -782,7 +954,9 @@
       "away": "CA Osasuna",
       "home_score": 5,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Deportivo Alavés",
+      "away_en": "CA Osasuna"
     },
     {
       "id": "马拉加 vs 莱万特",
@@ -791,7 +965,9 @@
       "away": "Levante UD",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Málaga CF",
+      "away_en": "Levante UD"
     },
     {
       "id": "西班牙人 vs 塞维利亚",
@@ -800,7 +976,9 @@
       "away": "Sevilla FC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RCD Espanyol de Barcelona",
+      "away_en": "Sevilla FC"
     },
     {
       "id": "赫塔菲 vs 维戈塞尔塔",
@@ -809,7 +987,9 @@
       "away": "RC Celta de Vigo",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Getafe CF",
+      "away_en": "RC Celta de Vigo"
     },
     {
       "id": "埃尔切 vs 皇家社会",
@@ -818,7 +998,9 @@
       "away": "Real Sociedad de Fútbol",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Elche CF",
+      "away_en": "Real Sociedad de Fútbol"
     },
     {
       "id": "塞维利亚 vs 瓦伦西亚",
@@ -827,7 +1009,9 @@
       "away": "Valencia CF",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Sevilla FC",
+      "away_en": "Valencia CF"
     },
     {
       "id": "桑坦德竞技 vs 阿拉维斯",
@@ -836,7 +1020,9 @@
       "away": "Deportivo Alavés",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Racing Club de Santander",
+      "away_en": "Deportivo Alavés"
     },
     {
       "id": "奥萨苏纳 vs 西班牙人",
@@ -845,7 +1031,9 @@
       "away": "RCD Espanyol de Barcelona",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "CA Osasuna",
+      "away_en": "RCD Espanyol de Barcelona"
     },
     {
       "id": "毕尔巴鄂竞技 vs 埃尔切",
@@ -854,7 +1042,9 @@
       "away": "Elche CF",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Athletic Club",
+      "away_en": "Elche CF"
     },
     {
       "id": "皇家马德里 vs 巴列卡诺",
@@ -863,7 +1053,9 @@
       "away": "Rayo Vallecano de Madrid",
       "home_score": 4,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Madrid CF",
+      "away_en": "Rayo Vallecano de Madrid"
     },
     {
       "id": "维戈塞尔塔 vs 马拉加",
@@ -872,7 +1064,9 @@
       "away": "Málaga CF",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Celta de Vigo",
+      "away_en": "Málaga CF"
     },
     {
       "id": "莱万特 vs 巴塞罗那",
@@ -881,7 +1075,9 @@
       "away": "FC Barcelona",
       "home_score": 2,
       "away_score": 4,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Levante UD",
+      "away_en": "FC Barcelona"
     },
     {
       "id": "赫塔菲 vs 拉科鲁尼亚",
@@ -890,7 +1086,9 @@
       "away": "RC Deportivo La Coruña",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Getafe CF",
+      "away_en": "RC Deportivo La Coruña"
     },
     {
       "id": "皇家社会 vs 马德里竞技",
@@ -899,7 +1097,9 @@
       "away": "Club Atlético de Madrid",
       "home_score": 0,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Sociedad de Fútbol",
+      "away_en": "Club Atlético de Madrid"
     },
     {
       "id": "比利亚雷亚尔 vs 皇家贝蒂斯",
@@ -908,7 +1108,9 @@
       "away": "Real Betis Balompié",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Villarreal CF",
+      "away_en": "Real Betis Balompié"
     },
     {
       "id": "巴列卡诺 vs 西班牙人",
@@ -917,7 +1119,9 @@
       "away": "RCD Espanyol de Barcelona",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Rayo Vallecano de Madrid",
+      "away_en": "RCD Espanyol de Barcelona"
     },
     {
       "id": "阿拉维斯 vs 瓦伦西亚",
@@ -926,7 +1130,9 @@
       "away": "Valencia CF",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Deportivo Alavés",
+      "away_en": "Valencia CF"
     },
     {
       "id": "埃尔切 vs 皇家马德里",
@@ -935,7 +1141,9 @@
       "away": "Real Madrid CF",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Elche CF",
+      "away_en": "Real Madrid CF"
     },
     {
       "id": "拉科鲁尼亚 vs 塞维利亚",
@@ -944,7 +1152,9 @@
       "away": "Sevilla FC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Deportivo La Coruña",
+      "away_en": "Sevilla FC"
     },
     {
       "id": "马德里竞技 vs 奥萨苏纳",
@@ -953,7 +1163,9 @@
       "away": "CA Osasuna",
       "home_score": 4,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Club Atlético de Madrid",
+      "away_en": "CA Osasuna"
     },
     {
       "id": "巴塞罗那 vs 桑坦德竞技",
@@ -962,7 +1174,9 @@
       "away": "Real Racing Club de Santander",
       "home_score": 7,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Barcelona",
+      "away_en": "Real Racing Club de Santander"
     },
     {
       "id": "皇家贝蒂斯 vs 赫塔菲",
@@ -971,7 +1185,9 @@
       "away": "Getafe CF",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Real Betis Balompié",
+      "away_en": "Getafe CF"
     },
     {
       "id": "马拉加 vs 比利亚雷亚尔",
@@ -980,7 +1196,9 @@
       "away": "Villarreal CF",
       "home_score": 1,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Málaga CF",
+      "away_en": "Villarreal CF"
     },
     {
       "id": "西班牙人 vs 埃尔切",
@@ -989,7 +1207,9 @@
       "away": "Elche CF",
       "home_score": 1,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RCD Espanyol de Barcelona",
+      "away_en": "Elche CF"
     },
     {
       "id": "奥萨苏纳 vs 巴列卡诺",
@@ -998,7 +1218,9 @@
       "away": "Rayo Vallecano de Madrid",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "CA Osasuna",
+      "away_en": "Rayo Vallecano de Madrid"
     },
     {
       "id": "毕尔巴鄂竞技 vs 阿拉维斯",
@@ -1007,7 +1229,9 @@
       "away": "Deportivo Alavés",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Athletic Club",
+      "away_en": "Deportivo Alavés"
     },
     {
       "id": "维戈塞尔塔 vs 桑坦德竞技",
@@ -1016,7 +1240,9 @@
       "away": "Real Racing Club de Santander",
       "home_score": 5,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Celta de Vigo",
+      "away_en": "Real Racing Club de Santander"
     },
     {
       "id": "塞维利亚 vs 巴塞罗那",
@@ -1025,7 +1251,9 @@
       "away": "FC Barcelona",
       "home_score": 1,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Sevilla FC",
+      "away_en": "FC Barcelona"
     },
     {
       "id": "赫塔菲 vs 马拉加",
@@ -1034,7 +1262,9 @@
       "away": "Málaga CF",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Getafe CF",
+      "away_en": "Málaga CF"
     },
     {
       "id": "马德里竞技 vs 皇家马德里",
@@ -1043,7 +1273,9 @@
       "away": "Real Madrid CF",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Club Atlético de Madrid",
+      "away_en": "Real Madrid CF"
     },
     {
       "id": "拉科鲁尼亚 vs 皇家贝蒂斯",
@@ -1052,7 +1284,9 @@
       "away": "Real Betis Balompié",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Deportivo La Coruña",
+      "away_en": "Real Betis Balompié"
     },
     {
       "id": "比利亚雷亚尔 vs 莱万特",
@@ -1061,7 +1295,9 @@
       "away": "Levante UD",
       "home_score": 3,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Villarreal CF",
+      "away_en": "Levante UD"
     },
     {
       "id": "瓦伦西亚 vs 皇家社会",
@@ -1070,7 +1306,9 @@
       "away": "Real Sociedad de Fútbol",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Valencia CF",
+      "away_en": "Real Sociedad de Fútbol"
     },
     {
       "id": "拜仁慕尼黑 vs 斯图加特",
@@ -1079,7 +1317,9 @@
       "away": "VfB Stuttgart",
       "home_score": 5,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Bayern München",
+      "away_en": "VfB Stuttgart"
     },
     {
       "id": "莱比锡红牛 vs 门兴格拉德巴赫",
@@ -1088,7 +1328,9 @@
       "away": "Borussia Mönchengladbach",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RB Leipzig",
+      "away_en": "Borussia Mönchengladbach"
     },
     {
       "id": "美因茨05 vs 帕德博恩07",
@@ -1097,7 +1339,9 @@
       "away": "SC Paderborn 07",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "1. FSV Mainz 05",
+      "away_en": "SC Paderborn 07"
     },
     {
       "id": "柏林联合 vs 法兰克福",
@@ -1106,7 +1350,9 @@
       "away": "Eintracht Frankfurt",
       "home_score": 3,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "1. FC Union Berlin",
+      "away_en": "Eintracht Frankfurt"
     },
     {
       "id": "鄂尔士贝格 vs 勒沃库森",
@@ -1115,7 +1361,9 @@
       "away": "Bayer 04 Leverkusen",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SV 07 Elversberg",
+      "away_en": "Bayer 04 Leverkusen"
     },
     {
       "id": "科隆 vs 霍芬海姆",
@@ -1124,7 +1372,9 @@
       "away": "TSG 1899 Hoffenheim",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "1. FC Köln",
+      "away_en": "TSG 1899 Hoffenheim"
     },
     {
       "id": "多特蒙德 vs 汉堡",
@@ -1133,7 +1383,9 @@
       "away": "Hamburger SV",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Borussia Dortmund",
+      "away_en": "Hamburger SV"
     },
     {
       "id": "弗赖堡 vs 云达不莱梅",
@@ -1142,7 +1394,9 @@
       "away": "SV Werder Bremen",
       "home_score": 4,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SC Freiburg",
+      "away_en": "SV Werder Bremen"
     },
     {
       "id": "奥格斯堡 vs 沙尔克04",
@@ -1151,7 +1405,9 @@
       "away": "FC Schalke 04",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Augsburg",
+      "away_en": "FC Schalke 04"
     },
     {
       "id": "斯图加特 vs 科隆",
@@ -1160,7 +1416,9 @@
       "away": "1. FC Köln",
       "home_score": 4,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "VfB Stuttgart",
+      "away_en": "1. FC Köln"
     },
     {
       "id": "云达不莱梅 vs 莱比锡红牛",
@@ -1169,7 +1427,9 @@
       "away": "RB Leipzig",
       "home_score": 3,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SV Werder Bremen",
+      "away_en": "RB Leipzig"
     },
     {
       "id": "霍芬海姆 vs 多特蒙德",
@@ -1178,7 +1438,9 @@
       "away": "Borussia Dortmund",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "TSG 1899 Hoffenheim",
+      "away_en": "Borussia Dortmund"
     },
     {
       "id": "勒沃库森 vs 柏林联合",
@@ -1187,7 +1449,9 @@
       "away": "1. FC Union Berlin",
       "home_score": 4,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Bayer 04 Leverkusen",
+      "away_en": "1. FC Union Berlin"
     },
     {
       "id": "门兴格拉德巴赫 vs 鄂尔士贝格",
@@ -1196,7 +1460,9 @@
       "away": "SV 07 Elversberg",
       "home_score": 3,
       "away_score": 4,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Borussia Mönchengladbach",
+      "away_en": "SV 07 Elversberg"
     },
     {
       "id": "帕德博恩07 vs 弗赖堡",
@@ -1205,7 +1471,9 @@
       "away": "SC Freiburg",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SC Paderborn 07",
+      "away_en": "SC Freiburg"
     },
     {
       "id": "沙尔克04 vs 拜仁慕尼黑",
@@ -1214,7 +1482,9 @@
       "away": "FC Bayern München",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Schalke 04",
+      "away_en": "FC Bayern München"
     },
     {
       "id": "汉堡 vs 美因茨05",
@@ -1223,7 +1493,9 @@
       "away": "1. FSV Mainz 05",
       "home_score": 0,
       "away_score": 5,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Hamburger SV",
+      "away_en": "1. FSV Mainz 05"
     },
     {
       "id": "法兰克福 vs 奥格斯堡",
@@ -1232,7 +1504,9 @@
       "away": "FC Augsburg",
       "home_score": 1,
       "away_score": 4,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Eintracht Frankfurt",
+      "away_en": "FC Augsburg"
     },
     {
       "id": "柏林联合 vs 沙尔克04",
@@ -1241,7 +1515,9 @@
       "away": "FC Schalke 04",
       "home_score": 1,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "1. FC Union Berlin",
+      "away_en": "FC Schalke 04"
     },
     {
       "id": "霍芬海姆 vs 斯图加特",
@@ -1250,7 +1526,9 @@
       "away": "VfB Stuttgart",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "TSG 1899 Hoffenheim",
+      "away_en": "VfB Stuttgart"
     },
     {
       "id": "多特蒙德 vs 帕德博恩07",
@@ -1259,7 +1537,9 @@
       "away": "SC Paderborn 07",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Borussia Dortmund",
+      "away_en": "SC Paderborn 07"
     },
     {
       "id": "奥格斯堡 vs 勒沃库森",
@@ -1268,7 +1548,9 @@
       "away": "Bayer 04 Leverkusen",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Augsburg",
+      "away_en": "Bayer 04 Leverkusen"
     },
     {
       "id": "美因茨05 vs 法兰克福",
@@ -1277,7 +1559,9 @@
       "away": "Eintracht Frankfurt",
       "home_score": 1,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "1. FSV Mainz 05",
+      "away_en": "Eintracht Frankfurt"
     },
     {
       "id": "弗赖堡 vs 门兴格拉德巴赫",
@@ -1286,7 +1570,9 @@
       "away": "Borussia Mönchengladbach",
       "home_score": 5,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SC Freiburg",
+      "away_en": "Borussia Mönchengladbach"
     },
     {
       "id": "科隆 vs 云达不莱梅",
@@ -1295,7 +1581,9 @@
       "away": "SV Werder Bremen",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "1. FC Köln",
+      "away_en": "SV Werder Bremen"
     },
     {
       "id": "莱比锡红牛 vs 汉堡",
@@ -1304,7 +1592,9 @@
       "away": "Hamburger SV",
       "home_score": 5,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RB Leipzig",
+      "away_en": "Hamburger SV"
     },
     {
       "id": "鄂尔士贝格 vs 拜仁慕尼黑",
@@ -1313,7 +1603,9 @@
       "away": "FC Bayern München",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SV 07 Elversberg",
+      "away_en": "FC Bayern München"
     },
     {
       "id": "拜仁慕尼黑 vs 柏林联合",
@@ -1322,7 +1614,9 @@
       "away": "1. FC Union Berlin",
       "home_score": 7,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Bayern München",
+      "away_en": "1. FC Union Berlin"
     },
     {
       "id": "汉堡 vs 科隆",
@@ -1331,7 +1625,9 @@
       "away": "1. FC Köln",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Hamburger SV",
+      "away_en": "1. FC Köln"
     },
     {
       "id": "门兴格拉德巴赫 vs 美因茨05",
@@ -1340,7 +1636,9 @@
       "away": "1. FSV Mainz 05",
       "home_score": 3,
       "away_score": 4,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Borussia Mönchengladbach",
+      "away_en": "1. FSV Mainz 05"
     },
     {
       "id": "云达不莱梅 vs 奥格斯堡",
@@ -1349,7 +1647,9 @@
       "away": "FC Augsburg",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SV Werder Bremen",
+      "away_en": "FC Augsburg"
     },
     {
       "id": "法兰克福 vs 弗赖堡",
@@ -1358,7 +1658,9 @@
       "away": "SC Freiburg",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Eintracht Frankfurt",
+      "away_en": "SC Freiburg"
     },
     {
       "id": "斯图加特 vs 多特蒙德",
@@ -1367,7 +1669,9 @@
       "away": "Borussia Dortmund",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "VfB Stuttgart",
+      "away_en": "Borussia Dortmund"
     },
     {
       "id": "勒沃库森 vs 莱比锡红牛",
@@ -1376,7 +1680,9 @@
       "away": "RB Leipzig",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Bayer 04 Leverkusen",
+      "away_en": "RB Leipzig"
     },
     {
       "id": "沙尔克04 vs 鄂尔士贝格",
@@ -1385,7 +1691,9 @@
       "away": "SV 07 Elversberg",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Schalke 04",
+      "away_en": "SV 07 Elversberg"
     },
     {
       "id": "帕德博恩07 vs 霍芬海姆",
@@ -1394,7 +1702,9 @@
       "away": "TSG 1899 Hoffenheim",
       "home_score": 3,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SC Paderborn 07",
+      "away_en": "TSG 1899 Hoffenheim"
     },
     {
       "id": "乌迪内斯 vs 科莫",
@@ -1403,7 +1713,9 @@
       "away": "Como 1907",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Udinese Calcio",
+      "away_en": "Como 1907"
     },
     {
       "id": "国际米兰 vs 蒙扎",
@@ -1412,7 +1724,9 @@
       "away": "AC Monza",
       "home_score": 4,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Internazionale Milano",
+      "away_en": "AC Monza"
     },
     {
       "id": "热那亚 vs 那不勒斯",
@@ -1421,7 +1735,9 @@
       "away": "SSC Napoli",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Genoa CFC",
+      "away_en": "SSC Napoli"
     },
     {
       "id": "帕尔马 vs 卡利亚里",
@@ -1430,7 +1746,9 @@
       "away": "Cagliari Calcio",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Parma Calcio 1913",
+      "away_en": "Cagliari Calcio"
     },
     {
       "id": "弗罗西诺内 vs 尤文图斯",
@@ -1439,7 +1757,9 @@
       "away": "Juventus FC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Frosinone Calcio",
+      "away_en": "Juventus FC"
     },
     {
       "id": "威尼斯 vs 莱切",
@@ -1448,7 +1768,9 @@
       "away": "US Lecce",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Venezia FC",
+      "away_en": "US Lecce"
     },
     {
       "id": "亚特兰大 vs 萨索洛",
@@ -1457,7 +1779,9 @@
       "away": "US Sassuolo Calcio",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Atalanta BC",
+      "away_en": "US Sassuolo Calcio"
     },
     {
       "id": "都灵 vs AC米兰",
@@ -1466,7 +1790,9 @@
       "away": "AC Milan",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Torino FC",
+      "away_en": "AC Milan"
     },
     {
       "id": "博洛尼亚 vs 拉齐奥",
@@ -1475,7 +1801,9 @@
       "away": "SS Lazio",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Bologna FC 1909",
+      "away_en": "SS Lazio"
     },
     {
       "id": "罗马 vs 佛罗伦萨",
@@ -1484,7 +1812,9 @@
       "away": "ACF Fiorentina",
       "home_score": 4,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AS Roma",
+      "away_en": "ACF Fiorentina"
     },
     {
       "id": "AC米兰 vs 威尼斯",
@@ -1493,7 +1823,9 @@
       "away": "Venezia FC",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AC Milan",
+      "away_en": "Venezia FC"
     },
     {
       "id": "萨索洛 vs 都灵",
@@ -1502,7 +1834,9 @@
       "away": "Torino FC",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "US Sassuolo Calcio",
+      "away_en": "Torino FC"
     },
     {
       "id": "蒙扎 vs 乌迪内斯",
@@ -1511,7 +1845,9 @@
       "away": "Udinese Calcio",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AC Monza",
+      "away_en": "Udinese Calcio"
     },
     {
       "id": "佛罗伦萨 vs 弗罗西诺内",
@@ -1520,7 +1856,9 @@
       "away": "Frosinone Calcio",
       "home_score": 0,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "ACF Fiorentina",
+      "away_en": "Frosinone Calcio"
     },
     {
       "id": "尤文图斯 vs 帕尔马",
@@ -1529,7 +1867,9 @@
       "away": "Parma Calcio 1913",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Juventus FC",
+      "away_en": "Parma Calcio 1913"
     },
     {
       "id": "那不勒斯 vs 科莫",
@@ -1538,7 +1878,9 @@
       "away": "Como 1907",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SSC Napoli",
+      "away_en": "Como 1907"
     },
     {
       "id": "拉齐奥 vs 热那亚",
@@ -1547,7 +1889,9 @@
       "away": "Genoa CFC",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SS Lazio",
+      "away_en": "Genoa CFC"
     },
     {
       "id": "卡利亚里 vs 国际米兰",
@@ -1556,7 +1900,9 @@
       "away": "FC Internazionale Milano",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Cagliari Calcio",
+      "away_en": "FC Internazionale Milano"
     },
     {
       "id": "莱切 vs 罗马",
@@ -1565,7 +1911,9 @@
       "away": "AS Roma",
       "home_score": 0,
       "away_score": 4,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "US Lecce",
+      "away_en": "AS Roma"
     },
     {
       "id": "亚特兰大 vs 博洛尼亚",
@@ -1574,7 +1922,9 @@
       "away": "Bologna FC 1909",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Atalanta BC",
+      "away_en": "Bologna FC 1909"
     },
     {
       "id": "热那亚 vs 科莫",
@@ -1583,7 +1933,9 @@
       "away": "Como 1907",
       "home_score": 1,
       "away_score": 4,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Genoa CFC",
+      "away_en": "Como 1907"
     },
     {
       "id": "佛罗伦萨 vs 都灵",
@@ -1592,7 +1944,9 @@
       "away": "Torino FC",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "ACF Fiorentina",
+      "away_en": "Torino FC"
     },
     {
       "id": "国际米兰 vs 那不勒斯",
@@ -1601,7 +1955,9 @@
       "away": "SSC Napoli",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Internazionale Milano",
+      "away_en": "SSC Napoli"
     },
     {
       "id": "罗马 vs 亚特兰大",
@@ -1610,7 +1966,9 @@
       "away": "Atalanta BC",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AS Roma",
+      "away_en": "Atalanta BC"
     },
     {
       "id": "帕尔马 vs 蒙扎",
@@ -1619,7 +1977,9 @@
       "away": "AC Monza",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Parma Calcio 1913",
+      "away_en": "AC Monza"
     },
     {
       "id": "弗罗西诺内 vs 威尼斯",
@@ -1628,7 +1988,9 @@
       "away": "Venezia FC",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Frosinone Calcio",
+      "away_en": "Venezia FC"
     },
     {
       "id": "博洛尼亚 vs 萨索洛",
@@ -1637,7 +1999,9 @@
       "away": "US Sassuolo Calcio",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Bologna FC 1909",
+      "away_en": "US Sassuolo Calcio"
     },
     {
       "id": "尤文图斯 vs AC米兰",
@@ -1646,7 +2010,9 @@
       "away": "AC Milan",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Juventus FC",
+      "away_en": "AC Milan"
     },
     {
       "id": "卡利亚里 vs 莱切",
@@ -1655,7 +2021,9 @@
       "away": "US Lecce",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Cagliari Calcio",
+      "away_en": "US Lecce"
     },
     {
       "id": "乌迪内斯 vs 拉齐奥",
@@ -1664,7 +2032,9 @@
       "away": "SS Lazio",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Udinese Calcio",
+      "away_en": "SS Lazio"
     },
     {
       "id": "威尼斯 vs 佛罗伦萨",
@@ -1673,7 +2043,9 @@
       "away": "ACF Fiorentina",
       "home_score": 2,
       "away_score": 4,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Venezia FC",
+      "away_en": "ACF Fiorentina"
     },
     {
       "id": "热那亚 vs 弗罗西诺内",
@@ -1682,7 +2054,9 @@
       "away": "Frosinone Calcio",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Genoa CFC",
+      "away_en": "Frosinone Calcio"
     },
     {
       "id": "拉齐奥 vs AC米兰",
@@ -1691,7 +2065,9 @@
       "away": "AC Milan",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SS Lazio",
+      "away_en": "AC Milan"
     },
     {
       "id": "亚特兰大 vs 卡利亚里",
@@ -1700,7 +2076,9 @@
       "away": "Cagliari Calcio",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Atalanta BC",
+      "away_en": "Cagliari Calcio"
     },
     {
       "id": "莱切 vs 蒙扎",
@@ -1709,7 +2087,9 @@
       "away": "AC Monza",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "US Lecce",
+      "away_en": "AC Monza"
     },
     {
       "id": "那不勒斯 vs 博洛尼亚",
@@ -1718,7 +2098,9 @@
       "away": "Bologna FC 1909",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "SSC Napoli",
+      "away_en": "Bologna FC 1909"
     },
     {
       "id": "萨索洛 vs 尤文图斯",
@@ -1727,7 +2109,9 @@
       "away": "Juventus FC",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "US Sassuolo Calcio",
+      "away_en": "Juventus FC"
     },
     {
       "id": "科莫 vs 帕尔马",
@@ -1736,7 +2120,9 @@
       "away": "Parma Calcio 1913",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Como 1907",
+      "away_en": "Parma Calcio 1913"
     },
     {
       "id": "都灵 vs 罗马",
@@ -1745,7 +2131,9 @@
       "away": "AS Roma",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Torino FC",
+      "away_en": "AS Roma"
     },
     {
       "id": "国际米兰 vs 乌迪内斯",
@@ -1754,7 +2142,9 @@
       "away": "Udinese Calcio",
       "home_score": 5,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Internazionale Milano",
+      "away_en": "Udinese Calcio"
     },
     {
       "id": "蒙扎 vs 萨索洛",
@@ -1763,7 +2153,9 @@
       "away": "US Sassuolo Calcio",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AC Monza",
+      "away_en": "US Sassuolo Calcio"
     },
     {
       "id": "博洛尼亚 vs 都灵",
@@ -1772,7 +2164,9 @@
       "away": "Torino FC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Bologna FC 1909",
+      "away_en": "Torino FC"
     },
     {
       "id": "乌迪内斯 vs 卡利亚里",
@@ -1781,7 +2175,9 @@
       "away": "Cagliari Calcio",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Udinese Calcio",
+      "away_en": "Cagliari Calcio"
     },
     {
       "id": "罗马 vs 国际米兰",
@@ -1790,7 +2186,9 @@
       "away": "FC Internazionale Milano",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AS Roma",
+      "away_en": "FC Internazionale Milano"
     },
     {
       "id": "威尼斯 vs 拉齐奥",
@@ -1799,7 +2197,9 @@
       "away": "SS Lazio",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Venezia FC",
+      "away_en": "SS Lazio"
     },
     {
       "id": "佛罗伦萨 vs 那不勒斯",
@@ -1808,7 +2208,9 @@
       "away": "SSC Napoli",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "ACF Fiorentina",
+      "away_en": "SSC Napoli"
     },
     {
       "id": "弗罗西诺内 vs 科莫",
@@ -1817,7 +2219,9 @@
       "away": "Como 1907",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Frosinone Calcio",
+      "away_en": "Como 1907"
     },
     {
       "id": "帕尔马 vs 热那亚",
@@ -1826,7 +2230,9 @@
       "away": "Genoa CFC",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Parma Calcio 1913",
+      "away_en": "Genoa CFC"
     },
     {
       "id": "尤文图斯 vs 亚特兰大",
@@ -1835,7 +2241,9 @@
       "away": "Atalanta BC",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Juventus FC",
+      "away_en": "Atalanta BC"
     },
     {
       "id": "AC米兰 vs 莱切",
@@ -1844,7 +2252,9 @@
       "away": "US Lecce",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AC Milan",
+      "away_en": "US Lecce"
     },
     {
       "id": "马赛 vs 斯特拉斯堡",
@@ -1853,7 +2263,9 @@
       "away": "RC Strasbourg Alsace",
       "home_score": 4,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Olympique de Marseille",
+      "away_en": "RC Strasbourg Alsace"
     },
     {
       "id": "朗斯 vs 欧塞尔",
@@ -1862,7 +2274,9 @@
       "away": "AJ Auxerre",
       "home_score": 5,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Racing Club de Lens",
+      "away_en": "AJ Auxerre"
     },
     {
       "id": "勒芒 vs 布雷斯特",
@@ -1871,7 +2285,9 @@
       "away": "Stade Brestois 29",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Le Mans FC",
+      "away_en": "Stade Brestois 29"
     },
     {
       "id": "特鲁瓦 vs 巴黎FC",
@@ -1880,7 +2296,9 @@
       "away": "Paris FC",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "ES Troyes AC",
+      "away_en": "Paris FC"
     },
     {
       "id": "尼斯 vs 洛里昂",
@@ -1889,7 +2307,9 @@
       "away": "FC Lorient",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "OGC Nice",
+      "away_en": "FC Lorient"
     },
     {
       "id": "图卢兹 vs 里昂",
@@ -1898,7 +2318,9 @@
       "away": "Olympique Lyonnais",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Toulouse FC",
+      "away_en": "Olympique Lyonnais"
     },
     {
       "id": "昂热 vs 里尔",
@@ -1907,7 +2329,9 @@
       "away": "Lille OSC",
       "home_score": 0,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Angers SCO",
+      "away_en": "Lille OSC"
     },
     {
       "id": "勒阿弗尔 vs 摩纳哥",
@@ -1916,7 +2340,9 @@
       "away": "AS Monaco FC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Le Havre AC",
+      "away_en": "AS Monaco FC"
     },
     {
       "id": "雷恩 vs 巴黎圣日耳曼",
@@ -1925,7 +2351,9 @@
       "away": "Paris Saint-Germain FC",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Stade Rennais FC 1901",
+      "away_en": "Paris Saint-Germain FC"
     },
     {
       "id": "里尔 vs 巴黎圣日耳曼",
@@ -1934,7 +2362,9 @@
       "away": "Paris Saint-Germain FC",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Lille OSC",
+      "away_en": "Paris Saint-Germain FC"
     },
     {
       "id": "斯特拉斯堡 vs 朗斯",
@@ -1943,7 +2373,9 @@
       "away": "Racing Club de Lens",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Strasbourg Alsace",
+      "away_en": "Racing Club de Lens"
     },
     {
       "id": "洛里昂 vs 特鲁瓦",
@@ -1952,7 +2384,9 @@
       "away": "ES Troyes AC",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Lorient",
+      "away_en": "ES Troyes AC"
     },
     {
       "id": "里昂 vs 勒阿弗尔",
@@ -1961,7 +2395,9 @@
       "away": "Le Havre AC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Olympique Lyonnais",
+      "away_en": "Le Havre AC"
     },
     {
       "id": "欧塞尔 vs 昂热",
@@ -1970,7 +2406,9 @@
       "away": "Angers SCO",
       "home_score": 1,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AJ Auxerre",
+      "away_en": "Angers SCO"
     },
     {
       "id": "布雷斯特 vs 图卢兹",
@@ -1979,7 +2417,9 @@
       "away": "Toulouse FC",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Stade Brestois 29",
+      "away_en": "Toulouse FC"
     },
     {
       "id": "巴黎FC vs 尼斯",
@@ -1988,7 +2428,9 @@
       "away": "OGC Nice",
       "home_score": 3,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Paris FC",
+      "away_en": "OGC Nice"
     },
     {
       "id": "雷恩 vs 勒芒",
@@ -1997,7 +2439,9 @@
       "away": "Le Mans FC",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Stade Rennais FC 1901",
+      "away_en": "Le Mans FC"
     },
     {
       "id": "摩纳哥 vs 马赛",
@@ -2006,7 +2450,9 @@
       "away": "Olympique de Marseille",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AS Monaco FC",
+      "away_en": "Olympique de Marseille"
     },
     {
       "id": "图卢兹 vs 里尔",
@@ -2015,7 +2461,9 @@
       "away": "Lille OSC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Toulouse FC",
+      "away_en": "Lille OSC"
     },
     {
       "id": "里昂 vs 欧塞尔",
@@ -2024,7 +2472,9 @@
       "away": "AJ Auxerre",
       "home_score": 3,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Olympique Lyonnais",
+      "away_en": "AJ Auxerre"
     },
     {
       "id": "巴黎圣日耳曼 vs 摩纳哥",
@@ -2033,7 +2483,9 @@
       "away": "AS Monaco FC",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Paris Saint-Germain FC",
+      "away_en": "AS Monaco FC"
     },
     {
       "id": "朗斯 vs 洛里昂",
@@ -2042,7 +2494,9 @@
       "away": "FC Lorient",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Racing Club de Lens",
+      "away_en": "FC Lorient"
     },
     {
       "id": "勒阿弗尔 vs 布雷斯特",
@@ -2051,7 +2505,9 @@
       "away": "Stade Brestois 29",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Le Havre AC",
+      "away_en": "Stade Brestois 29"
     },
     {
       "id": "尼斯 vs 勒芒",
@@ -2060,7 +2516,9 @@
       "away": "Le Mans FC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "OGC Nice",
+      "away_en": "Le Mans FC"
     },
     {
       "id": "特鲁瓦 vs 斯特拉斯堡",
@@ -2069,7 +2527,9 @@
       "away": "RC Strasbourg Alsace",
       "home_score": 2,
       "away_score": 6,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "ES Troyes AC",
+      "away_en": "RC Strasbourg Alsace"
     },
     {
       "id": "昂热 vs 雷恩",
@@ -2078,7 +2538,9 @@
       "away": "Stade Rennais FC 1901",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Angers SCO",
+      "away_en": "Stade Rennais FC 1901"
     },
     {
       "id": "马赛 vs 巴黎FC",
@@ -2087,7 +2549,9 @@
       "away": "Paris FC",
       "home_score": 2,
       "away_score": 3,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Olympique de Marseille",
+      "away_en": "Paris FC"
     },
     {
       "id": "雷恩 vs 马赛",
@@ -2096,7 +2560,9 @@
       "away": "Olympique de Marseille",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Stade Rennais FC 1901",
+      "away_en": "Olympique de Marseille"
     },
     {
       "id": "斯特拉斯堡 vs 摩纳哥",
@@ -2105,7 +2571,9 @@
       "away": "AS Monaco FC",
       "home_score": 1,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "RC Strasbourg Alsace",
+      "away_en": "AS Monaco FC"
     },
     {
       "id": "洛里昂 vs 图卢兹",
@@ -2114,7 +2582,9 @@
       "away": "Toulouse FC",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "FC Lorient",
+      "away_en": "Toulouse FC"
     },
     {
       "id": "欧塞尔 vs 尼斯",
@@ -2123,7 +2593,9 @@
       "away": "OGC Nice",
       "home_score": 1,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AJ Auxerre",
+      "away_en": "OGC Nice"
     },
     {
       "id": "勒阿弗尔 vs 昂热",
@@ -2132,7 +2604,9 @@
       "away": "Angers SCO",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Le Havre AC",
+      "away_en": "Angers SCO"
     },
     {
       "id": "巴黎FC vs 里昂",
@@ -2141,7 +2615,9 @@
       "away": "Olympique Lyonnais",
       "home_score": 0,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Paris FC",
+      "away_en": "Olympique Lyonnais"
     },
     {
       "id": "里尔 vs 特鲁瓦",
@@ -2150,7 +2626,9 @@
       "away": "ES Troyes AC",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Lille OSC",
+      "away_en": "ES Troyes AC"
     },
     {
       "id": "勒芒 vs 朗斯",
@@ -2159,7 +2637,9 @@
       "away": "Racing Club de Lens",
       "home_score": 2,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Le Mans FC",
+      "away_en": "Racing Club de Lens"
     },
     {
       "id": "布雷斯特 vs 巴黎圣日耳曼",
@@ -2168,7 +2648,9 @@
       "away": "Paris Saint-Germain FC",
       "home_score": 0,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Stade Brestois 29",
+      "away_en": "Paris Saint-Germain FC"
     },
     {
       "id": "摩纳哥 vs 朗斯",
@@ -2177,7 +2659,9 @@
       "away": "Racing Club de Lens",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AS Monaco FC",
+      "away_en": "Racing Club de Lens"
     },
     {
       "id": "巴黎FC vs 斯特拉斯堡",
@@ -2186,7 +2670,9 @@
       "away": "RC Strasbourg Alsace",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Paris FC",
+      "away_en": "RC Strasbourg Alsace"
     },
     {
       "id": "勒芒 vs 洛里昂",
@@ -2195,7 +2681,9 @@
       "away": "FC Lorient",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Le Mans FC",
+      "away_en": "FC Lorient"
     },
     {
       "id": "图卢兹 vs 勒阿弗尔",
@@ -2204,7 +2692,9 @@
       "away": "Le Havre AC",
       "home_score": 3,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Toulouse FC",
+      "away_en": "Le Havre AC"
     },
     {
       "id": "昂热 vs 特鲁瓦",
@@ -2213,7 +2703,9 @@
       "away": "ES Troyes AC",
       "home_score": 2,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Angers SCO",
+      "away_en": "ES Troyes AC"
     },
     {
       "id": "里昂 vs 雷恩",
@@ -2222,7 +2714,9 @@
       "away": "Stade Rennais FC 1901",
       "home_score": 4,
       "away_score": 0,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Olympique Lyonnais",
+      "away_en": "Stade Rennais FC 1901"
     },
     {
       "id": "欧塞尔 vs 布雷斯特",
@@ -2231,7 +2725,9 @@
       "away": "Stade Brestois 29",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "AJ Auxerre",
+      "away_en": "Stade Brestois 29"
     },
     {
       "id": "尼斯 vs 里尔",
@@ -2240,7 +2736,9 @@
       "away": "Lille OSC",
       "home_score": 2,
       "away_score": 1,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "OGC Nice",
+      "away_en": "Lille OSC"
     },
     {
       "id": "马赛 vs 巴黎圣日耳曼",
@@ -2249,7 +2747,9 @@
       "away": "Paris Saint-Germain FC",
       "home_score": 1,
       "away_score": 2,
-      "status": "STATUS_FULL_TIME"
+      "status": "STATUS_FULL_TIME",
+      "home_en": "Olympique de Marseille",
+      "away_en": "Paris Saint-Germain FC"
     }
   ]
 }
