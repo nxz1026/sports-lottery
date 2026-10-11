@@ -478,6 +478,30 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 | 线上地址 | https://140.83.62.161/dashboard/jc/ |
 | 进程 | `league-dashboard.service`（systemd `127.0.0.1:8077`，`Restart=on-failure`） |
 | 公网入口 | 本机 Nginx（`/dashboard/jc/` → 静态入口 + `/dashboard/jc/api/` → `league-api /api/`，走 Nginx Basic Auth） |
+
+**nginx location → 后端路径速查（P3-D1）**：
+
+| 公网路径 | nginx target | league-api 内部路径 |
+|---|---|---|
+| `/dashboard/jc/` | `proxy_pass http://127.0.0.1:8077/static/dashboard.html;` | —（静态） |
+| `/dashboard/jc/static/...` | `proxy_pass http://127.0.0.1:8077/static/...;` | —（静态文件 mount） |
+| `/dashboard/jc/login` | `proxy_pass http://127.0.0.1:8077/static/dashboard-login.html;` | —（静态） |
+| `/dashboard/jc/api/...` | `proxy_pass http://127.0.0.1:8077/api/...;` | `/api/v1/...` |
+| `/dashboard` | `http://127.0.0.1:8099/` | —（旧门户，Basic Auth 保护） |
+
+**前端 API 基址**（`static/dashboard.html:206`）：`const API="/dashboard/jc/api/v1"`。所有 fetch 均同源（credentials:"same-origin"），浏览器自动带 cookie + Basic Auth 头。
+
+**调试命令**：
+
+```bash
+# 公网入口冒烟
+curl -kI https://140.83.91.844/dashboard/jc/          # 401 / Basic 触发
+curl -kI -u admin:ndjack https://140.83.91.844/dashboard/jc/api/v1/health
+# 直接打后端（绕过 nginx）
+curl -sS http://127.0.0.1:8077/api/v1/health           # 必须本机
+# nginx 实时错误
+sudo tail -F /var/log/nginx/error.log
+```
 | App ID | ——（本机部署，无云端 App ID） |
 | 看板鉴权 | 用户名 `admin`（Nginx Basic） + 页面 `a`（league-api session） |
 
