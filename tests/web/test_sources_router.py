@@ -120,8 +120,6 @@ def test_sources_status_route_exposes_next_runs_and_last_failure():
     except ImportError:
         import pytest
         pytest.skip("fastapi not installed; run on Oracle only")
-    import web.auth as auth_mod
-    auth_mod.require_auth = lambda: None
     sample_jobs_rows = [{"id": "fail1", "script": "predict", "trigger": "manual",
                          "created_at": 100.0, "finished_at": 200.0, "status": "failed",
                          "exit_code": 1, "error": "API key missing"}]
@@ -134,8 +132,17 @@ def test_sources_status_route_exposes_next_runs_and_last_failure():
     )
     with patch("web.services.jobs.list_jobs", return_value=sample_jobs_rows), \
          patch("subprocess.run", return_value=fake_proc):
+        # 在 router 加载前 reload web.auth + web.api 系列，确保 require_auth
+        # 引用与 router 注册时捕获的一致（避免 test_m1_auth reload 后不一致）。
+        import importlib
+        for mod_name in ("web.config", "web.session_store", "web.auth",
+                         "web.routers.sources", "web.api"):
+            mod = importlib.import_module(mod_name)
+            importlib.reload(mod)
         from web.api import create_app
         app = create_app()
+        from web.routers import sources as sources_mod
+        app.dependency_overrides[sources_mod.require_auth] = lambda: None
         client = TestClient(app)
         resp = client.get("/api/v1/sources/status")
     assert resp.status_code == 200, resp.text

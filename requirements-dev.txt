@@ -4,5 +4,7 @@
 -r requirements.txt
 -r requirements-web.txt
 pytest>=7.0
+# P3-E1: dashboard.html 浏览器冒烟测试（缺 playwright 时 tests/web_ui/ 自动 skip）
+playwright>=1.40
 # 当前测试栈全为同步（TestClient / 直接断言）；如新增 async 端点测试再补 pytest-asyncio。
 # httpx 由 fastapi[standard] 透传安装，无需在此重复声明。

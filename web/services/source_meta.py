@@ -66,8 +66,9 @@ def list_timer_runs() -> dict[str, dict]:
     if proc.returncode != 0 or not proc.stdout:
         return out
     # systemd 在 "ago" / "left" 等副词前还有时间 token；其他情形 PASSED 单 token。
-    # 时间 token 末尾是 "<digits>h|min|s|ms|us"；副词（ago/left/in）末尾不是这些。
-    _TIME_SUFFIXES = ("h", "min", "s", "ms", "us")
+    # 时间 token 末尾是 "<digits>h|min|s|ms|us|m"（systemd 254 起分钟可缩写 "1m" 而非 "1min"）；
+    # 副词（ago/left/in）末尾不是这些。
+    _TIME_SUFFIXES = ("h", "min", "s", "ms", "us", "m")
     _TIME_QUALIFIERS = ("ago", "left", "in")
     for line in proc.stdout.splitlines():
         line = line.strip()
@@ -81,10 +82,9 @@ def list_timer_runs() -> dict[str, dict]:
         if not unit.endswith(".timer"):
             continue
         # 列序固定（systemd 252+）：NEXT(4) LEFT(1~2) LAST(4) PASSED(1~2) UNIT(1) ACTIVATES(1)
-        # 先判 PASSED 长度（紧邻 UNIT 之左）。
-        passed_len = 1
-        if tokens[-3] in _TIME_QUALIFIERS and tokens[-4].endswith(_TIME_SUFFIXES):
-            passed_len = 2
+        # 先判 PASSED 长度（紧邻 UNIT 之左）。只要 -3 是副词即认定 PASSED 占 2 token，
+        # -4 是否匹配 time-suffix 不强求（systemd 不同版本 "1m" / "1min" / "0.5h" 都见过）。
+        passed_len = 2 if tokens[-3] in _TIME_QUALIFIERS else 1
         passed_start = -(passed_len + 2)  # PASSED 起点（负索引，指向 '9h' / '14h'）
         # LAST 在 PASSED 之左，固定 4 token。
         last_end = passed_start  # LAST 终点（PASSED 起点）exclusive

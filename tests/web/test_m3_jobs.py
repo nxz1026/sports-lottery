@@ -420,10 +420,17 @@ def test_rejected_trigger_does_not_consume_quota(client, monkeypatch):
 # --- 篮球（NBA）独立入口：WO 2026-09-18 -------------------------------------
 
 def test_bball_build_cmd_uses_bball_entry(jobs_env):
-    """predict_bball 必须指向 scripts/bball/run.py（独立入口），不是足球的 predict.py。"""
+    """predict_bball 必须指向 scripts/bball/run.py（独立入口），不是足球的 predict.py。
+
+    只断言路径末段（兼容 Windows 绝对路径 + POSIX 相对路径）：
+    - 必须以 ``bball/run.py`` 收尾
+    - 不能含足球入口 ``predict.py``
+    """
+    import os
+
     cmd = jobs_env._build_cmd(["--ahead-days", "90"], "predict_bball")
     joined = " ".join(cmd)
-    assert joined.endswith("scripts/bball/run.py --ahead-days 90"), joined
+    assert joined.endswith(os.path.join("bball", "run.py") + " --ahead-days 90"), joined
     assert "predict.py" not in joined
 
 
