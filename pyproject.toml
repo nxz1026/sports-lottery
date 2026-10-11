@@ -20,3 +20,9 @@ web = [
 
 [tool.fastapi]
 entryPoint = "web.api:app"
+
+[tool.pytest.ini_options]
+markers = [
+    "web_ui: dashboard.html browser-level tests; skip if playwright not installed",
+]
+testpaths = ["tests"]
