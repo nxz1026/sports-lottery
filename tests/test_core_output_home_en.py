@@ -17,16 +17,17 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 # 与 tests/test_*.py 一致：把仓库根 + scripts/ 加进 sys.path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 for p in (str(REPO_ROOT), str(REPO_ROOT / "scripts")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import pytest
-from core.output import save_results
+from core.output import save_results  # noqa: E402
 
-from scripts.backfill_result_home_en import main as backfill_main
+from scripts.backfill_result_home_en import main as backfill_main  # noqa: E402
 
 
 @pytest.fixture()
