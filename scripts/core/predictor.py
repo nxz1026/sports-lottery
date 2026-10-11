@@ -364,6 +364,17 @@ def _elo_expectations(elo_ratings: dict | None, home_en: str, away_en: str) -> t
     return elo_home_expected, elo_away_expected, ELO_WEIGHT
 
 
+# ESPN 赔率富化字段：predict.py 顺序保证 odds_enrich 已对 match 写完这些字段后再调用本函数。
+# 必须从 match 透传到 result（写入 prediction_*.json），否则 web 层 _market_projection 永远拿不到
+# ``market``，今日推荐 / 串关工作台全部展示「赔率/价值不可用」。仅在值非空时透传，避免污染 None。
+_ODDS_PROPAGATION_FIELDS = (
+    "market", "home_ml_implied", "draw_implied", "away_ml_implied",
+    "home_true_prob", "draw_true_prob", "away_true_prob",
+    "spread_home_line", "spread_home_close_odds",
+    "total_over_close", "total_under_close", "draw_ml",
+)
+
+
 def _assemble_result(
     match: dict, direction: str, stars: str, confidence_raw: float,
     predicted_score: str, top3: list[tuple[int, int, float]],
@@ -376,7 +387,12 @@ def _assemble_result(
     dc_rho: float | None, league_key: str, onside: dict,
     confidence_note: str | None, hp: float, dp: float, ap: float,
 ) -> dict:
-    """组装最终预测结果字典（含 95% CI 与 Over/Under）。纯函数。"""
+    """组装最终预测结果字典（含 95% CI 与 Over/Under）。纯函数。
+
+    ESPN 赔率字段（``market`` / ``home_ml_implied`` 等）由 ``odds_enrich._apply_enrichment``
+    就地写入 ``match``，本函数负责透传到 ``result`` 让 prediction_*.json 落盘带上盘口；
+    见 ``_ODDS_PROPAGATION_FIELDS``。空值（None / "" / 空 dict）一律不写，避免污染下游默认降级。
+    """
     # 95% 置信区间
     ci_home = poisson_confidence_interval(lambda_home)
     ci_away = poisson_confidence_interval(lambda_away)
@@ -404,6 +420,14 @@ def _assemble_result(
         "onside_signals": onside, "confidence_note": confidence_note,
         "odds_data_available": match.get("odds_data_available", False),
     }
+    # ESPN 赔率字段透传（仅非空，避免污染 None）。见 _ODDS_PROPAGATION_FIELDS 注释。
+    for _k in _ODDS_PROPAGATION_FIELDS:
+        _v = match.get(_k)
+        if _v is None:
+            continue
+        if isinstance(_v, (str, list, dict)) and len(_v) == 0:
+            continue
+        result[_k] = _v
     result.update(_debug_fields(hfs, hrs, afs, ars, sm, home_onside,
         away_onside, home_prob, draw_prob_calc, away_prob,
         elo_home_expected, elo_ratings, raw_home, raw_away,
