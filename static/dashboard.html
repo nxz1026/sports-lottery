@@ -44,7 +44,11 @@ code{background:var(--code-bg);color:var(--fg);border-radius:4px;padding:1px 4px
 .nav{display:flex;flex-direction:column;gap:3px}
 .nav button{border:0;background:none;color:var(--mut);text-align:left;padding:9px 10px;border-radius:6px;cursor:pointer}
 .nav button:hover,.nav button.active{color:var(--fg);background:var(--subtle);border-left:2px solid var(--link);padding-left:8px}
-.nav button span{float:right;color:var(--red2);font-size:11px}
+/* P2-C6：「—」占位符用中性灰（不再用 --red2 暗示错误）。
+ * 仅在确有失败 / 缺失信号时再单独加红（如最近失败行的 var(--bad)）。
+ * nav button span 仍按 var(--mut) 显示数字（异常时单独叠加 .is-alert 类）。 */
+.nav button span{float:right;color:var(--mut);font-size:11px}
+.nav button span.is-alert{color:var(--bad);font-weight:700}
 .side-status{margin:22px 0 0;padding:11px;border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);color:var(--mut);font-size:12px}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:6px}
 .main{min-width:0}
@@ -253,7 +257,7 @@ async function renderCombo(){const picked=state.all.filter(p=>state.selected.inc
  const legArr=(result&&result.legs)||[];const idxToLeg=new Map(legArr.map(L=>[L.idx,L]));
  $("#comboDetail").className=n?"":"empty";
  $("#comboDetail").innerHTML=picked.map((p,i)=>{const evO=(idxToLeg.get(i+1)||{}).ev;const oddsO=(idxToLeg.get(i+1)||{}).odds;const ev=evO!=null?(Number(evO)>=0?"+":"")+Number(evO).toFixed(3):"—";const pM=(idxToLeg.get(i+1)||{}).p_model;const pStr=pM!=null&&pM>0?Number(pM).toFixed(2):"—";const oddsStr=oddsO!=null&&oddsO>1?Number(oddsO).toFixed(2):"—";return `<div style="padding:8px 0;border-bottom:1px solid var(--line)">${i+1}. ${esc(p.match||`${p.home||"主队"} vs ${p.away||"客队"}`)} · ${esc(p.direction||p.predicted_score||"待定")} <span style="float:right;color:var(--mut)">赔率 ${esc(oddsStr)} · p=${esc(pStr)} · EV ${esc(ev)}</span></div>`}).join("")}
-function renderMatches(){renderFilterNotes();const cards=state.all.filter(matchPasses);const fb=state.all.filter(p=>!isBasketball(p)).length,bb=state.all.length-fb;if($("#sportSummary"))$("#sportSummary").textContent=`足球 ${fb} · 篮球 ${bb}`;$("#matchCount").textContent=`共 ${state.all.length} 场，当前筛选 ${cards.length} 场`;const fsum=$("#filterSummary");if(fsum){const labels=activeFilterLabels();fsum.textContent=labels.length?`生效条件：${labels.join(" · ")}`:"未设置筛选条件"}$("#navCount").textContent=state.all.length||"—";const grid=$("#matchGrid");if(!cards.length){stateBox(grid,state.all.length?"没有符合筛选条件的赛事":"今日暂无预测数据");return}// 已完赛 vs 未开赛分流（P0-A3 / 2026-10-11）：
+function renderMatches(){renderFilterNotes();const cards=state.all.filter(matchPasses);const fb=state.all.filter(p=>!isBasketball(p)).length,bb=state.all.length-fb;if($("#sportSummary"))$("#sportSummary").textContent=`足球 ${fb} · 篮球 ${bb}`;$("#matchCount").textContent=`共 ${state.all.length} 场，当前筛选 ${cards.length} 场`;const fsum=$("#filterSummary");if(fsum){const labels=activeFilterLabels();fsum.textContent=labels.length?`生效条件：${labels.join(" · ")}`:"未设置筛选条件"}$("#navCount").textContent=state.all.length||"—";const navEl=document.querySelector('[data-view="today"] span#navCount');if(navEl){navEl.classList.toggle('is-alert',state.all.length>200)};const grid=$("#matchGrid");if(!cards.length){stateBox(grid,state.all.length?"没有符合筛选条件的赛事":"今日暂无预测数据");return}// 已完赛 vs 未开赛分流（P0-A3 / 2026-10-11）：
 // 卡片有 ``score``（来自 actual_results / jc_view 等回填的终场比分）即视为完赛；
 // 否则（开赛时间已过但无 score / 或未来场次）按 kickoff_utc 与 today 比较二次判定。
 // 完赛卡放底部 + 视觉降级（opacity .55），避免与"今日推荐"语义混淆。
