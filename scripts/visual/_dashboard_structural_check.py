@@ -17,6 +17,10 @@ checks = [
     ("今日推荐 header in template", r"今日推荐\s*·\s*\$\{upcomingCards\.length\}"),
     ("今日已完赛 header in template", r"今日已完赛"),
     ("played-h3 class in CSS", r"\.played-h3"),
+    ("P1-B5 lazy chunk size", r"const\s+CHUNK\s*=\s*\d+"),
+    ("P1-B5 lazy-sentinel CSS", r"\.lazy-sentinel"),
+    ("P1-B5 IntersectionObserver", r"IntersectionObserver"),
+    ("P1-B5 observer disconnect guard", r"state\._lazyObserver.*disconnect"),
 ]
 fail = []
 for name, pat in checks:

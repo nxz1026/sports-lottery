@@ -248,7 +248,7 @@ async function renderCombo(){const picked=state.all.filter(p=>state.selected.inc
  const legArr=(result&&result.legs)||[];const idxToLeg=new Map(legArr.map(L=>[L.idx,L]));
  $("#comboDetail").className=n?"":"empty";
  $("#comboDetail").innerHTML=picked.map((p,i)=>{const evO=(idxToLeg.get(i+1)||{}).ev;const oddsO=(idxToLeg.get(i+1)||{}).odds;const ev=evO!=null?(Number(evO)>=0?"+":"")+Number(evO).toFixed(3):"—";const pM=(idxToLeg.get(i+1)||{}).p_model;const pStr=pM!=null&&pM>0?Number(pM).toFixed(2):"—";const oddsStr=oddsO!=null&&oddsO>1?Number(oddsO).toFixed(2):"—";return `<div style="padding:8px 0;border-bottom:1px solid var(--line)">${i+1}. ${esc(p.match||`${p.home||"主队"} vs ${p.away||"客队"}`)} · ${esc(p.direction||p.predicted_score||"待定")} <span style="float:right;color:var(--mut)">赔率 ${esc(oddsStr)} · p=${esc(pStr)} · EV ${esc(ev)}</span></div>`}).join("")}
-function renderMatches(){renderFilterNotes();const cards=state.all.filter(matchPasses);const fb=state.all.filter(p=>!isBasketball(p)).length,bb=state.all.length-fb;if($("#sportSummary"))$("#sportSummary").textContent=`足球 ${fb} · 篮球 ${bb}`;$("#matchCount").textContent=`共 ${state.all.length} 场，当前筛选 ${cards.length} 场`;const fsum=$("#filterSummary");if(fsum){const labels=activeFilterLabels();fsum.textContent=labels.length?`生效条件：${labels.join(" · ")}`:"未设置筛选条件"}$("#navCount").textContent=state.all.length||"—";if(!cards.length){stateBox($("#matchGrid"),state.all.length?"没有符合筛选条件的赛事":"今日暂无预测数据");return}// 已完赛 vs 未开赛分流（P0-A3 / 2026-10-11）：
+function renderMatches(){renderFilterNotes();const cards=state.all.filter(matchPasses);const fb=state.all.filter(p=>!isBasketball(p)).length,bb=state.all.length-fb;if($("#sportSummary"))$("#sportSummary").textContent=`足球 ${fb} · 篮球 ${bb}`;$("#matchCount").textContent=`共 ${state.all.length} 场，当前筛选 ${cards.length} 场`;const fsum=$("#filterSummary");if(fsum){const labels=activeFilterLabels();fsum.textContent=labels.length?`生效条件：${labels.join(" · ")}`:"未设置筛选条件"}$("#navCount").textContent=state.all.length||"—";const grid=$("#matchGrid");if(!cards.length){stateBox(grid,state.all.length?"没有符合筛选条件的赛事":"今日暂无预测数据");return}// 已完赛 vs 未开赛分流（P0-A3 / 2026-10-11）：
 // 卡片有 ``score``（来自 actual_results / jc_view 等回填的终场比分）即视为完赛；
 // 否则（开赛时间已过但无 score / 或未来场次）按 kickoff_utc 与 today 比较二次判定。
 // 完赛卡放底部 + 视觉降级（opacity .55），避免与"今日推荐"语义混淆。
@@ -257,10 +257,33 @@ const isPlayed=p=>{if(p.score&&String(p.score).trim()!=="")return true;const k=k
 const playedCards=cards.filter(isPlayed).sort((a,b)=>(kickInfo(b).date||"").localeCompare(kickInfo(a).date||""));
 const upcomingCards=cards.filter(p=>!isPlayed(p)).sort((a,b)=>(Number(b.confidence_score)||Number(b.stars)||0)-(Number(a.confidence_score)||Number(a.stars)||0));
 const renderCard=p=>{const home=p.home||String(p.match||"").split(/\s+vs\s+/i)[0]||"主队",away=p.away||String(p.match||"").split(/\s+vs\s+/i)[1]||"客队";const dir=p.direction||p.predicted_score||"待定", score=p.predicted_score||"—", kick=kickLabel(p);const id=matchId(p), fav=savedFavs()[id], picked=state.selected.includes(id);return `<article class="match${isPlayed(p)?" played":""}"><div class="m-top"><span class="league">${esc(isBasketball(p)?"NBA · 篮球":p.league)}</span><time>${esc(kick)}</time>${isPlayed(p)?'<span class="badge-status">已完赛</span>':""}<button class="btn" style="padding:2px 7px;margin-left:4px" data-action="favorite" data-match-id="${esc(id)}">${fav?"★":"☆"}</button><button class="btn" style="padding:2px 7px;margin-left:4px" data-action="follow-match" data-match-id="${esc(id)}" title="关注此联赛/球队">${followedMatch(p)?"◎关注中":"○关注"}</button><button class="btn" style="padding:2px 7px;margin-left:4px" data-action="detail" data-match-id="${esc(id)}" aria-expanded="false">查看详情</button></div><div class="teams"><div class="team"><span class="badge">${esc(home.slice(0,1))}</span>${esc(home)}</div><span class="vs">VS</span><div class="team away">${esc(away)}<span class="badge">${esc(away.slice(0,1))}</span></div></div>${probBlock(p,score)}<div class="pick"><span class="tag">${esc(dir)}</span><span class="stars">${stars(p.stars)}</span>${confBlock(p)}</div><div class="meta">${metaBlock(p)}<button class="btn" style="margin-left:auto;padding:3px 8px" data-action="combo" data-match-id="${esc(id)}">${picked?"已加入串关":"加入串关"}</button><button class="btn" style="padding:3px 8px" data-action="detail" data-match-id="${esc(id)}" aria-expanded="false">查看详情</button></div><section class="match-detail" data-detail-for="${esc(id)}" hidden></section></article>`};
-const sections=[];
-if(upcomingCards.length){sections.push(`<h3 class="section-h3">今日推荐 · ${upcomingCards.length} 场</h3>${upcomingCards.map(renderCard).join("")}`)}
-if(playedCards.length){sections.push(`<h3 class="section-h3 played-h3">今日已完赛 · ${playedCards.length} 场（参考回看）</h3>${playedCards.map(renderCard).join("")}`)}
-$("#matchGrid").innerHTML=sections.join("")||'<div class="empty">没有符合筛选条件的赛事</div>';
+// P1-B5：136 卡片 DOM 过大导致 22047px 长页 + 滚动卡顿。按 chunk 1×24 渐进渲染，
+// 借 IntersectionObserver 在 sentinel 进入视口时追加下一批。组件 scroll 监听器易乱，
+// IntersectionObserver 是浏览器原生且一帧一次，无须节流。
+const CHUNK=24;
+const queue=[];
+if(upcomingCards.length){queue.push(`<h3 class="section-h3">今日推荐 · ${upcomingCards.length} 场</h3>`);upcomingCards.forEach(p=>queue.push(renderCard(p)))}
+if(playedCards.length){queue.push(`<h3 class="section-h3 played-h3">今日已完赛 · ${playedCards.length} 场（参考回看）</h3>`);playedCards.forEach(p=>queue.push(renderCard(p)))}
+// 卸旧 observer，避免对陈旧节点继续 observe（filter 切换时频繁 re-render 必须重建）
+if(state._lazyObserver){state._lazyObserver.disconnect();state._lazyObserver=null}
+let cursor=0;
+const renderNextChunk=()=>{const slice=queue.slice(cursor,cursor+CHUNK);cursor+=slice.length;return slice.join("")};
+grid.innerHTML=renderNextChunk()+(queue.length>cursor?'<div class="lazy-sentinel" data-lazy-cursor="'+cursor+'" style="height:1px"></div>':"");
+if(queue.length>cursor){
+  state._lazyObserver=new IntersectionObserver((entries)=>{
+    for(const e of entries){
+      if(!e.isIntersecting)continue;
+      const s=e.target;const prevCursor=parseInt(s.getAttribute("data-lazy-cursor"),10);
+      const more=queue.slice(prevCursor,prevCursor+CHUNK);
+      cursor=prevCursor+more.length;
+      const html=more.join("");
+      s.insertAdjacentHTML("beforebegin",html);
+      if(cursor>=queue.length){state._lazyObserver.disconnect();state._lazyObserver=null;s.remove()}
+      else{s.setAttribute("data-lazy-cursor",String(cursor))}
+    }
+  },{rootMargin:"600px 0px"});
+  state._lazyObserver.observe(grid.querySelector(".lazy-sentinel"));
+}
 $("#rankList").innerHTML=upcomingCards.slice(0,4).map((p,i)=>`<div style="padding:7px 0;border-bottom:1px solid var(--line)"><span style="color:var(--dim)">${i+1}</span> ${esc(p.home||p.match||"比赛")} <strong style="float:right;color:var(--gold)">${stars(p.stars).slice(0,5)}</strong></div>`).join("")}
 async function loadTrace(){try{const d=await api("/prediction-metadata"),rows=Object.entries(d.leagues||{});if(rows.length)$("#dateLabel").textContent+=` · ${rows.length} 个联赛有运行溯源`;return d}catch(_){return null}}
 async function loadToday(){const grid=$("#matchGrid");grid.innerHTML='<div class="empty loading">正在加载今日预测…</div>';try{state.pred=await api("/predictions/today");state.all=mergeAll(state.pred);$("#dateLabel").textContent=`${state.pred.date||"—"} · BJT 比赛日`;$("#kpiMatches").textContent=state.all.length;$("#kpiLeagues").textContent=`覆盖 ${Object.keys(state.pred.leagues||{}).filter(k=>(state.pred.leagues[k]||[]).length).length} 个联赛 · 足球 ${state.all.filter(p=>!isBasketball(p)).length} / 篮球 ${state.all.filter(isBasketball).length}`;$("#kpiHigh").textContent=state.all.filter(p=>(parseInt(p.stars,10)||0)>=4).length;buildLeagueChips();renderMatches()}catch(e){stateBox(grid,"加载今日预测失败："+e.message,true)};loadTempLeagues()}
