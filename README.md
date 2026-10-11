@@ -176,12 +176,18 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 
 ## 数据源对比
 
-| 源 | 赔率 | 覆盖 | 免费额度 | 默认联赛 |
+| 源 | 赔率 | 覆盖 | 免费额度 | 引擎覆盖 |
 |---|------|------|---------|---------|
 | **API-Football** | 33 家博彩公司, 1X2/盘口/大小球 | 全联赛, 最近 3 天 | 100 次/天 | EPL, La Liga, Bundesliga, Serie A, Ligue 1 |
-| **football-data.org** | 无 | 全联赛, 全历史 | 10 req/min | 备用 |
-| **ESPN** | 有限 (DraftKings) | MLS, 中超, 国际赛 | 无限制 | 降级回退 |
+| **football-data.org** | 无 | 全联赛, 全历史 | 10 req/min | 五大联赛**默认数据源**（per-league `LEAGUE_CONFIG[*].data_source`）|
+| **ESPN** | 有限 (DraftKings) | MLS, 中超, 国际赛 | 无限制 | 赔率富化（`odds_enrich` 在 football-data 缺盘口时回填 ESPN scoreboard）|
 | **The Odds API** | 博彩公司 h2h/让分/大小分 | NBA（`basketball_nba` active） | 免费 ~500 次/月（header `x-requests-remaining` 可查）| NBA（`the-odds`，付费源默认关闭，见 D9；当前 .env `LEAGUE_SOURCE_ODDS_API=on` 但执行链路未接 allow_paid 闸门）|
+
+> 「引擎覆盖」列仅说明**该源被引擎哪条链路使用**，不代表它是默认数据源。
+> 五大足球联赛的默认数据源由 `scripts/core/leagues.py::LEAGUE_CONFIG[*].data_source`
+> 决定（当前 5 家均为 `"football-data"`，CLI `--data-source` 显式传参可覆盖）。
+> 详见下方「支持的联赛」表与 `scripts/core/data/fetch.py::fetch_events` 的
+> `effective_source = data_source or config["data_source"]` 兜底链。
 
 ### 采集端代码与数据对齐文档（索引）
 
@@ -264,7 +270,8 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 - ML 层：训练流水线已就绪（`python3 scripts/predict.py --train-ml` → 落盘
   `scripts/references/ml_model_{league}.json`）。样本 ≥ `min_train_samples`(30) 的联赛启用
   `ml_model_used=True` 并按 `blend_weight`(0.15) 融合；样本不足的联赛如实跳过、回退规则基线。
-  当前已训练启用：epl / laliga / seriea / ligue1（bundesliga 历史样本 28<30、nba 休赛期，跳过）。
+  当前已训练启用：epl / laliga / seriea / ligue1（bundesliga 历史样本 28<30、nba 休赛期，ML 层跳过
+  — bundesliga 本身仍**支持**预测与盘口合并，仅 ML 加权项回退规则基线）。
 - AI 层：已接通。enrich job 写回 `predictions/ai_scores.json`（稳定键 `league|home_en|away_en`，
   回退中文名），`predict.py` 经 `ai.feedback_loop.adjust_prediction` 应用
   信心因子 `0.7+0.3×ai_score/100`，预测产物记录 `ai_adjusted` / `ai_score_used` / `ai_adjustment_factor`。
@@ -564,10 +571,13 @@ export ODDS_API_KEY=your_…  # NBA（The Odds API，注册 the-odds-api.com）
 # NBA 前瞻（休赛期 --ahead-days 90 拉揭幕赛程；历史回测 --backtest N）
 python3 scripts/bball/run.py --ahead-days 90
 
-# 预测 EPL (默认 API-Football, 含赔率)
+# 预测 EPL (默认走 LEAGUE_CONFIG.epl.data_source = "football-data"，不带赔率)
 python3 scripts/predict.py --league epl
 
-# 使用 football-data.org (历史数据)
+# 含赔率显式切到 API-Football
+python3 scripts/predict.py --league epl --data-source api-football
+
+# 离线模式（football-data 不传日期即返回整季）
 python3 scripts/predict.py --league epl --data-source football-data
 
 # 蒙特卡洛冠军模拟（2026-09-18 起**默认开启**，无需再加 --monte-carlo）
