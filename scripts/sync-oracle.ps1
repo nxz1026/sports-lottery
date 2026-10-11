@@ -12,7 +12,7 @@
 #   pwsh scripts/sync-oracle.ps1 -SkipTests  # 仅同步不跑测试
 
 param(
-    [string]$OracleHost = "ubuntu@140.29.97.78",
+    [string]$OracleHost = "oracle",
     [string]$OracleRepo = "/home/ubuntu/DSH/sports-lottery",
     [switch]$SkipTests
 )
