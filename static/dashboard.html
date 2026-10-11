@@ -449,7 +449,11 @@ function confBlock(p){const w=Number(p.win_prob);if(p.confidence_score!=null)ret
 // P3-A7：ml_model_used=false 时给「⚠ 模型样本不足（基本面预测）」角标（Bundesliga 28<30）。
 function metaBlock(p){
   const bb=isBasketball(p),m=market(p),st=m&&m.status;
-  const sportMini=bb?`篮球 · 让分 ${p.spread_pred!=null?esc(p.spread_pred):"—"} · 总分 ${p.total_pred!=null?esc(p.total_pred):"—"}`:esc(p.over_under||p.btts||p.sport||"预测");
+  // P3-A4：大小球 / 让球 / 总进球是不同玩法维度，渲染时显式标维，避免与方向混在一起。
+  const sportMini=bb?`篮球 · 让分 ${p.spread_pred!=null?esc(p.spread_pred):"—"} · 总分 ${p.total_pred!=null?esc(p.total_pred):"—"}`:
+    (p.over_under?`大小球 ${esc(p.over_under)}`:
+     p.btts?`${esc(p.btts==="Yes"?"双方进球":"不进球")}`:
+     esc(p.sport||"预测"));
   const marketMini=bb?((st&&st!=="missing")?marketLabel(p):`无盘口（market.status=${esc(st||"missing")}）`):marketLabel(p);
   const mlHint=!p.ml_model_used&&!bb?'<span class="mini warn">⚠ 模型样本不足（基本面预测）</span>':"";
   // 未开赛且缺盘口 → 数据窗口内但 ESPN 暂无未来 snap
