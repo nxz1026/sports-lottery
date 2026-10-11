@@ -3,6 +3,17 @@
 GET /api/v1/sources/status
 返回：配置了哪些上游、各上游 env 键是否存在（绝不回传值）、联赛默认源映射、
 当日预测配额用量与最近任务状态（M3：调度概览收进状态面）。
+
+P2-C1/C2 扩展：
+- ``last_failure``：最近一次 status=failed 作业摘要（id / script / created_at /
+  error 截断 120 字）。by_status 仅给计数，无法溯源；此处补一条字段让页面
+  可定位具体 id（点击展开日志）。
+- ``next_runs``：systemd timer 下次触发（UTC ISO + BJT 显示串），按 unit 索引；
+  通过 ``systemctl list-timers`` 子进程读取；执行失败（非 systemd 平台 /
+  权限缺失）→ 静默返回空 dict，绝不阻塞状态面。
+
+辅助函数 ``list_timer_runs`` / ``recent_job_stats`` 委托给
+``web.services.source_meta``（零 web 框架依赖，便于本地 pytest）。
 """
 from __future__ import annotations
 
@@ -11,40 +22,9 @@ from fastapi import APIRouter, Depends, Request
 from web.auth import require_auth
 from web.services import jobs
 from web.services.datasource import SOURCE_KEYS, LEAGUES, DEFAULT_SOURCE
+from web.services.source_meta import list_timer_runs, recent_job_stats
 
 router = APIRouter(prefix="/api/v1", tags=["sources"])
-
-
-def _recent_job_stats() -> dict:
-    rows = jobs.list_jobs(limit=50)
-    counts: dict[str, int] = {}
-    last: dict | None = None
-    for row in rows:
-        counts[row.get("status", "unknown")] = counts.get(row.get("status", "unknown"), 0) + 1
-        if last is None:
-            last = {
-                "id": row.get("id"),
-                "status": row.get("status"),
-                "trigger": row.get("trigger"),
-                "created_at": row.get("created_at"),
-                "finished_at": row.get("finished_at"),
-            }
-    # 核查 P2-10：by_status 计数在页面原本无法溯源（3 个 timeout、1 个 failed
-    # 从何而来无从查起）。追加最近 10 条作业明细供「数据源与任务」渲染任务表，
-    # 字段与 jobs/{id} 端点同一来源，不含敏感值。
-    items = []
-    for row in jobs.list_jobs(limit=10):
-        items.append({
-            "id": row.get("id"),
-            "status": row.get("status"),
-            "trigger": row.get("trigger"),
-            "script": row.get("script"),
-            "created_at": row.get("created_at"),
-            "finished_at": row.get("finished_at"),
-            "exit_code": row.get("exit_code"),
-            "error": (str(row.get("error"))[:120] if row.get("error") else None),
-        })
-    return {"by_status": counts, "last": last, "items": items}
 
 
 @router.get("/sources/status")
@@ -66,10 +46,11 @@ def sources_status(request: Request,
             league: {"name": info["name"], "data_source": info["data_source"]}
             for league, info in LEAGUES.items()
         },
-        # M3：调度概览（配额 + 活跃/最近任务）。jobs 模块纯文件操作，零引擎依赖。
+        # M3 + P2-C1/C2：调度概览（配额 + 活跃/最近任务 + 最近失败溯源 + 下次定时）。
         "jobs": {
             "quota": jobs.quota_usage(),
             "active": jobs.active_job(),
-            "recent": _recent_job_stats(),
+            "recent": recent_job_stats(jobs.list_jobs),
+            "next_runs": list_timer_runs(),
         },
     }
