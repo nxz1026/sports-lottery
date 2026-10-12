@@ -14,17 +14,15 @@ from __future__ import annotations
 
 from datetime import date as _date
 
-# ---------------------------------------------------------------------------
-# 白名单常量 —— JC 路由独有，搬离 router 让 router 更薄
-# ---------------------------------------------------------------------------
+from web.config import BIG5 as _BIG5  # noqa: F401 — 保留旧符号供 router / VM 复用
 
-# 用户定范围＝NBA + 五大联赛：每日一图足球表只保留这五家。
-_BIG5: frozenset[str] = frozenset({
-    "英格兰超级联赛", "西班牙甲级联赛", "意大利甲级联赛",
-    "德国甲级联赛", "法国甲级联赛",
-})
+# ---------------------------------------------------------------------------
+# 白名单常量 —— 单一真源在 web.config.BIG5，web.app.jc + web.routers.jc
+# 共享；本模块保留 _BIG5 别名以兼容历史 import / 测试访问。
+# ---------------------------------------------------------------------------
 
 # league_cn 全名 → 预测文件名里的联赛键，供命中率对账（accuracy service）。
+# web/app 独有，accuracy / router 不需要。
 _BIG5_KEYS: dict[str, str] = {
     "英格兰超级联赛": "epl",
     "西班牙甲级联赛": "laliga",
@@ -40,9 +38,13 @@ def _big5_with_temp() -> set[str]:
     端点过滤统一使用本集合：临时赛事（亚运/欧冠/世界杯等）出现在
     daily-image / jc_gap / movement / ai_analyze 等候选中，daily-image 在
     VM 内再做 main/temp 分组。
+
+    委托给 ``web.config.big5_with_temp``（单一真源）。保留本函数仅为兼容
+    旧 import 路径（tests/test_temp_league_whitelist.py 用
+    ``from web.routers.jc import _big5_with_temp`` + ``from web.app.jc import _big5_with_temp``）。
     """
-    from web.config import LEAGUE_TEMP_LEAGUES
-    return set(_BIG5) | set(LEAGUE_TEMP_LEAGUES)
+    from web.config import big5_with_temp as _big5_with_temp_impl
+    return _big5_with_temp_impl()
 
 
 def _hit_stats() -> dict:

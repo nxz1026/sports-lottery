@@ -39,23 +39,11 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 # 用户定范围＝NBA + 五大联赛：每日一图足球表只保留这五家（league_cn 为 fact.jc_match 全名）。
-# 注意：``daily-image`` 端点的白名单常量已迁到 ``web.app.jc``；router 仅保留
-# gap/movement/ai-analyze 共用的 _big5_with_temp。
-_BIG5 = frozenset({
-    "英格兰超级联赛", "西班牙甲级联赛", "意大利甲级联赛",
-    "德国甲级联赛", "法国甲级联赛",
-})
-
-
-def _big5_with_temp() -> set[str]:
-    """白名单全集 = 硬编码五大联赛 ∪ env ``LEAGUE_TEMP_LEAGUES``（去重）。
-
-    本端点 ``/gap``/``/movement``/``/ai-analyze`` 复用；``/daily-image`` 的
-    main/temp 分组逻辑已迁移到 ``web.app.jc.daily_image_vm``（该模块自带
-    私有白名单，避免 router 与 VM 互相拉扯）。
-    """
-    from web.config import LEAGUE_TEMP_LEAGUES
-    return set(_BIG5) | set(LEAGUE_TEMP_LEAGUES)
+# 注意：``_BIG5`` 与 ``_big5_with_temp`` 都已迁到 ``web.config``（单一真源），
+# router 仅保留 thin alias 兼容历史 import（tests/test_temp_league_whitelist.py
+# 直接 ``from web.routers.jc import _big5_with_temp``）。
+from web.config import BIG5 as _BIG5  # noqa: F401 — 兼容 alias
+from web.config import big5_with_temp as _big5_with_temp  # noqa: F401 — 兼容 alias
 
 _NOTES = {
     "fixtures": "每场 5 行（had/hhad/crs/ttg/haf），盘口取该 (场,玩法) 最新一版 snap_ts",

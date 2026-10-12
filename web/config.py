@@ -132,6 +132,28 @@ def parse_league_temp(raw: str) -> tuple[str, ...]:
 LEAGUE_TEMP_LEAGUES: tuple[str, ...] = parse_league_temp(LEAGUE_TEMP_LEAGUES_RAW)
 
 
+# --- 五大联赛白名单 -------------------------------------------------------
+# 硬编码五大联赛中文全名（league_cn 维度，fact.jc_match 的"英格兰超级联赛"等）。
+# 端点过滤统一使用本常量 + env ``LEAGUE_TEMP_LEAGUES``（临时赛事）。
+# 单一真源：``web/app/jc.py`` 与 ``web/routers/jc.py`` 旧各持一份，已迁此。
+BIG5: frozenset[str] = frozenset({
+    "英格兰超级联赛",
+    "西班牙甲级联赛",
+    "意大利甲级联赛",
+    "德国甲级联赛",
+    "法国甲级联赛",
+})
+
+
+def big5_with_temp() -> set[str]:
+    """白名单全集 = 硬编码五大联赛 ∪ env ``LEAGUE_TEMP_LEAGUES``（去重）。
+
+    端点（daily-image / jc_gap / movement / ai_analyze）过滤统一使用本函数。
+    返回 ``set`` 而非 ``frozenset`` 是为了 caller 用 set comprehension 时方便。
+    """
+    return set(BIG5) | set(LEAGUE_TEMP_LEAGUES)
+
+
 def env_summary() -> dict:
     """暴露给 /health 的无敏感摘要（不含账号/密码）。"""
     return {
