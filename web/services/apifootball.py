@@ -72,25 +72,33 @@ class ApiFootballService:
         return self.cache_dir / "quota.json"
 
     def _guard_quota(self) -> None:
-        now = self.now()
-        today = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
-        try:
-            state = json.loads(self._quota_path().read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            state = {}
-        if state.get("day") != today:
-            state = {"day": today, "daily": 0, "requests": []}
-        requests = [float(v) for v in state.get("requests", []) if now - float(v) < 60]
-        if int(state.get("daily", 0)) >= config.API_FOOTBALL_DAILY_LIMIT:
-            raise ApiFootballQuotaError("API-Football daily quota exhausted")
-        if len(requests) >= config.API_FOOTBALL_MINUTE_LIMIT:
-            raise ApiFootballQuotaError("API-Football minute quota exhausted")
-        state["daily"] = int(state.get("daily", 0)) + 1
-        state["requests"] = requests + [now]
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        tmp = self._quota_path().with_suffix(".tmp")
-        tmp.write_text(json.dumps(state), encoding="utf-8")
-        tmp.replace(self._quota_path())
+        # P2-8：跨 worker 配额扣减必须原子。多 uvicorn worker 各持 threading.Lock
+        # 无法同步；用文件级 O_CREAT|O_EXCL 锁（与 web.services.jobs._exclusive_lock
+        # 同模式）。每个 worker 单独 _read → _check → _write 之前必须持锁，
+        # 否则后写者覆盖前写者，每日最多超限 (workers × 1) 次。
+        from web.services.jobs import _exclusive_lock  # 复用既有锁实现
+
+        lock_path = self._quota_path().with_suffix(".lock")
+        with _exclusive_lock(lock_path, timeout=10):
+            now = self.now()
+            today = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
+            try:
+                state = json.loads(self._quota_path().read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                state = {}
+            if state.get("day") != today:
+                state = {"day": today, "daily": 0, "requests": []}
+            requests = [float(v) for v in state.get("requests", []) if now - float(v) < 60]
+            if int(state.get("daily", 0)) >= config.API_FOOTBALL_DAILY_LIMIT:
+                raise ApiFootballQuotaError("API-Football daily quota exhausted")
+            if len(requests) >= config.API_FOOTBALL_MINUTE_LIMIT:
+                raise ApiFootballQuotaError("API-Football minute quota exhausted")
+            state["daily"] = int(state.get("daily", 0)) + 1
+            state["requests"] = requests + [now]
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            tmp = self._quota_path().with_suffix(".tmp")
+            tmp.write_text(json.dumps(state), encoding="utf-8")
+            tmp.replace(self._quota_path())
 
     def _get(self, endpoint: str, params: dict[str, object]) -> dict:
         self._enabled()

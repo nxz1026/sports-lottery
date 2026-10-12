@@ -143,21 +143,66 @@ def _exclusive_lock(lock_path: Path, timeout: float = 10.0):
             pass
 
 
+def _pid_alive(pid: int) -> bool:
+    """检查 PID 是否存活（跨平台）。
+
+    POSIX：``os.kill(pid, 0)`` 检查进程存在；ProcessLookupError=已死。
+    Windows：``os.kill(pid, 0)`` 实际走 TerminateProcess，对 alive pid 也会
+    投递信号。改用 OpenProcess + GetExitCodeProcess（PIL 缺失时回退 mtime 估算）。
+    """
+    if pid == os.getpid():
+        return True  # 自身一定活着；调用方已通过 == os.getpid() 分流，此处兜底
+    try:
+        if os.name == "nt":
+            # OpenProcess = PROCESS_QUERY_LIMITED_INFORMATION (0x1000) = 0x10 | 0x1000
+            import ctypes
+            from ctypes import wintypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, wintypes.DWORD(pid)
+            )
+            if not handle:
+                return False  # OpenProcess 失败 = 进程不存在
+            try:
+                code = wintypes.DWORD()
+                ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+                return bool(ok and code.value == STILL_ACTIVE)
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        else:
+            os.kill(pid, 0)
+            return True
+    except (ProcessLookupError, OSError):
+        return False
+    except PermissionError:
+        return True
+
+
 def _drop_stale_lock(lock_path: Path) -> None:
-    """锁文件持 PID 超过 10 分钟视为 stale（进程被杀残留），删除。"""
+    """锁文件持 PID 超过 10 分钟视为 stale（进程被杀残留），删除。
+
+    注意：Windows 的 ``os.kill(pid, 0)`` 在 pid 是当前进程时会无限阻塞
+    （实测 PID 自身调用直接挂住），所以**同进程持有的锁**走短超时判废
+    路径（同进程其他线程不会持有同名锁文件 → 短超时 = 已失效）。
+    """
     try:
         pid = int(lock_path.read_text(encoding="utf-8").strip() or "0")
     except (OSError, ValueError):
         return
     if pid <= 0:
         return
-    try:
-        os.kill(pid, 0)
-        alive = True
-    except ProcessLookupError:
-        alive = False
-    except PermissionError:
-        alive = True
+    # 跨进程锁才有意义去查 PID liveness；同进程 pid == self，Windows 上
+    # os.kill(self, 0) 会挂死。直接走"短超时即视为 stale"。
+    if pid == os.getpid():
+        if time.time() - lock_path.stat().st_mtime > 5:
+            logger.warning("删除同进程残留锁: %s", lock_path)
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass
+        return
+    alive = _pid_alive(pid)
     stale = not alive and (time.time() - lock_path.stat().st_mtime > 120)
     if stale:
         logger.warning("删除 stale 锁: %s", lock_path)
