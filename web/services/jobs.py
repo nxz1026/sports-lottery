@@ -120,7 +120,12 @@ def quota_consume() -> bool:
 
 @contextmanager
 def _exclusive_lock(lock_path: Path, timeout: float = 10.0):
-    """跨进程排他锁（O_CREAT|O_EXCL + stale 检测）；同进程可重入由调用方保证。"""
+    """跨进程排他锁（O_CREAT|O_EXCL + stale 检测）；同进程可重入由调用方保证。
+
+    Windows 注意事项：``os.unlink`` 偶发 WinError 32（"另一个进程正在使用此文件"），
+    实测是文件系统把刚 ``os.close`` 的 fd 还没完全释放。直接吞掉会导致锁文件
+    残留，下个 acquire 全卡死。这里用短退避重试（最多 ~200ms）。
+    """
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + timeout
     while True:
@@ -129,7 +134,10 @@ def _exclusive_lock(lock_path: Path, timeout: float = 10.0):
             os.write(fd, str(os.getpid()).encode())
             os.close(fd)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):
+            # PermissionError 也走 stale 路径：Windows 上 unlink→下一个 O_EXCL
+            # 之间偶发权限拒绝（OS 还没释放刚 unlink 的文件句柄），与 FileExists
+            # 是同一个 race 的两个面。统一兜住走 _drop_stale_lock + sleep。
             _drop_stale_lock(lock_path)
             if time.monotonic() >= deadline:
                 raise LockTimeout(f"lock busy: {lock_path}")
@@ -137,10 +145,17 @@ def _exclusive_lock(lock_path: Path, timeout: float = 10.0):
     try:
         yield
     finally:
-        try:
-            os.unlink(lock_path)
-        except OSError:
-            pass
+        # 鲁棒 unlink：Windows 上偶发 WinError 32，10ms→20ms→40ms 三次重试即可。
+        for delay in (0.01, 0.02, 0.04):
+            try:
+                os.unlink(lock_path)
+                break
+            except FileNotFoundError:
+                break  # 已无锁文件，正常
+            except OSError as exc:
+                if delay == 0.04:
+                    logger.warning("unlink 锁文件失败: %s (%s)", lock_path, exc)
+                time.sleep(delay)
 
 
 def _pid_alive(pid: int) -> bool:
@@ -193,14 +208,21 @@ def _drop_stale_lock(lock_path: Path) -> None:
     if pid <= 0:
         return
     # 跨进程锁才有意义去查 PID liveness；同进程 pid == self，Windows 上
-    # os.kill(self, 0) 会挂死。直接走"短超时即视为 stale"。
+    # os.kill(self, 0) 会挂死。改用"短 mtime 阈值即视为 stale"兜底：
+    # 锁的实际持锁时间以 ms 计，>5s 还在持必为线程崩溃或 unlink 失败残留。
     if pid == os.getpid():
-        if time.time() - lock_path.stat().st_mtime > 5:
-            logger.warning("删除同进程残留锁: %s", lock_path)
-            try:
-                lock_path.unlink()
-            except OSError:
-                pass
+        try:
+            age = time.time() - lock_path.stat().st_mtime
+        except OSError:
+            return
+        if age < 5.0:
+            return
+        # 同进程 mtime > 5s 强制删：覆盖 _exclusive_lock finally 里 unlink
+        # 偶发 WinError 32 残留的场景 + 线程崩死没人 unlink 的场景。
+        try:
+            lock_path.unlink()
+        except OSError:
+            pass
         return
     alive = _pid_alive(pid)
     stale = not alive and (time.time() - lock_path.stat().st_mtime > 120)
