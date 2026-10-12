@@ -6,14 +6,19 @@ Dashboard「数据源与任务」页完全无法区分——定时任务到底�
 现改为接受可选的 trigger 字段（白名单 manual/timer/cron/auto），
 白名单外一律回落 manual 且**不报 400**（来源标记是观测字段，不该让请求失败）。
 
-安全网：与 test_m3_jobs 一致——假 _build_cmd，绝不真实执行引擎；
-jobs/quota 数据目录全部指向 tmp_path，绝不触碰 web/.data。
+安全网：与 test_m3_jobs 一致——假 subprocess（fake Popen 立即 done），
+绝不真实执行引擎；jobs/quota 数据目录全部指向 tmp_path，绝不触碰 web/.data。
+注：单 mock _build_cmd 不够——subprocess.Popen 真跑会依赖 PATH 上的 python3.exe
+（部分环境 git bash / conda 自带），导致 STATUS_RUNNING 卡 600s，触发 _drain_jobs
+5s 超时 flake（详见 test_predict_defaults_to_manual_trigger 历史偶发失败）。
 """
 from __future__ import annotations
 
 import importlib
+import subprocess as _real_subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -22,6 +27,22 @@ from fastapi.testclient import TestClient
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+
+class _FakeProc:
+    """fake subprocess.Popen 结果：wait() 立即返 0（done），kill/poll 是 no-op。"""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def wait(self, timeout=None):
+        return 0
+
+    def kill(self):
+        pass
+
+    def poll(self):
+        return 0
 
 
 @pytest.fixture()
@@ -46,8 +67,15 @@ def app(tmp_path, monkeypatch):
 
     import web.services.jobs as jobs_mod
     monkeypatch.setattr(jobs_mod, "_build_env", lambda: {})
+    # 保留原 mock cmd（保持 trigger 测试语义）
     monkeypatch.setattr(jobs_mod, "_build_cmd",
                         lambda args, script="predict": ["python3", "predict.py", *args])
+    # 关键：替 subprocess 模块，让 Popen 返回 fake proc → 立即 done
+    monkeypatch.setattr(jobs_mod, "subprocess",
+                        types.SimpleNamespace(
+                            Popen=_FakeProc, STDOUT=0,
+                            TimeoutExpired=_real_subprocess.TimeoutExpired,
+                        ))
 
     from web.api import create_app
     return create_app()
