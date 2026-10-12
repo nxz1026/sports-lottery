@@ -8,6 +8,11 @@
 现由 `ops/league-daily-predict.timer` 统一接管（`OnCalendar` 显式带
 `Asia/Shanghai` + `Persistent=true` 可补跑错过的触发），进程内调度已移除，
 避免两套调度并存导致重复消耗配额。
+
+P3-1 ThreadPoolExecutor 收尾：见 ``web/services/jobs.py`` 模块底部 ``atexit``
+注册，**不在 lifespan finally** 触发（TestClient ``with`` 块退出也会跑 lifespan，
+会提前关闭跨测试共享的模块级 executor，让后续用例 ``RuntimeError: cannot
+schedule new futures after shutdown``）。
 """
 from __future__ import annotations
 
@@ -21,4 +26,9 @@ async def lifespan(app: FastAPI):
     # 启动时清理一次过期会话（幂等；正常路径有惰性清理兜底）。
     from web import session_store
     session_store.purge_expired_sessions()
-    yield
+    try:
+        yield
+    finally:
+        # 注意：模块级 ThreadPoolExecutor 的 shutdown 走 atexit（jobs.py 末尾），
+        # 不在这里处理。原因见模块 docstring。
+        pass

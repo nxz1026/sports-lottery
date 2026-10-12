@@ -424,7 +424,33 @@ def run_job(jid: str) -> None:
 # --- 线程池投递 -----------------------------------------------------------
 
 # 引擎子进程执行不阻塞请求线程（fire-and-forget：失败只写状态文件）。
+# P3-1：模块级 executor，跨测试 / 跨 worker 进程共享。shutdown 不走 lifespan
+# （lifespan 在 TestClient ``with`` 块退出时也会触发，会把后续测试的 executor
+# 提前关掉 → ``RuntimeError: cannot schedule new futures after shutdown``），
+# 改用 atexit 在解释器退出时收尾。
+import atexit
+
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
+_atexit_registered = False
+
+
+def _atexit_shutdown_executor() -> None:
+    """进程退出时 drain 任务，避免半截崩 + BoundedSemaphore 句柄泄漏。
+
+    ``wait=False`` + ``cancel_futures=True``：Python 3.9+ 的标准收尾姿势——
+    不等已 in-flight 的子进程结束（worker 进程退出由 systemd/SIGTERM 控），
+    但取消还没起跑的 pending 任务，释放池子资源。
+    """
+    try:
+        executor.shutdown(wait=False, cancel_futures=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+if not _atexit_registered:
+    atexit.register(_atexit_shutdown_executor)
+    _atexit_registered = True
 
 
 def submit_job(jid: str) -> None:
