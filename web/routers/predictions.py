@@ -11,9 +11,10 @@
 """
 from __future__ import annotations
 
-from datetime import date
+import logging
 import math
 import time
+from datetime import date
 
 from fastapi import APIRouter, Depends, Request
 
@@ -21,6 +22,7 @@ from web.auth import require_auth
 from web.services import store
 from web.services.datasource import LEAGUES
 
+logger = logging.getLogger("web.predictions")
 router = APIRouter(prefix="/api/v1", tags=["predictions"])
 
 
@@ -223,7 +225,8 @@ def calibration(request: Request,
 
 
 _ACC_CACHE: dict = {}
-_ACC_TTL = 600  # 秒：实时对账带缓存，避免每次请求重扫预测文件
+_ACC_TTL_OK = 600  # 秒：成功结果缓存 10 分钟，避免每次请求重扫预测文件
+_ACC_TTL_FAIL = 30  # 秒：失败结果仅短缓存 30 秒，store 恢复后尽快追上
 
 
 def _live_accuracy(league: str) -> dict | None:
@@ -231,12 +234,16 @@ def _live_accuracy(league: str) -> dict | None:
 
     复用 ``web.services.accuracy.league_accuracy_web``（契约 §5 不允许反向
     import scripts/，故 web 端走独立实现）；无已结算样本返回 None。
-    带 10 分钟缓存；异常降级为 None（绝不编数）。
+    - 成功结果缓存 10 分钟（避免每次请求重扫预测文件）
+    - 失败 / 空结果仅短缓存 30 秒（store 恢复后尽快追上，规避负缓存污染）
+    - 异常降级为 None（绝不编数）
     """
     now = time.time()
     cached = _ACC_CACHE.get(league)
-    if cached and now - cached[0] < _ACC_TTL:
-        return cached[1]
+    if cached:
+        ttl = _ACC_TTL_OK if cached[1] is not None else _ACC_TTL_FAIL
+        if now - cached[0] < ttl:
+            return cached[1]
     result: dict | None = None
     try:
         from web.services.accuracy import league_accuracy_web
@@ -246,7 +253,8 @@ def _live_accuracy(league: str) -> dict | None:
             if acc:
                 windows[f"{days}d"] = acc
         result = windows or None
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - 命中率计算容错
+        logger.warning("predictions._live_accuracy(%s) failed: %s", league, exc)
         result = None
     _ACC_CACHE[league] = (now, result)
     return result
