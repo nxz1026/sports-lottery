@@ -51,10 +51,22 @@ add_alert() {
 }
 
 # flush_alert：把本批所有问题合成一张卡片推送。空队列直接返回。
+# P2-10 修复：webhook 未配置时显式 ALERT_FAIL_ON_NO_WEBHOOK 默认开启 → 写 sentinel
+# 日志 + exit 1 让 systemd OnFailure= 接住；环境变量 FEISHU_WEBHOOK="" + ALERT_FAIL_ON_NO_WEBHOOK=0
+# 可降级为旧行为（仅日志）。
 flush_alert() {
   [ ${#ALERTS[@]} -gt 0 ] || return 0
   if [ -z "$FEISHU_WEBHOOK" ]; then
     log "未配置 webhook，${#ALERTS[@]} 条问题仅写日志"
+    mkdir -p "$(dirname "$ALERT_LOG")" 2>/dev/null || true
+    {
+      printf '[%s] [WEBHOOK-MISSING] %s 条问题未推送：\n' "$(date -u '+%F %T UTC')" "${#ALERTS[@]}"
+      printf '· %s\n' "${ALERTS[@]}"
+    } >> "$ALERT_LOG" 2>/dev/null || true
+    if [ "${ALERT_FAIL_ON_NO_WEBHOOK:-1}" = "1" ]; then
+      log "ALERT_FAIL_ON_NO_WEBHOOK=1，返回 1 触发 systemd OnFailure="
+      return 1
+    fi
     return 0
   fi
   local body

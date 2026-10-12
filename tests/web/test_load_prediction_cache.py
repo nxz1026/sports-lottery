@@ -33,6 +33,8 @@ def _write(path: Path, payload: dict, mtime_offset_seconds: int = 0) -> None:
 
 def test_cache_hits_on_repeat_within_same_signature(tmp_path, monkeypatch):
     """同签名（同文件 + 同 mtime）连续调用 → 第二次命中缓存（无 IO）。"""
+    import os
+
     from web.services import store as store_mod
 
     monkeypatch.setattr(store_mod, "OUTPUT_DIR", tmp_path)
@@ -40,15 +42,16 @@ def test_cache_hits_on_repeat_within_same_signature(tmp_path, monkeypatch):
     p1 = tmp_path / "predictions" / "prediction_2026-10-12_10.json"
     p1.parent.mkdir(parents=True)
     _write(p1, {"predictions": [], "generated_at": "2026-10-12T10:00:00+08:00"})
+    original_mtime = p1.stat().st_mtime
 
     # 清缓存
     store_mod._load_prediction_docs_cached.clear()
     docs1 = store_mod.load_prediction_docs()
     assert len(docs1) == 1
 
-    # 模拟文件被 stat 后又读取（无变化）。第二次调用应走缓存路径：
-    # 把 JSON 内容破坏但 mtime 仍一致（验缓存确实生效）。
+    # 破坏 JSON 内容，但 mtime 不变 → 应命中缓存
     p1.write_text("{garbage", encoding="utf-8")
+    os.utime(p1, (original_mtime, original_mtime))
     docs2 = store_mod.load_prediction_docs()
     # 缓存命中，第二次返回缓存中的旧结果（不是空 json 解析失败）
     assert docs2 == docs1, (
@@ -121,9 +124,10 @@ def test_cache_invalidates_on_file_deleted(tmp_path, monkeypatch):
 
 
 def test_cache_clear_for_test_isolation():
-    """缓存模块暴露 clear() 方法便于测试隔离。"""
+    """缓存按 OUTPUT_DIR 分键，便于测试隔离（不同 tmp_path 不串数据）。"""
     from web.services import store as store_mod
 
-    store_mod._load_prediction_docs_cached["any_key"] = ("sig", ["doc"])
+    store_mod._load_prediction_docs_cached["/tmp/some-path"] = ("sig", ["doc"])
+    assert "/tmp/some-path" in store_mod._load_prediction_docs_cached
     store_mod._load_prediction_docs_cached.clear()
     assert store_mod._load_prediction_docs_cached == {}

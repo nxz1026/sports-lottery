@@ -45,8 +45,9 @@ def fixture_with_result(conn: Connection, fixture_id: int) -> dict[str, Any] | N
 
 def unmatched_teams(conn: Connection) -> list[dict[str, Any]]:
     """name_cn 至今无中文（= to_cn 未命中）的队伍，供后续翻译补全；只读，不改 ref.team。"""
-    return _rows(conn, f"SELECT team_id, name_cn, aliases FROM ref.team WHERE name_cn !~ '{UNTRANSLATED}'"
-                       " ORDER BY team_id")
+    return _rows(conn, "SELECT team_id, name_cn, aliases FROM ref.team "
+                       "WHERE name_cn !~ %s ORDER BY team_id",
+                   (UNTRANSLATED,))
 
 
 def team_identity_audit(conn: Connection) -> dict[str, Any]:

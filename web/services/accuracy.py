@@ -2,9 +2,8 @@
 
 引擎侧 ``scripts/core/backtest.league_accuracy`` 同期存在（v4.x 引擎内核
 路径使用）；web 端按契约 §5 不允许 import scripts/，因此在本文件复制一份
-**完全等价的实现**，调用方 ``web/routers/jc.py::real_accuracy`` 与
-``web/routers/predictions.py::league_accuracy_view`` 用本实现替换原 lazy
-``from core.backtest import league_accuracy`` 引用。
+**完全等价的实现**，调用方 ``web/routers/predictions.py::_live_accuracy``
+消费本实现（已替换原 lazy ``from core.backtest import league_accuracy`` 引用）。
 
 等价性由两个独立断言守住：
 - 键：``web/services/store._stable_match_key`` == ``core/backtest._bk_stable_key``，

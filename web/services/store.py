@@ -82,16 +82,19 @@ def load_prediction_docs() -> list[dict]:
     触发：每个端点（predictions/today、accuracy、combo/eval 等）调用此函数
     会全量 glob + json.load 100+ 文件。LRU 后单 worker 内 5s 内重复请求
     直接命中缓存；引擎写入新文件 → mtime 变化 → 自动失效。
+
+    缓存按 OUTPUT_DIR 分别持有条目（同一进程内不同路径不会串数据）。
     """
     files = iter_prediction_files()
-    # 失效检查：缓存的 (file_count, max_mtime, file_list_hash) 与当前不一致则重建
+    cache_key = str(OUTPUT_DIR)
     try:
         file_sigs = tuple((f.name, f.stat().st_mtime) for f in files)
     except OSError as exc:
         logger.warning("stat predictions 失败: %s", exc)
-        return _load_prediction_docs_cached.clear() or []  # type: ignore[attr-defined]
+        _load_prediction_docs_cached.pop(cache_key, None)
+        return []
     sig_id = (len(file_sigs),) + tuple(s for _, s in file_sigs)
-    cached = _load_prediction_docs_cached.get("docs")
+    cached = _load_prediction_docs_cached.get(cache_key)
     if cached is not None and cached[0] == sig_id:
         return cached[1]
     docs: list[dict] = []
@@ -111,7 +114,7 @@ def load_prediction_docs() -> list[dict]:
             "data": data,
             "mtime": mtime,
         })
-    _load_prediction_docs_cached["docs"] = (sig_id, docs)
+    _load_prediction_docs_cached[cache_key] = (sig_id, docs)
     return docs
 
 

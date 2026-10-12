@@ -46,7 +46,9 @@ def unmatched_fd(conn: Connection, limit: int = 20, *, src_file: str | None = No
     fd_id 落在该集合的条目（= **本批**哨兵 id，测试/回填自证用）。两者都给取交集；**都不给＝最新一条**
     （生产读法：会被任何更新的留痕顶掉，测试与 CLI 汇总不许依赖）。本层只 SELECT，不写 ops.ingest_log。
     """
-    where, params = ["topic = 'fd_align'"], []
+    where, params = [], []
+    where.append("topic = %s")
+    params.append("fd_align")
     if src_file is not None:
         where.append("src_file = %s")
         params.append(src_file)
