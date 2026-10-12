@@ -315,12 +315,19 @@ def test_auto_refresh_trigger_and_dedup(client, tmp_path, monkeypatch):
 # --- 验收点 C：AI 模块改坏后 app 仍能起 -------------------------------------
 
 def test_ai_broken_app_starts(tmp_path, monkeypatch):
-    """验收点 C：web/services/ai.py 人为改坏 → app 能起、其余端点 200。"""
+    """验收点 C：web/services/ai.py 人为改坏 → app 能起、其余端点 200。
+
+    注：本测试只验"AI broken ⇒ app 仍起 + 端点不 500"。/health 探活（sessions.db
+    + predictions fresh）由 P1-4 引入，与本验收无关，stub 掉避免污染测试信号。
+    """
     monkeypatch.setenv("AUTH_USERNAME", "unit-test-user")
     monkeypatch.setenv("AUTH_PASSWORD", "unit-test-pass")
     import web.config as config_mod
     importlib.reload(config_mod)
     import web.api as api_mod
+    # /health 探活不在本测试范围；不 stub 会因 predictions 文件超 24h 误触发 503
+    monkeypatch.setattr("web.services.health.check",
+                        lambda: {"ok": True, "checks": {}})
 
     ai_path = Path(api_mod.__file__).resolve().parent / "services" / "ai.py"
     orig = ai_path.read_text(encoding="utf-8")
