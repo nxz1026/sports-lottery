@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -18,6 +19,15 @@ from ingest import api_get, run_backfill  # noqa: E402
 from store import pg  # noqa: E402
 
 ROWS = run_backfill.plan_rows(("af",), ("2099",))  # 不存在的赛季号：hash 与真数据绝不撞（2 条即可复现）
+
+
+@pytest.fixture(autouse=True)
+def _fake_api_keys(monkeypatch):
+    """假 key（占位即可，不发真请求）：``api_get._http`` 在 ``urlopen`` 之前必查 key_env，
+    无 key 直接 RuntimeError；测试不需要真 key，但需要它"非空"绕过校验。
+    """
+    monkeypatch.setenv("API_FOOTBALL_KEY", "test-fake-key")
+    monkeypatch.setenv("FOOTBALL_DATA_KEY", "test-fake-key")
 
 class _Stop(Exception):  # A 的哨兵：探针只到 HTTP 派发点就中断本轮，绝不真发请求、绝不落块
     ...
