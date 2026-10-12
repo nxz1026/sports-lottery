@@ -1,0 +1,46 @@
+[Unit]
+Description=league-web FastAPI 服务（dashboard + API）
+Documentation=https://github.com/nxz1026/sports-lottery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/DSH/sports-lottery
+
+# 注意：Oracle 当前 unit 是 uvicorn 拉起的 web.api:app；本模板保留同一入口，
+# 仅显式声明 Restart 策略便于 sync-oracle.ps1 复用。
+ExecStart=/home/ubuntu/.venvs/league/bin/python -m uvicorn web.api:app \
+    --host 127.0.0.1 --port 8077 \
+    --proxy-headers --forwarded-allow-ips="127.0.0.1" \
+    --workers 2 \
+    --log-level info
+ExecStop=/bin/kill -TERM $MAINPID
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=15
+
+EnvironmentFile=/home/ubuntu/DSH/sports-lottery/.env
+# P2-2：子进程白名单透传环境变量前，先在本服务维度限制 LD_PRELOAD / NODE_OPTIONS 等
+# 防注入字段；子进程进一步透传见 web/services/jobs.py::_build_env。
+Environment=PYTHONUNBUFFERED=1
+
+# P1-4：/health 现在做真依赖探活，故障应触发 restart → 服务自愈。
+Restart=on-failure
+RestartSec=5
+# 5 分钟内连续崩溃超过 10 次进入 backoff，避免雪崩打日志刷屏。
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+# OOM 时优先 kill 而非整机 reboot；记录 core dump 便于事后定位。
+OOMPolicy=kill
+OOMScoreAdjust=-100
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=league-web
+
+[Install]
+WantedBy=multi-user.target
