@@ -11,11 +11,12 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from web import config
 from web import errors
+from web.services import health
 from web.auth import router as auth_router
 try:
     from web.routers.ai import router as ai_router
@@ -51,12 +52,17 @@ def create_app() -> FastAPI:
     errors.register(app)
 
     @app.get("/health")
-    def health() -> dict:
-        return {
-            "status": "ok",
-            "time_utc_epoch": time.time(),
-            "config": config.env_summary(),
-        }
+    def health():
+        """真依赖探活：sessions.db SQLite + 最新 prediction mtime。
+
+        任一探活失败 → 503；body 携带各探活项明细，便于监控告警。
+        """
+        result = health.check()
+        result["config"] = config.env_summary()
+        return JSONResponse(
+            status_code=200 if result["ok"] else 503,
+            content=result,
+        )
 
     @app.get("/")
     def index(request: Request):
