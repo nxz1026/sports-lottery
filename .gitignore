@@ -72,3 +72,10 @@ scripts/results/.bak-*/
 
 # 运行期 ELO 状态（服务每轮重写；缺失时 load_elo_ratings() 回退 FIFA 冷启动）
 references/.elo_ratings.json
+
+# 测试产物（pytest 缓存 + coverage 数据；不属业务产物）
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
