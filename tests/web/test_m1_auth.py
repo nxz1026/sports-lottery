@@ -56,12 +56,22 @@ def _login(client, username="unit-test-user", password="unit-test-pass"):
 
 # --- 验收点 B：免鉴权路径 --------------------------------------------------
 
-def test_health_no_auth(client):
+def test_health_no_auth(client, monkeypatch):
+    """免鉴权：mock 探活为 OK，避免依赖真实 predictions/ 目录状态。"""
+    from web.services import health as health_svc
+
+    monkeypatch.setattr(health_svc, "check", lambda: {
+        "ok": True,
+        "time_utc_epoch": 123.0,
+        "checks": {"sessions_db": {"ok": True, "path": "/tmp/s.db"},
+                   "predictions_fresh": {"ok": True, "freshest_age_hours": 1}},
+    })
     res = client.get("/health")
     assert res.status_code == 200
     body = res.json()
-    assert body["status"] == "ok"
+    assert body["ok"] is True
     assert "time_utc_epoch" in body
+    assert "checks" in body
 
 
 def test_root_redirects_to_login_when_anonymous(client):

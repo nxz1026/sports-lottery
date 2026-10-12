@@ -8,10 +8,13 @@
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from web.auth import require_auth
 
+logger = logging.getLogger("web.haf")
 router = APIRouter(prefix="/api/v1", tags=["haf"])
 
 
@@ -20,7 +23,8 @@ def _find_prediction(home: str, away: str):
     from web.services import store as web_store
     try:
         all_docs = web_store.load_prediction_docs()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - store 损坏时返回空 hist
+        logger.warning("haf: load_prediction_docs failed: %s", exc)
         all_docs = []
     from web.services.team_match import teams_match
     for doc in (all_docs or []):
@@ -50,7 +54,8 @@ def _resolve_match(payload: dict) -> tuple[str, str, float]:
             from web.services import store as web_store
             today = web_store.bjt_today().isoformat()
             fixtures = jc_view.fixtures_on(today) or []
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - 缺 fixtures 时按 home/away 降级
+            logger.warning("haf: fixtures lookup failed: %s", exc)
             fixtures = []
         for f in fixtures:
             if str(f.get("match_num")) == str(payload.get("match_num")):

@@ -14,9 +14,13 @@ ml_proba）逐场推荐，输出 14场 逐场票面 + 任九(top9) 组合命中�
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from web.auth import require_auth
+
+logger = logging.getLogger("web.ticket")
 
 router = APIRouter(prefix="/api/v1", tags=["ticket"])
 
@@ -51,7 +55,8 @@ def _all_pred_entries() -> list:
     from web.services import store as web_store
     try:
         docs = web_store.load_prediction_docs()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - store 损坏时返回空 hist
+        logger.warning("ticket: load_prediction_docs failed: %s", exc)
         return []
     out: list = []
     for doc in (docs or []):
@@ -82,7 +87,8 @@ def ticket_sfc(body: dict | None = Body(default=None),
     from store import jc_view
     try:
         matches = jc_view.issue_matches(game_num, issue_no)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - issue 数据缺失时降级为无对阵
+        logger.warning("ticket: issue_matches failed (%s/%s): %s", game_num, issue_no, exc)
         matches = []
     if not matches:
         return {"available": False, "reason": "no_issue_matches",

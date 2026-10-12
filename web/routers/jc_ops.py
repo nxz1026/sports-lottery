@@ -12,6 +12,7 @@ web 启动带 PYTHONPATH=.:scripts（§9-38），故模块级自举一次。
 """
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from fastapi import APIRouter, Depends
 
 from web.auth import require_auth
 
+logger = logging.getLogger("web.jc_ops")
 router = APIRouter(prefix="/api/jc", tags=["jc-ops"])
 
 _SCRIPTS_DIR = str(Path(__file__).resolve().parents[2] / "scripts")
@@ -62,7 +64,8 @@ def freshness(threshold_hours: float = 24.0, _: None = Depends(require_auth)) ->
     try:
         snap = jc_ops_view.ops_snapshot()
         topics = snap.get("topics") or []
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - freshness 视图降级为空
+        logger.warning("jc_ops: ops_snapshot failed: %s", exc)
         topics = []
     result = evaluate_topics(topics, threshold_hours=th)
     result["alerts"] = format_alert_lines(result)

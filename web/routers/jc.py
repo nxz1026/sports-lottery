@@ -19,6 +19,7 @@ T5 免 psycopg 环境）。web 启动带 PYTHONPATH=.（无 scripts/），故模
 """
 from __future__ import annotations
 
+import logging
 import sys
 from datetime import date
 from pathlib import Path
@@ -27,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from web.auth import require_auth
 
+logger = logging.getLogger("web.jc")
 router = APIRouter(prefix="/api/jc", tags=["jc"])
 # Stable v1 alias for consumers that do not use the /api/jc dashboard namespace.
 v1_router = APIRouter(prefix="/api/v1", tags=["backtest"])
@@ -303,7 +305,8 @@ def _picks_context(sport: str, limit: int = 2) -> str:
                 f"（让球 {p.get('goal_line') or '—'}）→ 模型方向 {algo.get('direction') or '?'}"
             )
         return "\n".join(out)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - picks 上下文降级为空串
+        logger.warning("jc: _picks_context failed: %s", exc)
         return ""
 
 
@@ -324,7 +327,8 @@ def _news_context(sport: str) -> str:
             seen[mn] = f"{r.get('home_cn') or '?'} vs {r.get('away_cn') or '?'}"
         lines = list(seen.values())[:8]
         return "；".join(lines) or "（暂无在售）"
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - news 上下文降级
+        logger.warning("jc: _news_context failed: %s", exc)
         return "（暂无在售）"
 
 

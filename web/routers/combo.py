@@ -13,11 +13,14 @@
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from web.auth import require_auth
 from web.services import combo as combo_mod
 
+logger = logging.getLogger("web.combo")
 router = APIRouter(prefix="/api/v1", tags=["combo"])
 
 
@@ -37,7 +40,8 @@ def _assemble_legs(selections: list[dict]) -> list[dict]:
     from web.services import store as web_store
     try:
         fixtures = jc_view.fixtures_on(None) or []
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - 装配容错（fixtures 缺失不影响其它腿）
+        logger.warning("combo: jc_view.fixtures_on failed: %s", exc)
         fixtures = []
 
     # 把 fixture 按 (home_cn, away_cn) 索引（容错 teams_match）
@@ -56,7 +60,8 @@ def _assemble_legs(selections: list[dict]) -> list[dict]:
 
     try:
         all_docs = web_store.load_prediction_docs()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - 模型概率缺失时降级为无 p_model 模式
+        logger.warning("combo: load_prediction_docs failed: %s", exc)
         all_docs = []
     # 模型概率从所有历史预测文件里匹配（当日空文档时回退到最近一份非空）
     pred_index: list[dict] = []
@@ -117,7 +122,8 @@ def teams_match_safe(h1: str, a1: str, h2: str, a2: str) -> bool:
     try:
         from web.services.team_match import teams_match as _tm
         return _tm(h1, a1, h2, a2)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - fuzzy match 失败退化精确字符串比较
+        logger.warning("combo: teams_match failed (%s vs %s): %s", h1, h2, exc)
         return (h1.strip() == h2.strip() and a1.strip() == a2.strip())
 
 
