@@ -1,7 +1,12 @@
-"""P0-COLLECT2eA2 写手测试：三表通用 upsert_issue_instruction。fixture 独占连接收尾 rollback+close；"库 0 行"另开 ro（§9-83）。"""
+"""P0-COLLECT2eA2 写手测试：三表通用 upsert_issue_instruction。fixture 独占连接收尾 rollback+close；"库 0 行"另开 ro（§9-83）。
+
+真包测试需真库（DSN_ING / DSN_RO）。无真库环境 → 自动 skip（不假失败）。
+"""
 from __future__ import annotations
 
-import json, sys
+import json
+import os
+import sys
 import uuid
 from datetime import date, datetime
 from pathlib import Path
@@ -10,6 +15,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from ingest import jc_issue_write  # noqa: E402
 from store import pg  # noqa: E402
+
+# 守门：需真库 DSN_ING（写）+ DSN_RO（验证回滚）。无 DSN → skip。
+pytestmark = pytest.mark.skipif(
+    not all(os.environ.get(k) for k in ("DSN_ING", "DSN_RO")),
+    reason="真包写手测试需 DSN_ING/DSN_RO",
+)
 
 # 本模块每次运行一个唯一键前缀 ⇒ 绝不与 cron 装进来的真数据撞键。
 # 2026-09-17 实测：合成键 26127/26128/26001 与真实期号撞车，"count(*)==1" 变成 2

@@ -2,9 +2,14 @@
 真包端到端落库：① 三表各自 count>0 且同批重放幂等（first_seen 不变、last_seen 前进）；
 ② 首条指令 ValueError ⇒ 逐条保存点隔离，好指令照常、ops.ingest_log 留痕 rejected；
 ③ 收尾回滚 ⇒ 另开 ro 连接三表 0 行（§9-83）。
-夹具 = /srv/league-staging/incoming/cn-collector/** 真包（不 glob 顶层，目录权 711 只能精确进）。"""
+夹具 = /srv/league-staging/incoming/cn-collector/** 真包（不 glob 顶层，目录权 711 只能精确进）。
+
+真包测试需真库（DSN_ING / DSN_RO）+ 真包目录 /srv/league-staging/incoming/cn-collector。
+无真库环境 → 自动 skip（不假失败）。
+"""
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +23,13 @@ from store import pg  # noqa: E402
 BASE = Path("/srv/league-staging/incoming/cn-collector")
 FILES = {t: BASE / t / "2026-09-16T10-13Z__001.jsonl" for t in ("jc_issue", "jc_issue_result", "lottery_draw")}
 TABLE = {"jc_issue": "fact.jc_issue", "jc_issue_result": "fact.jc_issue_draw", "lottery_draw": "fact.lottery_draw"}
+
+# 守门：真包测试需要真库 DSN；无真库环境自动 skip（与 conn fixture 同模式）
+pytestmark = pytest.mark.skipif(
+    not all(os.environ.get(k) for k in ("DSN_ING", "DSN_RO"))
+    or not BASE.is_dir(),
+    reason="真包测试需 DSN_ING/DSN_RO + /srv/league-staging 真包目录",
+)
 
 
 @pytest.fixture()
