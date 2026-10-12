@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from web import config
 from web import errors
-from web.services import health
+from web.services import health as health_svc
 from web.auth import router as auth_router
 try:
     from web.routers.ai import router as ai_router
@@ -57,7 +57,7 @@ def create_app() -> FastAPI:
 
         任一探活失败 → 503；body 携带各探活项明细，便于监控告警。
         """
-        result = health.check()
+        result = health_svc.check()
         result["config"] = config.env_summary()
         return JSONResponse(
             status_code=200 if result["ok"] else 503,
