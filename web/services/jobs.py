@@ -256,8 +256,42 @@ def _write_state(jid: str, status: str, **extra) -> dict:
 # --- 子进程执行 -----------------------------------------------------------
 
 def _build_env() -> dict:
-    """独立 env：继承 os.environ（生产 key 在此流入引擎），可被测试注入覆盖。"""
-    return dict(os.environ)
+    """白名单透传 env 给子进程（避免全量 os.environ 泄漏敏感 key）。
+
+    仅透传：
+    - PATH / PYTHONPATH / PYTHONUNBUFFERED（解释器与 stdlib 必需）
+    - LP_OUTPUT_DIR（引擎输出位置）
+    - API_FOOTBALL_KEY 等 6 个外部 API 凭据（predict / predict_bball / ai_analyze 实际用到）
+    - DB_*/DSN_* 系列 8 个变量（psycopg 连接）
+
+    显式排除（web-only）：
+    - AUTH_USERNAME / AUTH_PASSWORD / SESSION_* / LOGIN_* / USE_HTTPS
+    - WEB_HOST / WEB_PORT / CORS_ORIGINS
+    - SESSION_DB_PATH
+    - 其它任何未在白名单的变量（最小特权原则）
+
+    测试可通过 monkeypatch / 测试 fixture 注入覆盖（`_build_env` 仍是模块
+    级可调用函数，方便 patching）。
+    """
+    ALLOW = (
+        # 解释器 / stdlib / 引擎输出
+        "PATH", "PYTHONPATH", "PYTHONUNBUFFERED", "LP_OUTPUT_DIR",
+        # 外部 API（仅引擎子进程实际调用）
+        "API_FOOTBALL_KEY", "API_FOOTBALL_ENRICH_ENABLED", "API_FOOTBALL_ENABLED",
+        "API_FOOTBALL_BASE_URL", "API_FOOTBALL_DAILY_LIMIT", "API_FOOTBALL_MINUTE_LIMIT",
+        "FOOTBALL_DATA_API_KEY",
+        "NBA_API_KEY", "ODDS_API_KEY",
+        "LLM_API_KEY", "LLM_API_BASE", "LLM_MODEL",
+        # 数据库连接
+        "DB_HOST", "DB_PORT", "DB_NAME",
+        "DB_ING_USER", "DB_ING_PASSWORD",
+        "DB_APP_USER", "DB_APP_PASSWORD",
+        "DB_RO_USER", "DB_RO_PASSWORD",
+        "DSN_ING", "DSN_APP", "DSN_RO",
+        # Windows 习惯
+        "SYSTEMROOT", "TEMP", "TMP",
+    )
+    return {k: os.environ[k] for k in ALLOW if k in os.environ}
 
 
 def _build_cmd(args: list[str], script: str = "predict") -> list[str]:
