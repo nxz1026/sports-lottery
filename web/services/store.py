@@ -77,9 +77,25 @@ def load_prediction_docs() -> list[dict]:
     ``mtime`` 是 web 侧 ``league_accuracy_web`` 的窗口过滤（cutoff）所必须；
     早期版本漏写 ``mtime`` 字段，导致 ``_collect_league_data`` 拿 ``doc.get("mtime", 0)``
     永远为 0，cutoff 过滤把所有文件跳过，命中率永远"数据积累中"。
+
+    P2-7 性能：模块级 LRU 缓存 + mtime 失效。
+    触发：每个端点（predictions/today、accuracy、combo/eval 等）调用此函数
+    会全量 glob + json.load 100+ 文件。LRU 后单 worker 内 5s 内重复请求
+    直接命中缓存；引擎写入新文件 → mtime 变化 → 自动失效。
     """
+    files = iter_prediction_files()
+    # 失效检查：缓存的 (file_count, max_mtime, file_list_hash) 与当前不一致则重建
+    try:
+        file_sigs = tuple((f.name, f.stat().st_mtime) for f in files)
+    except OSError as exc:
+        logger.warning("stat predictions 失败: %s", exc)
+        return _load_prediction_docs_cached.clear() or []  # type: ignore[attr-defined]
+    sig_id = (len(file_sigs),) + tuple(s for _, s in file_sigs)
+    cached = _load_prediction_docs_cached.get("docs")
+    if cached is not None and cached[0] == sig_id:
+        return cached[1]
     docs: list[dict] = []
-    for f in iter_prediction_files():
+    for f in files:
         data = _json_load(f)
         if data is None:
             continue
@@ -95,7 +111,11 @@ def load_prediction_docs() -> list[dict]:
             "data": data,
             "mtime": mtime,
         })
+    _load_prediction_docs_cached["docs"] = (sig_id, docs)
     return docs
+
+
+_load_prediction_docs_cached: dict = {}
 
 
 def _file_dt(path: Path) -> datetime | None:
