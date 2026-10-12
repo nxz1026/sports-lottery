@@ -182,10 +182,26 @@ def jc_movement(day: str | None = None) -> list[dict[str, Any]]:
         return out
 
     def _implied(nums: dict) -> dict:
-        s = sum(1 / v for k, v in nums.items() if v and v > 1)
-        if s <= 0:
+        """盘口赔率 → 归一化隐含概率（3 位小数）。
+
+        P2-23 迁移：实际去水算法委托给 ``scripts/market/devig.devig``（同一公式
+        ``(1/o)/Σ(1/o)``），保留本函数的 lenient 预处理（过滤 None / <=1
+        / 非数）。SQL 输出端可能有 NULL / 边界值，silent filter 比
+        ``market.devig`` 的 ValueError 更适合。
+
+        退化情形（仅 1 项有效）保持旧行为：返 ``{key: 1.0}``（单边胜率 100%），
+        与历史 ABI 兼容；``market.devig`` 至少要 2 项才能算 Σ=1。
+        """
+        valid = {k: float(v) for k, v in nums.items()
+                 if isinstance(v, (int, float)) and v > 1}
+        if not valid:
             return {}
-        return {k: round((1 / nums[k]) / s, 3) for k in nums if nums[k] and nums[k] > 1}
+        if len(valid) == 1:
+            # 单边退化：与历史 ABI 兼容
+            return {next(iter(valid)): 1.0}
+        from market.devig import devig
+        probs = devig(valid)
+        return {k: round(probs[k], 3) for k in probs}
 
     for r in rows:
         key = (r["match_num"], r["play_type"])
