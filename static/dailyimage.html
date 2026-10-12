@@ -52,6 +52,10 @@
 
 <script>
 "use strict";
+/* ===== HTML 转义工具（P1-2 修复 XSS 路径）=====
+ * 所有从 API 流入的字符串（d.note / e.message / d.date / 用户配置等）经过 esc()
+ * 后再插入 innerHTML，否则 API 形如 {note: "<img onerror=...>"}` 会直接 XSS。 */
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 /* ===== 主题调色板：颜色一律取自 CSS 变量（亮/暗由 @media prefers-color-scheme 决定）
  * 画布仅更换颜色来源，尺寸/布局/绘制顺序/接口调用不变；切换系统主题后刷新页面即可重绘。 */
 const PAL=(function(){
@@ -333,7 +337,7 @@ async function load(){
   try{
     // daily-image 优先（决定有无图）；daily-news 异步 300s 等，LLM 慢也无所谓
     const d = await api("daily-image?sport="+encodeURIComponent(SPORT));
-    if(!d.available){ host.innerHTML='<div class="empty"><h2>还没有今天的图</h2><p>'+(d.note||"暂无在售赛事")+'</p></div>'; document.getElementById("download").style.display="none"; return; }
+    if(!d.available){ host.innerHTML='<div class="empty"><h2>还没有今天的图</h2><p>'+esc(d.note||"暂无在售赛事")+'</p></div>'; document.getElementById("download").style.display="none"; return; }
     let newsObj={news:"",pick_reason:""};
     try{
       const r=await fetchWithTimeout("daily-news?sport="+encodeURIComponent(SPORT), 300000);
@@ -374,7 +378,7 @@ async function load(){
     }
     document.getElementById("download").style.display="";
   }catch(e){
-    host.innerHTML='<div class="empty"><h2>生成失败</h2><p>'+(e.message||"请稍后重试")+'</p></div>';
+    host.innerHTML='<div class="empty"><h2>生成失败</h2><p>'+esc(e.message||"请稍后重试")+'</p></div>';
   }
 }
 document.getElementById("download").addEventListener("click",()=>{
