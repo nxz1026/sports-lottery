@@ -4,11 +4,17 @@
 AF 节点 = fixture{id,date,venue,status{short,elapsed}} + league{id,season,round} + teams{home{id,name},away{…}}
 + score{halftime,fulltime}，数组键 response；FD 节点 = id/utcDate/matchday/stage/status/season{startDate}
 + competition{code} + homeTeam/awayTeam + score{duration,fullTime,halfTime}，数组键 **matches**（驼峰 halfTime）。
+
+P2-22 迁移：``AF_LEAGUES`` / ``FD_LEAGUES`` 单一真源改为 ``scripts/core/leagues.LEAGUE_CONFIG``
+（``api_football_id`` / ``league_id`` 字段）。新增联赛只需改 LEAGUE_CONFIG，
+本模块自动跟随；NBA 等无 api_football_id / league_id 的项自动跳过。
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from core.leagues import LEAGUE_CONFIG
 
 ROW_KEYS = ("fixture_id", "league_key", "season", "round", "kickoff_at", "af_team_id", "fd_team_id",
             "home_name", "away_name", "status", "venue", "ft_h", "ft_a", "ht_h", "ht_a", "elapsed_ht", "raw_node")
@@ -20,8 +26,21 @@ FD_STATUS = {"SCHEDULED": "scheduled", "TIMED": "timed", "IN_PLAY": "pending", "
              "FINISHED": "ft", "SUSPENDED": "interrupted", "POSTPONED": "postponed", "CANCELLED": "canceled",
              "AWARDED": "defaulted", "EXTRA_TIME": "aet", "PENALTY_SHOOTOUT": "pen"}
 FD_DURATION = {"EXTRA_TIME": "aet", "PENALTY_SHOOTOUT": "pen"}  # FD 完赛只有 FINISHED，加时/点球看 duration
-AF_LEAGUES = {39: "epl", 140: "laliga", 78: "bundesliga", 135: "seriea", 61: "ligue1"}  # = ref.league seed
-FD_LEAGUES = {"PL": "epl", "PD": "laliga", "BL1": "bundesliga", "SA": "seriea", "FL1": "ligue1"}
+
+# 派生自 LEAGUE_CONFIG（api_football_id / league_id 字段）；NBA 等无字段的项自动跳过。
+# 历史值（向后兼容 ABI）：
+#   AF_LEAGUES = {39: "epl", 140: "laliga", 78: "bundesliga", 135: "seriea", 61: "ligue1"}
+#   FD_LEAGUES = {"PL": "epl", "PD": "laliga", "BL1": "bundesliga", "SA": "seriea", "FL1": "ligue1"}
+AF_LEAGUES: dict[int, str] = {
+    v["api_football_id"]: k
+    for k, v in LEAGUE_CONFIG.items()
+    if isinstance(v.get("api_football_id"), int)
+}
+FD_LEAGUES: dict[str, str] = {
+    v["league_id"]: k
+    for k, v in LEAGUE_CONFIG.items()
+    if isinstance(v.get("league_id"), str)
+}
 
 
 def _row(**kw: Any) -> dict[str, Any]:
