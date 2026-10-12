@@ -65,6 +65,14 @@ CORS_ORIGINS: list[str] = [
 # 默认落在 web/.data/（gitignore 已排除），绝不落入引擎数据目录。
 SESSION_DB_PATH: str = os.getenv("SESSION_DB_PATH", str(BASE_DIR / "web" / ".data" / "sessions.db"))
 
+# --- 代理头信任（P1-1）--------------------------------------------------
+# 仅当 request.client.host 在此白名单内时，才采纳 X-Forwarded-For / X-Real-IP。
+# 默认只信任 127.0.0.1 + ::1（本地 nginx 反代）。生产部署若 nginx 在另一台机器，
+# 必须显式列出 nginx 出口 IP，否则日志记录的是反代 IP，凭据爆破限速失效。
+TRUSTED_PROXY_IPS: tuple[str, ...] = tuple(
+    ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "127.0.0.1,::1").split(",") if ip.strip()
+)
+
 # --- 任务触发（M3：jobs.py / 配额守卫）----------------------------------
 # 引擎子进程超时（秒），到点必杀。
 PREDICT_TIMEOUT_SECONDS: int = _env_int("PREDICT_TIMEOUT_SECONDS", 600)
@@ -133,6 +141,7 @@ def env_summary() -> dict:
         "predict_timeout_seconds": PREDICT_TIMEOUT_SECONDS,
         "daily_trigger_limit": DAILY_TRIGGER_LIMIT,
         "league_temp_leagues": list(LEAGUE_TEMP_LEAGUES),
+        "trusted_proxy_ips_count": len(TRUSTED_PROXY_IPS),
     }
 
 

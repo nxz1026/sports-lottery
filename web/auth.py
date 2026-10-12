@@ -30,8 +30,26 @@ _failures_lock = threading.Lock()
 
 
 def _client_ip(request: Request) -> str:
-    # 信任代理头会引入伪造风险；默认用直连地址（本机部署场景足够）。
-    return request.client.host if request.client else "unknown"
+    """取客户端 IP，区分直连 vs 反代。
+
+    仅当直连 IP 在 ``config.TRUSTED_PROXY_IPS`` 白名单内时，才采纳
+    ``X-Forwarded-For`` 首跳 / ``X-Real-IP``；否则完全忽略代理头（防伪造）。
+    直连 IP 不在白名单时仍按 request.client.host 计费，避免外部客户端直连
+    后端绕过 nginx 限速。
+    """
+    direct = request.client.host if request.client else "unknown"
+    if direct not in config.TRUSTED_PROXY_IPS:
+        return direct
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        # X-Forwarded-For: client, proxy1, proxy2 → 取首项（原始客户端）
+        first = xff.split(",", 1)[0].strip()
+        if first:
+            return first
+    real = request.headers.get("x-real-ip")
+    if real:
+        return real.strip()
+    return direct
 
 
 def _check_lockout(ip: str) -> None:
