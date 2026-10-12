@@ -37,15 +37,11 @@ def _bk_load_recent_predictions(cutoff: float) -> list[dict[str, Any]]:
     for f in sorted(PREDICTIONS_DIR.glob("prediction_*.json")):
         if f.stat().st_mtime < cutoff:
             continue
-        try:
-            with open(f, encoding="utf-8") as _fh:
-                data = json.load(_fh)
-        except (UnicodeDecodeError, json.JSONDecodeError, OSError):
-            try:
-                with open(f, encoding="gbk") as _fh:
-                    data = json.load(_fh)
-            except (UnicodeDecodeError, json.JSONDecodeError, OSError):
-                continue
+        # P2-17：内联 utf-8/gbk 双编码 try-load → delegate 到 scripts/core/_iojson
+        # （含 gb18030 兜底，与 web._json_load 镜像）。坏文件 → None 即跳过。
+        data = _try_load_json(f)
+        if not isinstance(data, dict):
+            continue
         preds.extend(data.get("predictions", []))
     return preds
 

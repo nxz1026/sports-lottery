@@ -19,15 +19,19 @@ def _calibration_cache_file(league: str | None = None) -> Path:
     return FOOTBALL_DIR / "references" / ".calibration_state.json"
 
 
-def _try_load_json(path) -> dict | None:
-    """尝试用多种编码加载 JSON 文件（兼容 Windows gbk 历史文件）"""
-    for enc in ("utf-8", "gbk", "gb18030"):
-        try:
-            with open(path, encoding=enc) as f:
-                return json.load(f)
-        except (UnicodeDecodeError, json.JSONDecodeError, OSError):
-            continue
-    return None
+def _try_load_json(path) -> object | None:
+    """尝试用多种编码加载 JSON 文件（兼容 Windows gbk 历史文件）
+
+    P2-17 迁移：实际实现委托给 ``scripts/core/_iojson.try_load_json``（单一真源）。
+    本函数保留仅为兼容历史 import 路径（calibration 内部 + 旧测试 fixture）。
+
+    返回 ``object | None``（dict 或 list，取决于文件顶层结构）：
+    - calibration offset 文件顶层是 dict
+    - historical_past_matches.json 顶层是 list[dict]
+    caller 按需校验类型。
+    """
+    from core._iojson import try_load_json as _impl
+    return _impl(path)
 
 
 def _load_prev_offset(league: str | None = None) -> dict | None:
