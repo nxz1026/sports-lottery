@@ -73,6 +73,10 @@ TRUSTED_PROXY_IPS: tuple[str, ...] = tuple(
     ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "127.0.0.1,::1").split(",") if ip.strip()
 )
 
+# --- 公开入口（P2-1）----------------------------------------------------
+# QR 兜底地址 / dashboard 分享链接用的公网入口；客户端未传完整 URL 时回退到此值。
+PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "https://140.83.62.161/dashboard/jc/")
+
 # --- 任务触发（M3：jobs.py / 配额守卫）----------------------------------
 # 引擎子进程超时（秒），到点必杀。
 PREDICT_TIMEOUT_SECONDS: int = _env_int("PREDICT_TIMEOUT_SECONDS", 600)
@@ -142,6 +146,7 @@ def env_summary() -> dict:
         "daily_trigger_limit": DAILY_TRIGGER_LIMIT,
         "league_temp_leagues": list(LEAGUE_TEMP_LEAGUES),
         "trusted_proxy_ips_count": len(TRUSTED_PROXY_IPS),
+        "public_base_url_set": bool(PUBLIC_BASE_URL),
     }
 
 
