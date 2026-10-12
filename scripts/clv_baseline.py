@@ -32,28 +32,40 @@ _BJT = timezone.utc  # 报告只写 UTC 时刻，不本地化
 
 
 def _devig_home(odds_home, odds_away):
-    """h2h 双方向去水 → 主胜概率（等比例归一；二者都 >1 才算，否则 None）。"""
+    """h2h 双方向去水 → 主胜概率（等比例归一；二者都 >1 才算，否则 None）。
+
+    实现委托给 ``scripts/market/devig.devig``（同一去水公式），保留本函数
+    "非法 → None" 的 lenient 语义（脚本侧 ``devig`` 是 "非法 → ValueError"）。
+    """
     try:
         oh, oa = float(odds_home), float(odds_away)
     except (TypeError, ValueError):
         return None
     if not (oh > 1 and oa > 1):
         return None
-    inv = 1 / oh + 1 / oa
-    if inv <= 0:
+    from market.devig import devig as _strict_devig
+    try:
+        result = _strict_devig({"home": oh, "away": oa})
+    except ValueError:
         return None
-    return (1 / oh) / inv
+    return result["home"]
 
 
 def _clv(p_model, p_close):
-    """ln(p_model/p_close)；都在 (0,1) 才算，否则 None。"""
+    """ln(p_model/p_close)；都在 (0,1) 开区间才计 CLV，否则 None。
+
+    实现委托给 ``scripts/market/clv.clv``（同一 log 公式），但保留本函数
+    (0,1) 开区间的严格校验 —— ``market.clv.clv`` 走 [0,1] 闭区间（含 0/1），
+    实际不可能出现 p_close=1（_devig_home 已限 >1），但保留语义守门。
+    """
     if not (isinstance(p_model, (int, float)) and isinstance(p_close, (int, float))):
         return None
     if not (0 < float(p_model) < 1 and 0 < float(p_close) < 1):
         return None
+    from market.clv import clv as _strict_clv
     try:
-        return math.log(float(p_model) / float(p_close))
-    except (ValueError, ZeroDivisionError):
+        return _strict_clv(float(p_model), float(p_close))
+    except ValueError:
         return None
 
 
