@@ -4,6 +4,10 @@
 ``web/routers/haf.py`` 和 ``web/services/team_match.py`` 历史 import 路径
 ``from web.services.haf import compute_haf``。
 
+P2-25 常量同步：``HAF_ORDER`` / ``HT_RATIO`` 改为从 ``scripts/derive.haf``
+re-export（单一真源），不再硬编码副本。加新维度 / 调比例 → scripts
+侧一处改即生效。
+
 模块加载时把仓库根 / scripts/ 加进 sys.path，让 ``from derive.haf ...``
 可解析（其他 web 测试 fixture 也用同模式，见 tests/test_team_match.py）。
 """
@@ -19,9 +23,8 @@ for _p in (str(_REPO_ROOT), str(_SCRIPTS)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# 兼容历史 import 的常量（与 scripts/derive/haf.HAF_ORDER / HT_RATIO 同步）
-HAF_ORDER = ["胜胜", "胜平", "胜负", "平胜", "平平", "平负", "负胜", "负平", "负负"]
-HT_RATIO = 0.45
+# 常量 re-export（单一真源在 scripts/derive/haf.py）
+from derive.haf import HAF_ORDER, HT_RATIO  # noqa: F401 — 兼容历史 import 路径
 
 
 def _pois(lmb, max_g):  # noqa: ANN001 — 兼容历史调用方签名
