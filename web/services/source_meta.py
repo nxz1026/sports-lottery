@@ -77,7 +77,6 @@ def list_timer_runs() -> dict[str, dict]:
         tokens = line.split()
         if len(tokens) < 10:
             continue
-        activates = tokens[-1]
         unit = tokens[-2]
         if not unit.endswith(".timer"):
             continue
@@ -100,7 +99,6 @@ def list_timer_runs() -> dict[str, dict]:
                 and tokens[left_end_excl - 1].endswith(_TIME_SUFFIXES)
                 and tokens[left_end_excl - 2].endswith(_TIME_SUFFIXES)):
             left_len = 2
-        left_start = left_end_excl - left_len
         # NEXT 占固定 4 token；剩余 tokens 必须 ≥ left_len + 4 + 4 + passed_len + 2（UNIT+ACTIVATES）
         # 上面 if len(tokens) < 10 已筛过最低 12 多 token 场景（含 PASSED=2 / LEFT=2）。
         # 切片 tokens[:4] / tokens[last_start:last_end] 直接取，len 不为 4 → 跳过。
