@@ -327,6 +327,11 @@ def _emit_ml_predictions(output: dict, *, league: str) -> None:
                 model=str(m.get("model_version") or m.get("model") or "default"),
                 goal_line=m.get("goal_line"),
                 market_signal=m.get("market"),
+                # Round 11 E1: 把 predictor._debug_fields 的 reasoning_factors
+                # 当 features_snapshot —— 内含 ELO/form/onside/fifa 等 ~16 维
+                # 数值。缺关键 onside_signals 时仍允许下游 train_league_model
+                # 走 fallback（参 retrain_baseline）。
+                features_snapshot=m.get("reasoning_factors"),
                 extra=None,
             )
         except Exception as exc:

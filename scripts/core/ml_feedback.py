@@ -46,6 +46,7 @@ def record_prediction(
     model: str = "default",
     goal_line: float | None = None,
     market_signal: dict[str, Any] | None = None,
+    features_snapshot: dict[str, float] | None = None,
     extra: dict[str, Any] | None = None,
 ) -> None:
     """写 ``events.jsonl`` 一行 ``kind=prediction``。
@@ -53,7 +54,12 @@ def record_prediction(
     ``probs`` 期望 ``{"h": 0.5, "d": 0.3, "a": 0.2}``（主胜/平/客胜三向）。
     ``model`` 是模型版本号或名（ML / Dixon-Coles / baseline / ai-adjusted 等），
     后续 ML 训练可按 model 切片分析各模型贡献。
-    ``extra`` 允许塞额外字段（ML 特征向量 / 置信度 / 解释等）。
+    ``features_snapshot``（Round 11 E1）：26 维特征向量快照，给未来
+    ``retrain_baseline.train_league_model_from_events`` 直接消费。
+    注意：仅 ``dict[str, float]``；key 不必严格等于 ``FEATURE_COLUMNS``，
+    但下游 ``train_league_model_from_events`` 会按 key 对齐索引，所以
+    缺字段时该样本被跳过（旧 events 无该字段→calibration 仍可用）。
+    ``extra`` 允许塞额外非数值字段（置信度 / 解释等）。
     """
     fields: dict[str, Any] = {
         "league": league,
@@ -69,6 +75,8 @@ def record_prediction(
         fields["goal_line"] = goal_line
     if market_signal is not None:
         fields["market_signal"] = market_signal
+    if features_snapshot:
+        fields["features_snapshot"] = features_snapshot
     if extra:
         fields["extra"] = extra
     _safe_log_event("prediction", **fields)
@@ -174,6 +182,9 @@ def join_predictions_outcomes(
             "model": p.get("model", "default"),
             "goal_line": p.get("goal_line"),
             "market_signal": p.get("market_signal"),
+            # E1 (Round 11): 透传 features_snapshot；后续 ML 重训直接消费。
+            # 不存则 None（dict key 也可能不存在 — tests 用 in 判断）。
+            "features_snapshot": p.get("features_snapshot"),
             "home_score": o.get("home_score"),
             "away_score": o.get("away_score"),
             "total_goals": o.get("total_goals"),
