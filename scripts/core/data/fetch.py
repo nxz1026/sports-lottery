@@ -103,7 +103,7 @@ def _retry_request(req: urllib.request.Request, max_retries: int = 3, timeout: i
             else:
                 raise
 
-FIFA_RANKINGS_API_URL = "https://api.football-data.org/v4/teams"
+
 
 
 def fetch_events(dates_str: str, league_key: str = "epl", data_source: str = "",
@@ -316,46 +316,5 @@ def fetch_api_football(dates_str: str, config: dict) -> list:
         raise
 
 
-def update_fifa_rankings() -> dict:
-    """从 API 获取 FIFA 排名并保存到本地文件"""
-    rank_file = FOOTBALL_DIR / "references" / "fifa_rankings.json"
-    api_key = os.environ.get("FOOTBALL_DATA_API_KEY", "")
-
-    headers = {'User-Agent': 'LeaguePredict/4.1'}
-    if api_key:
-        headers['X-Auth-Token'] = api_key
-
-    try:
-        logger.info(f"Fetching FIFA rankings from API: {FIFA_RANKINGS_API_URL}")
-        req = urllib.request.Request(FIFA_RANKINGS_API_URL, headers=headers)
-        with urllib.request.urlopen(req, timeout=ESPN_TIMEOUT_SECONDS) as resp:
-            data = json.loads(resp.read())
-
-        rankings = {}
-        for team in data.get("teams", []):
-            name = team.get("name", "")
-            if name:
-                rankings[name] = team.get("fifa_rank", team.get("id", 200))
-
-        if rankings:
-            rank_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(rank_file, "w", encoding="utf-8") as f:
-                json.dump(rankings, f, indent=2)
-            logger.info(f"FIFA rankings updated from API: {len(rankings)} teams")
-            return rankings
-
-        logger.debug("No team data in API response, falling back to local file")
-    except Exception as e:
-        logger.warning(f"FIFA rankings API fetch failed: {e}")
-
-    return {}
-
-
-def fetch_fifa_rankings(force_refresh: bool = False) -> dict:
-    """获取 FIFA 世界排名 — 委托给 core.rankings.fetch_fifa_rankings（统一入口）"""
-    from core.rankings import fetch_fifa_rankings as _fetch
-    if force_refresh:
-        update_fifa_rankings()
-    return _fetch()
 
    
