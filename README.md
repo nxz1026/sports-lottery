@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **1206 passed / 70 skipped / 0 failed**（v2.1 660 / v2.2 精修本轮 546 增量：覆盖率补测 + cross-boundary 收口 + 守门行为锁 + flake 根因修；详见 `docs/refine/P3_report.md` / `P4_report.md` / `P5_report.md`）
+测试基线：python -m pytest tests -q → **1206 passed / 70 skipped / 0 failed**（v2.1 660 / v2.2 精修本轮 546 增量：覆盖率补测 + cross-boundary 收口 + 守门行为锁 + flake 根因修；详见 `docs/refine/P3-P4_report.md` / `P5_report.md`）
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：

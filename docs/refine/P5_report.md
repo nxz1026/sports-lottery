@@ -5,10 +5,8 @@
 - 提交：P5-1 + P5-2 + P5-3 + P5-4
 - 净影响：生产代码 -25 行（4 处 dup/dead 收口），新增 **52 守门测试**（safe_devig 33 + team_norm 19）
 
-## 背景
-
-P3/P4 阶段把覆盖率、dead code、跨边界契约都收过一轮。Round 5 / Round 6
-subagent 扫描聚焦"前几轮已 lock 但未触动"的桥接机会 + 残余 lint 缺口。
+> P3 / P4 阶段（覆盖率补测 + 跨边界 dead code / duplicate 清理 + 行为锁）见 `P3-P4_report.md`。
+> 本阶段是 Round 5/6 subagent 扫描的收口：safe_devig 抽取 / team_norm helper 共享 / lint 收尾。
 
 ## 实施
 
