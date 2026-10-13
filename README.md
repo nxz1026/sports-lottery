@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **660 passed**（v2 起点 215；新增 store/ingest/derive 常驻用例 + ESPN 富化 34 例 + 幽灵守卫 7 例 + 跨文件结算 5 例）
+测试基线：python -m pytest tests -q → **1206 passed / 70 skipped / 0 failed**（v2.1 660 / v2.2 精修本轮 546 增量：覆盖率补测 + cross-boundary 收口 + 守门行为锁 + flake 根因修；详见 `docs/refine/P3_report.md` / `P4_report.md` / `P5_report.md`）
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -768,6 +768,33 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
   README 信号融合公式权重 20%/70%/18% → 45%/45%/18%（与 `MARKET_ODDS_WEIGHT = 0.45` 对齐）。
 - **`fix: 修 jc_read.py NameError + ruff F401/F841/F811/F821 清零`**（`222fa65`）—
   `jc_read.py:62` PermissionError 触发即 NameError 崩溃修；NBA 翻译表 / `to_cn` shim / 多余 import 一并清理（19 处）。
+
+### v2.2 (2026-10-13) 精修本轮：覆盖率补测 + cross-boundary 收口 + flake 根因修
+
+3 阶段共 18 个 commit（详细见 `docs/refine/P{3,4,5}_report.md`）：
+
+**P3（覆盖率补测 + flake 根因，9 commit）**：
+- P3-4/5：news / jc_ops_view 0%→100%
+- P3-6/7：jc_load 0%→92% / jc_view 39%→98%
+- P3-8/9/10：upsert_official/results/fixtures 30%→100%
+- P3-11/13/14/15：combo / jc_ops / lottery_api / ai 路由层 11%→100%
+- P3-12/17/18/20/22：5 处 `_drain_jobs` 5s→10s + PermissionError 容错（test_m3_jobs / test_m6_ai_enrich / test_job_trigger_source 三处对齐；`web/services/jobs._read_job` 内置三档短退避重试）
+- P3-19：web/routers/jc 五组端点 24 用例补测 + `gap()` `latest_by_league` 抛错降级
+
+**P4（cross-boundary dead code / duplicate 清理，5 commit）**：
+- P4-1：`scripts/core/data/fetch.py` 删 `fetch_fifa_rankings` / `update_fifa_rankings` / `FIFA_RANKINGS_API_URL`（主链未用；DATA_CONTRACT 疑点 15 已 CLOSED）
+- P4-2：bball `apply_regression` + `ELO["REGRESSION"]` 死代码清理
+- P4-3：`canonical_src_hash` 字节级 duplicate 合并（`upsert_official` → `parse_values` 单一真源）+ mirror 守门
+- P4-4：query.py / selfcheck.py / team_identity.py 5 个无 caller 函数 + 依赖清理
+- P4-5：`normalize_team` 双实现（align vs odds_enrich）drift 行为锁（36 用例 snapshot 钉死两侧当前行为）
+
+**P5（收口 / 抽取 / lint 收尾，4 commit）**：
+- P5-1：unused import 3 + source_meta 2 dead local
+- P5-2：`market.devig.safe_devig` 收口（jc_view._implied + clv_baseline._devig_home 25 行 dup → 1 helper）+ 33 守门；jc_view._implied 提模块级
+- P5-3：`core.team_norm.strip_accents_and_lowercase` 抽字符级共用 helper（normalize_team 双实现 NFKD+Mn+lowercase 3 行共享）+ 19 守门
+- P5-4：clv_baseline._BJT dead local
+
+**15x 全仓压测基线**：14/15 全过；残余 1/15 flake `test_auto_refresh_trigger_and_dedup`（Windows fs fd 释放延迟根因不在生产代码层面，留作 known issue）。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 

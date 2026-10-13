@@ -347,7 +347,7 @@ def pick_latest_for_league(league):
 | 源 | 端点 | 用途 | 证据 |
 |---|---|---|---|
 | football-data.org | `GET https://api.football-data.org/v4/competitions/{league_id}/matches?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD` | 联赛赛程+赛果（主数据） | fetch.py:196；backtest.py:315 |
-| football-data.org | `GET https://api.football-data.org/v4/teams` | FIFA 排名（`FIFA_RANKINGS_API_URL`，**实际未用**——见下） | fetch.py:106 |
+| football-data.org | `GET https://api.football-data.org/v4/teams` | FIFA 排名（`FIFA_RANKINGS_API_URL`，**P4-1 (2026-10-13) 已删** — 主链 0 caller；FIFA 排名现走 `core.rankings.fetch_fifa_rankings` 读本地 json / 内置默认表，不联网） | fetch.py:106 ❌ |
 | API-Football | `GET https://v3.football.api-sports.io/fixtures?date=YYYY-MM-DD` | 当日全部赛程，**客户端按 league_id 过滤**（免费档不支持 season/league 参数） | fetch.py:279-291 |
 | API-Football | `GET https://v3.football.api-sports.io/odds?date=YYYY-MM-DD` | 赔率（非致命，失败返回空表） | fetch.py:233-248 |
 | ESPN | `GET https://site.api.espn.com/apis/site/v2/sports/soccer/{league_slug}/scoreboard?dates=YYYYMMDD-YYYYMMDD&limit=50` | 赛程（含实时） | constants.py:44；fetch.py:147 |
@@ -359,7 +359,7 @@ def pick_latest_for_league(league):
 - **api-football 源**：`fetch_events` 用 ThreadPoolExecutor(2) **并行**拉 api-football + ESPN；api-football 返回 0 事件时回退 ESPN（fetch.py:131-140）。单联赛一次运行 = 2 次并发 API 调用。
 - **api-football 赔率**：失败仅 warning，返回空 lookup（fetch.py:246-248）——赔率缺失不影响主流程。
 - **football-data 主源**：fetch 抛异常 → **无自动 fallback**（`_fetch_and_parse` 无 except，predict.py:80-92）；异常向上抛出导致整轮预测失败。web 层若需容错应在子进程层捕获并重试/切源。
-- **FIFA 排名**：`fetch_fifa_rankings` 本地 `references/fifa_rankings.json` > 内置默认表（rankings.py:18-46）。注意 `FIFA_RANKINGS_API_URL` 常量虽指向 football-data /v4/teams，但 rankings.py 的 `fetch_fifa_rankings` **不联网**（只读本地文件/内置默认）；`update_fifa_rankings`（fetch.py:302-334）才是联网更新，调用点待核（grep predict.py 未见直接调用——见 §9 疑点 15）。
+- **FIFA 排名**：`core.rankings.fetch_fifa_rankings` 本地 `references/fifa_rankings.json` > 内置默认表（rankings.py:18-46，**不联网**）。**P4-1 (2026-10-13) 清理**：`scripts/core/data/fetch.py` 的 `fetch_fifa_rankings(force_refresh)` / `update_fifa_rankings` / `FIFA_RANKINGS_API_URL` 全部删除——主链 0 caller（疑点 15 已 CLOSED）。FIFA 排名现统一走 `core.rankings` 入口；`--update-rankings` 旗标仅控制 ELO 缓存（`elo.py:235-238`）。
 
 ### 6.4 缓存策略（core/cache.py）
 

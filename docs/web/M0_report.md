@@ -16,7 +16,7 @@
 
 ## M0b 本轮核验（静态读码，未运行 predict.py）
 
-1. **疑点 15 证据链补全**：`predict.py:33` 导入 `core.rankings.fetch_fifa_rankings`（rankings.py:12-46，只读本地文件/内置表，无 force_refresh 参数）；联网委托版本 `core.data.fetch.fetch_fifa_rankings(force_refresh)`（fetch.py:337-342）在主链未被调用。`--update-rankings` 实际只让 `get_or_init_elo_ratings` 跳过 ELO 持久化缓存（elo.py:235-238）。已修正 §1.1 参数表。
+1. **疑点 15 证据链补全（**P4-1 2026-10-13 已收口**）**：`predict.py:33` 导入 `core.rankings.fetch_fifa_rankings`（rankings.py:12-46，只读本地文件/内置表，无 force_refresh 参数）；联网委托版本 `core.data.fetch.fetch_fifa_rankings(force_refresh)`（fetch.py:337-342）原本在主链未被调用，**现已在 P4-1 中删除整个函数 + `update_fifa_rankings` + `FIFA_RANKINGS_API_URL`**。`--update-rankings` 实际只让 `get_or_init_elo_ratings` 跳过 ELO 持久化缓存（elo.py:235-238）。已修正 §1.1 参数表。
 2. **疑点 12 证据链补全**：`ai_enrich_gha.py:35-40` 中 `source = league.get("league", "?")`，写入 `save_ai_scores` 的 `league` 字段（feedback_loop.py:63），`load_ai_adjustments` 按 `v["league"]==league_key` 过滤（feedback_loop.py:38）——链路脆弱性确定。
 3. **疑点 11 证据链补全**：`AI_SCORES_FILE = REPO_ROOT/predictions/ai_scores.json`（feedback_loop.py:18-19）vs `FOOTBALL_DIR/predictions`（constants.py:39）——两目录不一致确定。
 4. **§5.6 定量估算**：`warm_translations` 仅对未翻译新队名触发（i18n.py:84-100），99 条缓存后通常零调用；`analyse_batch` 每 5 场 1 次、7s 限速（batch_pipeline.py:38-43）。
