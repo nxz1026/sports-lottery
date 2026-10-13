@@ -38,7 +38,8 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv("SESSION_DB_PATH", str(tmp_path / "sessions.db"))
     monkeypatch.setenv("AUTH_USERNAME", "unit-test-user")
     monkeypatch.setenv("AUTH_PASSWORD", "unit-test-pass")
-    monkeypatch.setenv("TRUSTED_PROXY_IPS", "127.0.0.1")
+    # 注：不 setenv TRUSTED_PROXY_IPS，保持 web.config 默认 tuple（含 127.0.0.1 + ::1）
+    # 防止污染后续 test_client_ip.py::test_trusted_proxy_ips_default_includes_loopback
 
     import web.config as config
     import web.session_store as session_store
