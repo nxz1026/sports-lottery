@@ -247,6 +247,11 @@ def _generate_predictions(
                 pred = adjust_prediction(pred, ai_adjustments)
             predictions.append(pred)
         except Exception as e:
+            # B.1 (Round 10): 单场预测失败落 events.jsonl —— 否则只能 stderr 看，
+            # 排错时与 events 流断链。context 字段供 ml_feedback / dashboard filter。
+            from core.observability import log_error
+            log_error(e, context="predict.generate_predictions.per_match",
+                      league=league_key, match=match.get("name") or "?")
             logger.error(f"Prediction failed for {match.get('name', '?')}: {e}")
     logger.info(f"Predicted {len(predictions)} matches")
     return predictions
@@ -822,6 +827,11 @@ def main() -> None:
                 except Exception as _e:
                     logger.warning(f"ML refresh failed for {league_key}: {_e}")
             except Exception as e:
+                # B.2 (Round 10): --all 模式整联赛预测失败落 events.jsonl
+                # （如 data_source 网络故障 / DC ρ 拟合严重错等）。
+                from core.observability import log_error
+                log_error(e, context="predict.main.per_league",
+                          league=league_key, args=str(args)[:200])
                 logger.error(f"Prediction failed for {league_key}: {e}")
         # Print combined JSON array for --all mode
         print(json.dumps(all_outputs, indent=2, ensure_ascii=False))
