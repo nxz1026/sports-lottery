@@ -193,13 +193,17 @@ def gap(top: int = 10, _: None = Depends(require_auth)) -> dict:
     from web.services.team_match import build_rows
     from web.services.team_match import jc_gap as _jc_gap
 
-    latest = web_store.latest_by_league()
-    fixture_rows = jc_view.fixtures_on(None)
-    pred_by_league = {
-        lg: (doc.get("data") or {}).get("predictions", [])
-        for lg, doc in latest.items()
-    }
-    rows = build_rows(fixture_rows, pred_by_league)
+    try:
+        latest = web_store.latest_by_league()
+        fixture_rows = jc_view.fixtures_on(None)
+        pred_by_league = {
+            lg: (doc.get("data") or {}).get("predictions", [])
+            for lg, doc in (latest or {}).items()
+        }
+        rows = build_rows(fixture_rows, pred_by_league)
+    except Exception as exc:  # noqa: BLE001 - latest_by_league/fixtures 抛错降级为 []
+        logger.warning("jc: _gap gather failed: %s", exc)
+        rows = []
     rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
     items = _jc_gap(rows, top_n=min(max(int(top), 1), 30))
     return {
