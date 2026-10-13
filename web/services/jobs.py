@@ -311,7 +311,13 @@ def list_jobs(limit: int = 20) -> list[dict]:
 
 
 def _spin_state(jid: str, status: str, **extra) -> dict:
-    """带锁的状态迁移（同进程并发安全；跨进程由文件锁兜底）。"""
+    """带锁的状态迁移（同进程并发安全；跨进程由文件锁兜底）。
+
+    Note: P3-21 试过 timeout 5s→10s 治 Windows fs 锁延迟，但全仓 15x 压测反
+    而 4/15 失败（vs 1/15）。P3-22 revert 至 5s，让 ``_drain_jobs`` 的 10s
+    poll 上限作为容错层；state.lock 本身 5s 是设计意图，5s+ 真的等就是
+    LockTimeout，应该被 caller 当作"任务僵死"显式 fail-fast。
+    """
     with _exclusive_lock(_job_file(jid).with_suffix(".state.lock"), timeout=5):
         job = _read_job(jid) or _default_job(jid)
         job["status"] = status
