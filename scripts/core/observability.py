@@ -43,6 +43,9 @@ from core.log import logger
 _LOGS_DIR: Path | None = None
 _RUNTIME_LOG: Path | None = None
 _EVENTS_JSONL: Path | None = None
+# H8: events.jsonl size 轮转配置；None 关闭，setup() 可设值开启。
+_EVENTS_MAX_BYTES: int | None = None
+_EVENTS_BACKUP_COUNT: int = 5
 _INSTALLED = False
 _INSTALL_LOCK = threading.Lock()
 
@@ -67,7 +70,9 @@ def events_jsonl_path() -> Path | None:
 
 # ── 进程级安装（幂等）─────────────────────────────────────
 def setup(*, dir: Path | None = None, level: str | int | None = None,
-          process_name: str | None = None) -> Path:
+          process_name: str | None = None,
+          events_max_bytes: int | None = None,
+          events_backup_count: int | None = None) -> Path:
     """安装文件 handler + JSONL handler + excepthook。返回 logs 目录。
 
     重复调用幂等：第一次安装后跳过。``dir`` 显式指定覆盖默认 ``FOOTBALL_DIR/logs``；
@@ -75,7 +80,7 @@ def setup(*, dir: Path | None = None, level: str | int | None = None,
     ``process_name`` 给文件加后缀（``events.{name}.jsonl`` / ``runtime.{name}.log``）
     让多进程（web uvicorn vs predict subprocess）不竞同一文件 —— 见 H9。
     """
-    global _LOGS_DIR, _RUNTIME_LOG, _EVENTS_JSONL, _INSTALLED
+    global _LOGS_DIR, _RUNTIME_LOG, _EVENTS_JSONL, _EVENTS_MAX_BYTES, _EVENTS_BACKUP_COUNT, _INSTALLED
     with _INSTALL_LOCK:
         if _INSTALLED:
             return logs_dir()
@@ -89,6 +94,13 @@ def setup(*, dir: Path | None = None, level: str | int | None = None,
         suffix = f".{process_name}" if process_name else ""
         _RUNTIME_LOG = dir / f"runtime{suffix}.log"
         _EVENTS_JSONL = dir / f"events{suffix}.jsonl"
+        # events.jsonl size-based 轮转（H8）。None = 无轮转（默认/向后兼容）；
+        # events_max_bytes 给值后按"写前 size + 行 > max"触发 rotate。
+        # 单进程内 open+rename 是原子，跨进程已在 H9 用 process_name 隔离。
+        _EVENTS_MAX_BYTES = events_max_bytes
+        _EVENTS_BACKUP_COUNT = (
+            events_backup_count if events_backup_count is not None else 5
+        )
         # 确保两个文件存在（empty file）—— 监控 / 备份 / 读 events.jsonl 的下游
         # 工具不必先写一行才有路径
         _RUNTIME_LOG.touch(exist_ok=True)
@@ -172,7 +184,7 @@ def reset_for_test() -> None:
 
     pytest fixture 调用以隔离测试间副作用。
     """
-    global _LOGS_DIR, _RUNTIME_LOG, _EVENTS_JSONL, _INSTALLED
+    global _LOGS_DIR, _RUNTIME_LOG, _EVENTS_JSONL, _EVENTS_MAX_BYTES, _INSTALLED
     with _INSTALL_LOCK:
         if not _INSTALLED:
             return
@@ -184,6 +196,7 @@ def reset_for_test() -> None:
         # excepthook 已被覆盖到内部 closure；测试不重置 sys.excepthook
         # 因为生产 hook 仍是有用的
         _LOGS_DIR = _RUNTIME_LOG = _EVENTS_JSONL = None
+        _EVENTS_MAX_BYTES = None
         _INSTALLED = False
 
 
@@ -203,7 +216,7 @@ def log_error(exc: BaseException, *, context: str = "", **fields: Any) -> None:
 
 
 def log_event(kind: str, **fields: Any) -> None:
-    """append-only 写一行 JSON 到 ``events.jsonl``。
+    """append-only 写一行 JSON 到 ``events.jsonl``（H8 后支持 size-based 轮转）。
 
     每行形如 ``{"ts": "2026-10-13T...", "kind": "prediction", "match_id": "...", ...}``。
     ``fields`` 必须 JSON-serializable（str / int / float / bool / None / list/dict of these）。
@@ -218,10 +231,55 @@ def log_event(kind: str, **fields: Any) -> None:
     }
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
     try:
+        _maybe_rotate_events(path, len(line) + 1)  # +1 for newline
         with open(path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
         logger.warning("log_event write failed (%s): %s", path, e)
+
+
+def _maybe_rotate_events(path: Path, incoming_bytes: int) -> None:
+    """H8: 写前检查 events.jsonl 体积，超阈值触发轮转。
+
+    备份文件命名：``events.jsonl.{1..N}.bak``；超出 backup_count 的最旧备份被丢。
+    单进程内 open+rename 是原子的（Windows 上 rename 替代 POSIX rename）；多进程
+    隔离通过 H9 ``process_name`` 后缀保证。
+    """
+    if _EVENTS_MAX_BYTES is None or _EVENTS_MAX_BYTES <= 0:
+        return
+    try:
+        current = path.stat().st_size
+    except OSError:
+        return
+    if current + incoming_bytes <= _EVENTS_MAX_BYTES:
+        return
+    keep = max(1, _EVENTS_BACKUP_COUNT)
+    # 步骤 1：丢最旧的备份（如果已经在 keep 位置）
+    oldest = path.with_name(f"{path.name}.{keep}.bak")
+    if oldest.exists():
+        try:
+            oldest.unlink()
+        except OSError:
+            pass
+    # 步骤 2：.N.bak 倒推为 .(N+1).bak（从 keep-1 推到 1）
+    for i in range(keep - 1, 0, -1):
+        src = path.with_name(f"{path.name}.{i}.bak")
+        dst = path.with_name(f"{path.name}.{i + 1}.bak")
+        if src.exists():
+            try:
+                src.rename(dst)
+            except OSError:
+                pass
+    # 步骤 3：当前 events.jsonl → .1.bak（非空才轮转，空文件直接复用）
+    if current > 0:
+        try:
+            path.rename(path.with_name(f"{path.name}.1.bak"))
+        except OSError:
+            pass
+    try:
+        path.touch(exist_ok=True)
+    except OSError:
+        pass
 
 
 def _ensure_default_events() -> Path | None:
