@@ -1,7 +1,7 @@
-"""fact/ref 只读接口（下游 app/ro 角色用；本层只发 SELECT，不做任何写）。用途：票面/模型取数
-（fixtures_between、fixture_with_result）、翻译补全待办（unmatched_teams）、认队体检（team_identity_audit）、
-回测汇总（backtest_report，读 analysis/model）；conn 由调用方给（store.pg.connect("app"/"ro")）。
-自审读法（回填自检/双源覆盖/FD 对齐明细）另见 store/selfcheck.py。
+"""fact/ref 只读接口（下游 app/ro 角色用；本层只发 SELECT，不做任何写）。目前仅承担
+``backtest_report`` 一份分析层只读接口（读 analysis/model）；conn 由调用方给
+（``store.pg.connect("app"/"ro")``）。
+自审读法（双源覆盖/FD 对齐明细）见 ``store/selfcheck.py``。
 """
 
 from __future__ import annotations
@@ -11,49 +11,11 @@ from typing import Any
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from store.team_identity import AUDIT_SQL
-
-FIXTURE_COLS = ("fixture_id, league_key, season, round, kickoff_at, home_team_id, away_team_id, status, venue")
-RESULT_COLS = "source, ft_h, ft_a, ht_h, ht_a, elapsed_ht, status, confirmed_at"
-UNTRANSLATED = "[一-鿿]"  # name_cn 里一个 CJK 都没有 ⇒ 仍是原名（to_cn 未命中），供后续翻译补全
-
 
 def _rows(conn: Connection, query: str, params: tuple = ()) -> list[dict[str, Any]]:
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(query, params)
         return cur.fetchall()
-
-
-def fixtures_between(conn: Connection, start, end, league_key: str | None = None) -> list[dict[str, Any]]:
-    """[start, end) 内的赛程（含未开赛）；league_key=None 时跨联赛。"""
-    query = f"SELECT {FIXTURE_COLS} FROM fact.fixture WHERE kickoff_at >= %s AND kickoff_at < %s"
-    params: list[Any] = [start, end]
-    if league_key:
-        query, params = query + " AND league_key = %s", [*params, league_key]
-    return _rows(conn, query + " ORDER BY kickoff_at, fixture_id", tuple(params))
-
-
-def fixture_with_result(conn: Connection, fixture_id: int) -> dict[str, Any] | None:
-    """单场：fixture 字段 + "results" 列表（每源一行，含半场）；查无此场返回 None。"""
-    fixture = _rows(conn, f"SELECT {FIXTURE_COLS} FROM fact.fixture WHERE fixture_id = %s", (fixture_id,))
-    if not fixture:
-        return None
-    results = _rows(conn, f"SELECT {RESULT_COLS} FROM fact.fixture_result WHERE fixture_id = %s ORDER BY source",
-                    (fixture_id,))
-    return {**fixture[0], "results": results}
-
-
-def unmatched_teams(conn: Connection) -> list[dict[str, Any]]:
-    """name_cn 至今无中文（= to_cn 未命中）的队伍，供后续翻译补全；只读，不改 ref.team。"""
-    return _rows(conn, "SELECT team_id, name_cn, aliases FROM ref.team "
-                       "WHERE name_cn !~ %s ORDER BY team_id",
-                   (UNTRANSLATED,))
-
-
-def team_identity_audit(conn: Connection) -> dict[str, Any]:
-    """认队体检（只读）：dup_af/dup_fd 是按 (sport, 源 id) 分组的裂行数，**必须恒 0**（team_af_key/team_fd_key
-    两个 partial unique 兜底）；orphan=未被任何 fact.fixture 引用的队，可 >0。SQL 恒量在 store.team_identity。"""
-    return _rows(conn, AUDIT_SQL)[0]
 
 
 REPORT_SQL = """

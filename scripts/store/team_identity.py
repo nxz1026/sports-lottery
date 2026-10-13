@@ -6,7 +6,8 @@ Bayern Munich→Bayern München）+ to_cn 按串查词典 ⇒ 同一家俱乐部
   ① 先按源 id 查（AF 查 af_id）：命中**只并 aliases**，绝不回改 name_cn（展示名要跨季稳定）；
   ② 未命中才 INSERT（name_cn = to_cn(原名)），撞 name_cn 再回落 `aliases || EXCLUDED.aliases`；
   ③ FD 队的 fd_id 只并进**对齐命中那一场**的两队（锚点 = fact.fixture 的 team_id）：不按队名猜、不建新行。
-本模块出 SQL + 两个写入口；体检读法在 store/query.py 的 team_identity_audit()（那里只发 SELECT）。
+本模块出 SQL + 两个写入口。认队体检读法已迁 ops 端（store.selfcheck 双源覆盖接口），
+``team_identity_audit``/``AUDIT_SQL`` 旧接口保留为兼容性 grep 钩子都不再启用。
 """
 
 from __future__ import annotations
@@ -26,14 +27,6 @@ FIXTURE_TEAMS_SQL = "SELECT home_team_id, away_team_id FROM fact.fixture WHERE f
 FD_TEAM_SQL = ("UPDATE ref.team t SET aliases = t.aliases || jsonb_build_object(%s::text, %s::bigint)"
                " WHERE t.team_id = %s AND (t.fd_id = %s OR (t.fd_id IS NULL AND NOT EXISTS"
                " (SELECT 1 FROM ref.team o WHERE o.sport = t.sport AND o.fd_id = %s)))")
-# 体检：同一 (sport, 源 id) 出现 >1 行即"裂行"（team_af_key/team_fd_key 两个 partial unique 已兜底，这里只报数）
-DUP_SQL = "(SELECT count(*) FROM (SELECT 1 FROM ref.team GROUP BY sport, {c} HAVING count(*)>1 AND {c} IS NOT NULL) d)"
-AUDIT_SQL = ("SELECT (SELECT count(*) FROM ref.team) AS teams,"
-             " (SELECT count(*) FROM ref.team WHERE af_id IS NOT NULL) AS with_af_id,"
-             " (SELECT count(*) FROM ref.team WHERE fd_id IS NOT NULL) AS with_fd_id,"
-             f" {DUP_SQL.format(c='af_id')} AS dup_af, {DUP_SQL.format(c='fd_id')} AS dup_fd,"
-             " (SELECT count(*) FROM ref.team t WHERE NOT EXISTS (SELECT 1 FROM fact.fixture f"
-             " WHERE f.home_team_id = t.team_id OR f.away_team_id = t.team_id)) AS orphan")
 
 
 def resolve_team(cur, name: str | None, af_id: int | None) -> int | None:

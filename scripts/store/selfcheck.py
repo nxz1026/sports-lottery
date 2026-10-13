@@ -1,8 +1,7 @@
-"""自审读法：回填自检 / 双源覆盖 / FD 对齐明细（从 store/query.py 拆出：那边要加回测汇总，顶上 100 行上限）。
-
-三函数都只发 SELECT；`_rows` 是 store 层唯一的游标包装（重复一份必然漂移，故 import 而不抄）。
-`source_coverage`/`unmatched_fd` 的"最新一条留痕"读法会被任何更新的生产留痕顶掉 ⇒ 调用方要么传
-`src_file`/`fd_ids` 限定作用域，要么自担（OMP-SKILL §9-33：读全局必须能给范围）。
+"""自审读法：双源覆盖 / FD 对齐明细（两函数只发 SELECT；`_rows` 是 store 层唯一的游标
+包装，重复一份必然漂移，故 import 而不抄）。`source_coverage`/`unmatched_fd` 的"最新
+一条留痕"读法会被任何更新的生产留痕顶掉 ⇒ 调用方要么传 `src_file`/`fd_ids` 限定作用域，
+要么自担（OMP-SKILL §9-33：读全局必须能给范围）。
 """
 
 from __future__ import annotations
@@ -12,17 +11,6 @@ from typing import Any
 from psycopg import Connection
 
 from store.query import _rows
-
-
-def league_season_count(conn: Connection) -> list[dict[str, Any]]:
-    """回填自检：每联赛×赛季的场次数 / 有赛果场次数 / 有半场的赛果行数（HT 非空率的分子）。"""
-    return _rows(conn, """
-        SELECT f.league_key, f.season,
-               count(DISTINCT f.fixture_id) AS fixtures,
-               count(DISTINCT r.fixture_id) AS with_result,
-               count(*) FILTER (WHERE r.ht_h IS NOT NULL) AS ht_rows
-          FROM fact.fixture f LEFT JOIN fact.fixture_result r USING (fixture_id)
-         GROUP BY f.league_key, f.season ORDER BY f.league_key, f.season""")
 
 
 def source_coverage(conn: Connection) -> dict[str, Any]:
