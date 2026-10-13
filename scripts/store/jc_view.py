@@ -22,7 +22,35 @@ from typing import Any
 from psycopg.rows import dict_row
 
 from core.log import logger
+from market.devig import safe_devig
 from store import pg
+
+
+def _nums(o: dict) -> dict:
+    """h/d/a 温和提取：不存在或非数 → None。"""
+    out = {}
+    for k in ("h", "d", "a"):
+        try:
+            v = float(o[k])
+        except (KeyError, TypeError, ValueError):
+            v = None
+        out[k] = v
+    return out
+
+
+def _implied(nums: dict) -> dict:
+    """盘口赔率 → 归一化隐含概率（3 位小数）。
+
+    P5-2 迁移：lenient 过滤非法项 + 单边退化逻辑收口到 ``market.devig.safe_devig``。
+    本函数只负责 3 位小数 round（clv_baseline 走 ``safe_devig`` 不 round）。
+
+    退化情形（仅 1 项有效）保持旧行为：返 ``{key: 1.0}``（单边胜率 100%），
+    与历史 ABI 兼容。
+    """
+    probs = safe_devig({k: v for k, v in nums.items()
+                        if isinstance(v, (int, float)) and not isinstance(v, bool)},
+                       allow_single=True)
+    return {k: round(probs[k], 3) for k in probs} if probs else {}
 
 _FIX_SQL = """select m.match_id, m.match_num, m.league_cn, m.home_cn, m.away_cn, m.match_status,
         to_char(m.kickoff_bj, 'MM-DD HH24:MI') as kickoff_bj,
@@ -170,38 +198,6 @@ def jc_movement(day: str | None = None) -> list[dict[str, Any]]:
     sql = _MOV_SQL_DAY if day else _MOV_SQL_LATEST
     rows = _fetch(sql, {"day": day} if day else {})
     groups: dict = {}
-
-    def _nums(o: dict) -> dict:
-        out = {}
-        for k in ("h", "d", "a"):
-            try:
-                v = float(o[k])
-            except (KeyError, TypeError, ValueError):
-                v = None
-            out[k] = v
-        return out
-
-    def _implied(nums: dict) -> dict:
-        """盘口赔率 → 归一化隐含概率（3 位小数）。
-
-        P2-23 迁移：实际去水算法委托给 ``scripts/market/devig.devig``（同一公式
-        ``(1/o)/Σ(1/o)``），保留本函数的 lenient 预处理（过滤 None / <=1
-        / 非数）。SQL 输出端可能有 NULL / 边界值，silent filter 比
-        ``market.devig`` 的 ValueError 更适合。
-
-        退化情形（仅 1 项有效）保持旧行为：返 ``{key: 1.0}``（单边胜率 100%），
-        与历史 ABI 兼容；``market.devig`` 至少要 2 项才能算 Σ=1。
-        """
-        valid = {k: float(v) for k, v in nums.items()
-                 if isinstance(v, (int, float)) and v > 1}
-        if not valid:
-            return {}
-        if len(valid) == 1:
-            # 单边退化：与历史 ABI 兼容
-            return {next(iter(valid)): 1.0}
-        from market.devig import devig
-        probs = devig(valid)
-        return {k: round(probs[k], 3) for k in probs}
 
     for r in rows:
         key = (r["match_num"], r["play_type"])

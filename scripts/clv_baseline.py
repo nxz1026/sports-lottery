@@ -33,21 +33,12 @@ _BJT = timezone.utc  # 报告只写 UTC 时刻，不本地化
 def _devig_home(odds_home, odds_away):
     """h2h 双方向去水 → 主胜概率（等比例归一；二者都 >1 才算，否则 None）。
 
-    实现委托给 ``scripts/market/devig.devig``（同一去水公式），保留本函数
-    "非法 → None" 的 lenient 语义（脚本侧 ``devig`` 是 "非法 → ValueError"）。
+    实现委托给 ``scripts/market/devig.safe_devig``（P5-2 收口后的 lenient 包装）。
+    本函数保留"非法 → None"语义（脚本侧 ``devig`` 是"非法 → ValueError"）。
     """
-    try:
-        oh, oa = float(odds_home), float(odds_away)
-    except (TypeError, ValueError):
-        return None
-    if not (oh > 1 and oa > 1):
-        return None
-    from market.devig import devig as _strict_devig
-    try:
-        result = _strict_devig({"home": oh, "away": oa})
-    except ValueError:
-        return None
-    return result["home"]
+    from market.devig import safe_devig
+    result = safe_devig({"home": odds_home, "away": odds_away})
+    return result["home"] if result else None
 
 
 def _clv(p_model, p_close):

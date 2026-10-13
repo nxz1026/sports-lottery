@@ -1,9 +1,10 @@
-"""P2-23 镜像对账：``scripts/store/jc_view._implied`` ↔ ``scripts/market/devig.devig``。
+"""P2-23 镜像锁 + P5-2 收口：``scripts/store/jc_view._implied`` ≡ ``scripts/market/devig.safe_devig``。
 
-``_implied`` 是 SQL 输出端赔率 → 归一化隐含概率的私有 helper，独立实现
-``(1/o)/Σ(1/o)`` 公式。P2-23 把它 delegate 到 ``market.devig.devig``，
-保留 lenient 预处理（过滤 None / <=1 / 非数）。本测试守住两端数值
-完全一致（3 位小数 round 边界除外）。
+``_implied`` 是 SQL 输出端赔率 → 归一化隐含概率的 helper。P2-23 把它
+delegate 到 ``market.devig.devig``；P5-2 进一步把 lenient 过滤（None / <=1 /
+非数值）收口到 ``market.devig.safe_devig``，本模块 ``_implied`` 只负责
+3 位小数 round。P5-2 起 ``_implied`` 提到模块级（不再嵌套在
+``jc_movement`` 里），可直接 import。
 """
 from __future__ import annotations
 
@@ -17,27 +18,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 
-def _extract_implied_function():
-    """``jc_view._implied`` 是嵌套函数，需从源码提取后用 types.FunctionType 重建。
-
-    返回可调用函数 ``_implied(nums: dict) -> dict``。
-    """
-    import types
-    from store import jc_view
-    src = jc_view.jc_movement.__code__
-    consts = src.co_consts
-    # 嵌套 _implied 函数对象在 jc_movement 的 consts 中
-    for c in consts:
-        if isinstance(c, types.CodeType) and c.co_name == "_implied":
-            # co_consts[0] 是 docstring
-            return types.FunctionType(c, globals())
-    raise RuntimeError("jc_view._implied not found in jc_movement")
-
-
 def _implied_test(nums):
-    """从 jc_view.jc_movement 抽出 _implied 函数体，跨进程可调用。"""
-    fn = _extract_implied_function()
-    return fn(nums)
+    """``_implied`` 模块级函数（P5-2 起），直接 import。"""
+    from store import jc_view
+    return jc_view._implied(nums)
 
 
 def test_valid_had_three_way_matches_market_devig():
@@ -113,9 +97,10 @@ def test_had_huge_underdog_skewed():
 
 
 def test_source_level_devig_integration():
-    """源码层验证：``jc_view`` 源码已删内联 ``1/v`` 累加，改为 delegate ``devig(valid)``。
+    """源码层验证：``jc_view`` 源码已删内联 ``1/v`` 累加，改为 delegate ``safe_devig``。
 
-    防止后续有人 PR 把 ``devig(valid)`` 改成重新内联（漂移回退）。
+    防止后续有人 PR 把 ``safe_devig(...)`` 改成重新内联（漂移回退）。
+    P5-2 起 call 形式从 ``devig(valid)`` 升级到 ``safe_devig(..., allow_single=True)``。
     """
     from store import jc_view
     import inspect
@@ -124,7 +109,7 @@ def test_source_level_devig_integration():
     assert "sum(1 / v for" not in src, (
         "jc_view 又出现内联 1/v 累加，应已 delegate 到 market.devig"
     )
-    # 新实现特征：devig(valid)
-    assert "devig(valid)" in src, (
-        "jc_view 没 delegate 到 market.devig.devig"
+    # 新实现特征：safe_devig
+    assert "safe_devig" in src, (
+        "jc_view 没 delegate 到 market.devig.safe_devig"
     )
