@@ -92,13 +92,24 @@ def _login(client: TestClient) -> None:
     assert res.status_code == 200, res.text
 
 
-def _drain_jobs(timeout: float = 5.0) -> None:
-    """等后台任务线程写完结态后再退出用例（否则撤销 monkeypatch 后会污染生产数据目录）。"""
+def _drain_jobs(timeout: float = 10.0) -> None:
+    """等后台任务线程写完结态后再退出用例（否则撤销 monkeypatch 后会污染生产数据目录）。
+
+    P3-17 + P3-22 风格（与 ``test_m3_jobs._drain_jobs`` / ``test_m6_ai_enrich._drain_jobs``
+    对齐）：timeout 5s → 10s + PermissionError 容错。原 5s 在全仓 15x 压测下
+    1/15 偶发（test_ai_enrich_without_body_defaults_to_manual）—— Windows fs
+    fd 释放延迟 + 跨测试 worker 干扰。
+    """
     import web.services.jobs as jobs_mod
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if jobs_mod.active_job() is None:
-            return
+        try:
+            if jobs_mod.active_job() is None:
+                return
+        except (PermissionError, OSError):
+            # Windows fd 释放延迟 / 临时文件锁 → 视为瞬态，继续轮询
+            time.sleep(0.05)
+            continue
         time.sleep(0.02)
     raise AssertionError("后台任务线程未在超时内结束，测试隔离可能已破坏")
 
