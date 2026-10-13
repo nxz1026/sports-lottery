@@ -237,15 +237,27 @@ def _drop_stale_lock(lock_path: Path) -> None:
 # --- 状态机读/写 ----------------------------------------------------------
 
 def _read_job(jid: str) -> dict | None:
+    """读取任务文件（带 Windows fd 释放延迟重试 — 与 ``_exclusive_lock`` 同语义）。"""
     path = _job_file(jid)
     if not path.is_file():
         return None
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
+    # Windows 上的 transient PermissionError / OSError 三次重试共 ~30ms：
+    #   - 同进程 worker 线程刚 ``_write_job`` 完成 ``os.replace``，尚未来得及彻底释放；
+    #   - Windows Defender 冷启索引首撞 fs 持有 fd 数十毫秒；
+    #   - 同时序的``os.replace`` 把文件名换成另一个 inode，旧 inode 短暂残留拒绝句柄复用。
+    # 不区分原因 — 一律视为瞬态。
+    last_exc: Exception | None = None
+    for delay in (0.0, 0.01, 0.02):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else None
+        except (OSError, ValueError) as exc:
+            last_exc = exc
+            if delay:
+                time.sleep(delay)
+    logger.debug("_read_job %s fd 释放延迟重试耗尽: %s", jid, last_exc)
+    return None
 
 
 def _write_job(jid: str, data: dict) -> None:

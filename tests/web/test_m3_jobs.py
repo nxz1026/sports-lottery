@@ -187,7 +187,12 @@ def test_concurrent_trigger_only_one_producer(client, monkeypatch):
 # --- 验收点 D：状态机轮询到终态 + timeout 路径 ------------------------------
 
 def test_job_poll_to_terminal(client, monkeypatch):
-    """POST 202 → GET 轮询到 done（假 Popen 立即成功）。"""
+    """POST 202 → GET 轮询到 done（假 Popen 立即成功）。
+
+    轮询窗口：5s → 10s。worker 持 JOBS_LOCK_FILE + state.lock 2 段锁 + Windows fs
+    偶发延迟，P3-17 fix 的 _drain_jobs 已扩到 10s；本测试 polling 与之对齐，
+    避免冷启动对锁时跳过终态判定。
+    """
     import web.services.jobs as jobs_mod
     monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(_OkProc))
     _login(client)
@@ -195,7 +200,8 @@ def test_job_poll_to_terminal(client, monkeypatch):
     assert r.status_code == 202
     jid = r.json()["job"]["id"]
     status = None
-    for _ in range(100):
+    body = None
+    for _ in range(200):  # 200 × 50ms = 10s
         body = client.get(f"/api/v1/jobs/{jid}").json()["job"]
         status = body["status"]
         if status in ("done", "failed", "timeout"):
