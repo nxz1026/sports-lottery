@@ -18,6 +18,8 @@ from typing import Any
 from psycopg import Connection, sql
 from psycopg.types.json import Jsonb
 
+from .parse_values import canonical_src_hash  # §5.0 幂等键算法 — 单一真源 see P4-3
+
 STG_TABLES: frozenset[str] = frozenset(
     {"jczq_offer", "jczq_result", "jc_issue", "jc_issue_result", "jclq_offer", "jclq_result", "lottery_draw"}
 )
@@ -34,12 +36,6 @@ REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "jclq_result": ("match_display_num", "ft"),
     "lottery_draw": ("game", "issue_no", "draw_date", "numbers"),
 }
-
-
-def canonical_src_hash(obj: dict[str, Any]) -> str:
-    """规范化 JSON（键排序、紧凑分隔、保留中文）的 sha256：同一行内容必得同一幂等键。"""
-    payload = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def reject_reason(obj: Any, table: str) -> str | None:
