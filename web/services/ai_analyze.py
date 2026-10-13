@@ -33,6 +33,19 @@ except Exception:
     pass
 
 
+# Round 10 E.3: ai_analyze 子进程若写 events.predict.jsonl 会与 web 主进程抢同一
+# 文件（两进程都 import core.log → process_name="predict"）→ 改为独立后缀
+# "ai_analyze" 让 web + ai sub 各自落不同 events 文件（H9 隔离延伸）。
+try:
+    from core import observability as _ai_obs  # noqa: E402 — sys.path 已加
+    _ai_obs.setup(process_name="ai_analyze")
+except Exception:  # noqa: BLE001 — 装挂失败仅记日志，不阻塞模块加载
+    try:
+        logger.warning("observability.setup(process_name='ai_analyze') 失败，被跳过")
+    except Exception:
+        pass
+
+
 def _ensure_output_dir() -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     return OUTPUT_DIR

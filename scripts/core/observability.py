@@ -48,6 +48,9 @@ _EVENTS_MAX_BYTES: int | None = None
 _EVENTS_BACKUP_COUNT: int = 5
 _INSTALLED = False
 _INSTALL_LOCK = threading.Lock()
+# A.1 (Round 10): log_event 写锁 —— 多线程并发写入 events.jsonl 时
+# stat-rename-write 中间不被另一线程插队，保证 rotation + 写追加原子
+_EVENTS_WRITE_LOCK = threading.Lock()
 
 
 def logs_dir() -> Path:
@@ -231,9 +234,11 @@ def log_event(kind: str, **fields: Any) -> None:
     }
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
     try:
-        _maybe_rotate_events(path, len(line) + 1)  # +1 for newline
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        # A.1 (Round 10): 写锁保护 rotation+append 不被并发插队
+        with _EVENTS_WRITE_LOCK:
+            _maybe_rotate_events(path, len(line) + 1)  # +1 for newline
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
     except OSError as e:
         logger.warning("log_event write failed (%s): %s", path, e)
 
@@ -314,14 +319,16 @@ def iter_events(
     limit: int | None = None,
     path: Path | None = None,
 ):
-    """惰性读 ``events.jsonl``。``kind`` 过滤事件类型；``since_ts`` ISO 字符串下界。
+    """真惰性读 ``events.jsonl``（E.1 Round 10）—— ``kind`` 过滤事件类型；
+    ``since_ts`` ISO 字符串下界；``limit`` 截断后立即 break 退出。
 
-    返回 dict 流（每行一个）；解析失败行记 logger.warning 跳过。
+    返回 dict 生成器（一行一个）；解析失败行记 logger.warning 跳过。
+    真惰性保证几十万行 events.jsonl 不全量加载到内存，下游 ETL 取前 N 条就 OK。
     """
     p = path or events_jsonl_path()
     if p is None or not p.exists():
         return
-    out = []
+    count = 0
     with open(p, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -336,10 +343,10 @@ def iter_events(
                 continue
             if since_ts and rec.get("ts", "") < since_ts:
                 continue
-            out.append(rec)
-            if limit is not None and len(out) >= limit:
+            yield rec
+            count += 1
+            if limit is not None and count >= limit:
                 break
-    yield from out
 
 
 __all__ = [
