@@ -412,8 +412,20 @@ def run_job(jid: str) -> None:
                 stdout=log_fh, stderr=subprocess.STDOUT, text=False,
             )
     except OSError as exc:
-        _spin_state(jid, STATUS_FAILED, finished_at=_now_epoch(),
-                    exit_code=-1, error=f"spawn failed: {exc}")
+        # C.1 (Round 10): _spin_state 自身可能 OSError（lock timeout / fs quota
+        # 等），需 catch-all 兜底落 events.web.jsonl，而不是交给 threading.excepthook
+        # 单一通道失败。
+        try:
+            _spin_state(jid, STATUS_FAILED, finished_at=_now_epoch(),
+                        exit_code=-1, error=f"spawn failed: {exc}")
+        except Exception as spin_exc:
+            try:
+                from core import observability
+                observability.log_error(spin_exc,
+                    context="jobs.spin_state_after_spawn_failed",
+                    jid=jid, original=str(exc)[:200])
+            except Exception:
+                pass
         return
     try:
         code = proc.wait(timeout=config.PREDICT_TIMEOUT_SECONDS)
@@ -423,16 +435,34 @@ def run_job(jid: str) -> None:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             pass
-        _spin_state(jid, STATUS_TIMEOUT, finished_at=_now_epoch(),
-                    exit_code=None, error="timeout killed")
+        try:
+            _spin_state(jid, STATUS_TIMEOUT, finished_at=_now_epoch(),
+                        exit_code=None, error="timeout killed")
+        except Exception as spin_exc:
+            try:
+                from core import observability
+                observability.log_error(spin_exc,
+                    context="jobs.spin_state_after_timeout",
+                    jid=jid)
+            except Exception:
+                pass
     else:
-        if code == 0:
-            _spin_state(jid, STATUS_DONE, finished_at=_now_epoch(), exit_code=0)
-        else:
-            # 非零退出必须留下可诊断原因：引擎把真实报错写在 stdout/stderr 日志里，
-            # 只记 exit_code 会让失败任务在 API/看板上显示 error=null。
-            _spin_state(jid, STATUS_FAILED, finished_at=_now_epoch(),
-                        exit_code=code, error=_failure_hint(log_path, code))
+        try:
+            if code == 0:
+                _spin_state(jid, STATUS_DONE, finished_at=_now_epoch(), exit_code=0)
+            else:
+                # 非零退出必须留下可诊断原因：引擎把真实报错写在 stdout/stderr 日志里，
+                # 只记 exit_code 会让失败任务在 API/看板上显示 error=null。
+                _spin_state(jid, STATUS_FAILED, finished_at=_now_epoch(),
+                            exit_code=code, error=_failure_hint(log_path, code))
+        except Exception as spin_exc:
+            try:
+                from core import observability
+                observability.log_error(spin_exc,
+                    context="jobs.spin_state_after_nonzero_exit",
+                    jid=jid, exit_code=code, failure_hint=_failure_hint(log_path, code)[:200])
+            except Exception:
+                pass
     finally:
         if proc.poll() is None:
             proc.kill()

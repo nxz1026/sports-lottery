@@ -120,6 +120,15 @@ def _class_per_match(predictions: dict, fixtures: list) -> list[dict]:
                 if not text:
                     raise RuntimeError("LLM returned empty")
             except Exception as ex:
+                # C.2 (Round 10): LLM 失败落 events.jsonl，便于 dashboard
+                # 监测 LLM 通道健康度（每日 quota / API quota / 模型宕机）。
+                try:
+                    from core import observability as _ai_obs
+                    _ai_obs.log_error(ex, context="ai_analyze.per_match_llm",
+                                      league=league_key, match=f"{home}_vs_{away}",
+                                      direction=direction, score=score)
+                except Exception:  # noqa: BLE001 — observability 自身失败不阻塞主流程
+                    pass
                 logger.warning("per_match LLM failed (%s vs %s): %s", home, away, ex)
                 text = f"模型方向「{direction}」、预测比分「{score}」（LLM 解读暂不可用）"
             out.append({
@@ -163,6 +172,12 @@ def _class_banker(predictions: dict, fixtures: list) -> str:
             raise RuntimeError("LLM returned empty")
         return text[:300]
     except Exception as ex:
+        try:
+            from core import observability as _ai_obs
+            _ai_obs.log_error(ex, context="ai_analyze.banker_llm",
+                              candidates_count=len(candidates))
+        except Exception:
+            pass
         logger.warning("banker LLM failed: %s", ex)
         return "LLM 解读暂不可用，请人工核对候选名单：" + "；".join(
             f"{c['lg']} {c['match']} {c['dir']}({c['stars']}★)" for c in candidates[:5])
@@ -197,6 +212,12 @@ def _class_lottery(lottery: list[dict]) -> list[dict]:
                         "issue_no": issue, "numbers_raw": nums,
                         "review": text[:200]})
         except Exception as ex:
+            try:
+                from core import observability as _ai_obs
+                _ai_obs.log_error(ex, context="ai_analyze.lottery_llm",
+                                  game_num=gn, game_name=game_name, issue=issue)
+            except Exception:
+                pass
             logger.warning("lottery LLM failed (%s): %s", gn, ex)
             out.append({"game_num": gn, "game_name": game_name,
                         "issue_no": issue, "numbers_raw": nums,
@@ -218,21 +239,41 @@ def analyze(date_str: str | None = None) -> dict:
     lottery = _read_lottery(per_type=5)
 
     warning: list[str] = []
+    # C.2 (Round 10): 主入口三类 LLM 失败也上 events.jsonl，让 dashboard 能
+    # 监测整体 AI 通道健康度（个别 per_match/banker/lottery 已经在子函数包好）。
+    # 主入口这种 catch-all 主要应对 _read_predictions/_class_per_match 整函数
+    # 崩溃（非 LLM 本身，而是输入或 schema 问题）。
+    from core import observability as _ai_obs_top  # noqa: F401 — 主流程首部 lazy import
     try:
         per_match = _class_per_match(predictions, fixtures)
     except Exception as e:
         per_match = []
         warning.append(f"per_match 失败：{e}")
+        try:
+            _ai_obs_top.log_error(e, context="ai_analyze.analyze.per_match",
+                                   date_str=target_date)
+        except Exception:
+            pass
     try:
         banker = _class_banker(predictions, fixtures)
     except Exception as e:
         banker = "胆材叙事生成失败"
         warning.append(f"banker 失败：{e}")
+        try:
+            _ai_obs_top.log_error(e, context="ai_analyze.analyze.banker",
+                                   date_str=target_date)
+        except Exception:
+            pass
     try:
         lottery_out = _class_lottery(lottery)
     except Exception as e:
         lottery_out = []
         warning.append(f"lottery 失败：{e}")
+        try:
+            _ai_obs_top.log_error(e, context="ai_analyze.analyze.lottery",
+                                   date_str=target_date)
+        except Exception:
+            pass
 
     payload = {
         "date": target_date,
