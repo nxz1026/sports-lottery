@@ -4,6 +4,7 @@
 - 全量测试：1154 passed / 70 skipped / 0 failed
 - 提交：6（P3-19 + P4-1 ~ P4-5）+ P3-20 flake 根因深挖
 - 净影响：生产代码 **-150 行**（4 个 dead code 块清零 + 1 个字节级 duplicate 合并）；测试代码 **+250 行**（3 个 mirror 锁 / 行为锁）
+- 后续：P5-1~4 收口见 `P5_report.md`（safe_devig 抽取 + team_norm helper + 4 处 lint / dead local）
 
 ## 背景
 
