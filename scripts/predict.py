@@ -149,7 +149,15 @@ def _fetch_and_parse(league_key: str, data_source: str, dates_str: str, now_utc,
         logger.warning(f"Dropped {ghost_dropped} ghost matches (kickoff in past but marked scheduled): "
                        + ", ".join(m.get("name") or "?" for m in ghost_dropped))
     logger.info(f"Past: {len(past)}, Future: {len(future)}, In progress: {len(in_prog)}")
-    save_results(past)
+    # H6: save_results 偶发 OSError / json 序列化失败（Round 8 扫到），
+    # 失败静默让"已完赛落库"对运营不可见，包一层 log_error 上 events.jsonl。
+    try:
+        save_results(past)
+    except Exception as _save_exc:
+        from core.observability import log_error
+        log_error(_save_exc, context="_fetch_and_parse.save_results",
+                  league=league_key, past_count=len(past))
+        logger.warning(f"save_results 在 league={league_key} 失败（已落 events.jsonl）: {_save_exc}")
     return events, past, future, in_prog
 
 
@@ -539,7 +547,12 @@ def _setup_league_run(league_key: str, args, now_utc, dates_str):
                     espn_events.extend(fetch_espn(day, espn_slug))
                 _odds_enriched = enrich_soccer_odds(future, espn_events, now_utc)
             except Exception as e:
-                logger.warning(f"ESPN odds enrichment failed (non-fatal): {e}")
+                # H7: ESPN 富化失败（scoreboard 429 / json 解析错等）落 events.jsonl
+                from core.observability import log_error
+                log_error(e, context="espn_odds_enrich",
+                          league=league_key, future_count=len(future),
+                          espn_slug=espn_slug)
+                logger.warning(f"ESPN odds enrichment failed (non-fatal, 已落 events.jsonl): {e}")
     if _odds_enriched:
         logger.info(f"League {league_key}: ESPN odds enriched {_odds_enriched}/{len(future)} future matches")
 
@@ -550,7 +563,11 @@ def _setup_league_run(league_key: str, args, now_utc, dates_str):
         if _added:
             logger.info(f"Accumulated {_added} historical past matches (league={league_key})")
     except Exception as e:
-        logger.warning(f"Failed to accumulate historical past matches: {e}")
+        # H7: append_historical 失败（DB locked / fs quota 等）落 events.jsonl
+        from core.observability import log_error
+        log_error(e, context="append_historical_past_matches",
+                  league=league_key, past_count=len(past))
+        logger.warning(f"Failed to accumulate historical past matches (已落 events.jsonl): {e}")
 
     # 2. ELO 评分初始化与更新
     fifa_rankings = fetch_fifa_rankings()
