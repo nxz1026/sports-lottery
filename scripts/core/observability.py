@@ -66,11 +66,14 @@ def events_jsonl_path() -> Path | None:
 
 
 # ── 进程级安装（幂等）─────────────────────────────────────
-def setup(*, dir: Path | None = None, level: str | int | None = None) -> Path:
+def setup(*, dir: Path | None = None, level: str | int | None = None,
+          process_name: str | None = None) -> Path:
     """安装文件 handler + JSONL handler + excepthook。返回 logs 目录。
 
     重复调用幂等：第一次安装后跳过。``dir`` 显式指定覆盖默认 ``FOOTBALL_DIR/logs``；
     ``level`` 默认读 ``LEAGUE_PREDICT_LOG_LEVEL`` env，缺省 ``INFO``。
+    ``process_name`` 给文件加后缀（``events.{name}.jsonl`` / ``runtime.{name}.log``）
+    让多进程（web uvicorn vs predict subprocess）不竞同一文件 —— 见 H9。
     """
     global _LOGS_DIR, _RUNTIME_LOG, _EVENTS_JSONL, _INSTALLED
     with _INSTALL_LOCK:
@@ -81,8 +84,11 @@ def setup(*, dir: Path | None = None, level: str | int | None = None) -> Path:
             dir = FOOTBALL_DIR / "logs"
         dir.mkdir(parents=True, exist_ok=True)
         _LOGS_DIR = dir
-        _RUNTIME_LOG = dir / "runtime.log"
-        _EVENTS_JSONL = dir / "events.jsonl"
+        # 文件名后缀：process_name=None → "runtime.log" / "events.jsonl"（保持旧契约）；
+        # 设置后 → "runtime.{name}.log" / "events.{name}.jsonl"（多进程隔离）
+        suffix = f".{process_name}" if process_name else ""
+        _RUNTIME_LOG = dir / f"runtime{suffix}.log"
+        _EVENTS_JSONL = dir / f"events{suffix}.jsonl"
         # 确保两个文件存在（empty file）—— 监控 / 备份 / 读 events.jsonl 的下游
         # 工具不必先写一行才有路径
         _RUNTIME_LOG.touch(exist_ok=True)
@@ -155,8 +161,9 @@ def setup(*, dir: Path | None = None, level: str | int | None = None) -> Path:
         globals()["threading_excepthook"] = _threading_excepthook  # noqa: F841 — 测试用
 
         _INSTALLED = True
-        logger.info("observability installed (logs_dir=%s, level=%s)",
-                    _LOGS_DIR, logging.getLevelName(level))
+        logger.info("observability installed (logs_dir=%s, level=%s, process=%s)",
+                    _LOGS_DIR, logging.getLevelName(level),
+                    process_name or "default")
         return _LOGS_DIR
 
 

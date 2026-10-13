@@ -35,10 +35,12 @@ logger = setup_logger("predict")
 
 
 # 顶层 ``import core.log`` 触发 observability 装挂（lazy — pytest tmp_path
-# 场景下让 observability 自己用 FOOTBALL_DIR；测试 fixture 再调 reset_for_test 隔离）
+# 场景下让 observability 自己用 FOOTBALL_DIR；测试 fixture 再调 reset_for_test 隔离）。
+# process_name="predict" 让 predict subprocess 写 ``events.predict.jsonl``，与
+# web 进程的 ``events.web.jsonl`` 不抢同一文件（Round 9 H9 多进程隔离）。
 try:
     from core import observability  # noqa: F401 — 触发装挂
-    observability.setup()
+    observability.setup(process_name="predict")
 except Exception:  # noqa: BLE001 — 装挂失败不应阻塞 logger 使用
     # 测试早期 / 异常环境下 skip；上层仍可显式调用 observability.setup
     pass

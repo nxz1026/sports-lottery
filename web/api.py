@@ -46,6 +46,19 @@ if _SCRIPTS_DIR not in _sys.path:
     _sys.path.append(_SCRIPTS_DIR)
 
 
+# ── observability 装挂（Round 9 H3 + H9）────────────────────
+# web 进程独立写 ``events.web.jsonl`` / ``runtime.web.log``，与 predict subprocess
+# 共享 ``FOOTBALL_DIR/logs/`` 时不抢同一文件；uvicorn worker 线程异常不再
+# 走默认 silent 丢，走 ``threading.excepthook`` 落 runtime.web.log + events。
+# 装挂失败不阻塞 app（与 AI 路由降级同源语义 —— 错误日志已有，进程得有）。
+try:
+    from core import observability  # noqa: E402 — sys.path 已加
+
+    observability.setup(process_name="web")
+except Exception as _obs_exc:  # noqa: BLE001 — 装挂失败仅记日志，进程继续
+    errors.logger.warning("observability.setup(process_name='web') 失败：%s", _obs_exc)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title=APP_TITLE, version=APP_VERSION, lifespan=lifespan)
     errors.register(app)
