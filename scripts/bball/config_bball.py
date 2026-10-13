@@ -13,7 +13,6 @@ ELO = {
     "K": 32,
     "HOME_ADV": 3,
     "INITIAL": 1500,
-    "REGRESSION": 0.5,
     "SCALE": 400,
 }
 

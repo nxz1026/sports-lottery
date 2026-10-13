@@ -11,7 +11,7 @@ from scripts.bball.predictor import predict_game
 
 def test_elo_constants_exist_with_numeric_values() -> None:
     assert isinstance(config_bball.ELO, dict)
-    assert {"K", "HOME_ADV", "INITIAL", "REGRESSION", "SCALE"} <= config_bball.ELO.keys()
+    assert {"K", "HOME_ADV", "INITIAL", "SCALE"} <= config_bball.ELO.keys()
     assert all(isinstance(value, (int, float)) for value in config_bball.ELO.values())
 
 

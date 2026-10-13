@@ -71,12 +71,3 @@ def update_ratings(ratings: dict[str, float], completed: list[dict]) -> int:
             _update_match(ratings, home, away, home_score > away_score)
             updated += 1
     return updated
-
-
-def apply_regression(ratings: dict[str, float]) -> int:
-    """让休赛期评分按固定回归系数靠近初始值。"""
-    initial = ELO["INITIAL"]
-    regression = ELO["REGRESSION"]
-    for team in list(ratings):
-        ratings[team] = initial + regression * (ratings[team] - initial)
-    return len(ratings)
