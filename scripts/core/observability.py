@@ -188,6 +188,7 @@ def reset_for_test() -> None:
     pytest fixture 调用以隔离测试间副作用。
     """
     global _LOGS_DIR, _RUNTIME_LOG, _EVENTS_JSONL, _EVENTS_MAX_BYTES, _INSTALLED
+    global _UNWRITABLE_EVENTS_WARNED
     with _INSTALL_LOCK:
         if not _INSTALLED:
             return
@@ -201,6 +202,8 @@ def reset_for_test() -> None:
         _LOGS_DIR = _RUNTIME_LOG = _EVENTS_JSONL = None
         _EVENTS_MAX_BYTES = None
         _INSTALLED = False
+        # D.1: 重置哨兵，让下一个测试能再触发一次
+        _UNWRITABLE_EVENTS_WARNED = False
 
 
 # ── 便捷 helper ────────────────────────────────────────────
@@ -218,6 +221,25 @@ def log_error(exc: BaseException, *, context: str = "", **fields: Any) -> None:
               **fields)
 
 
+# D.1 (Round 11): startup / 不可写目录场景下静默丢的哨兵 —— 一次性 logger.warning
+# 让运营"看得见"events 没写。否则测试 tmp_path 路径 / 只读 mount / 配置错误
+# 等场景会让 events 整个空的，但用户压根不知道。
+_UNWRITABLE_EVENTS_WARNED = False
+_UNWRITABLE_LOG_WARNED = False
+
+
+def _warn_unwritable_events_once(reason: str) -> None:
+    """log_event 在 path=None 时给运维打哨兵（一次，重启 reset_for_test 重置）。"""
+    global _UNWRITABLE_EVENTS_WARNED
+    if _UNWRITABLE_EVENTS_WARNED:
+        return
+    _UNWRITABLE_EVENTS_WARNED = True
+    logger.warning(
+        "events.jsonl unavailable —— 所有 log_event 静默丢；"
+        "原因：%s。检查 FOOTBALL_DIR/logs 是否可写（pytest tmp_path / "
+        "只读 mount / setup 失败 都是常见诱因）", reason)
+
+
 def log_event(kind: str, **fields: Any) -> None:
     """append-only 写一行 JSON 到 ``events.jsonl``（H8 后支持 size-based 轮转）。
 
@@ -226,6 +248,7 @@ def log_event(kind: str, **fields: Any) -> None:
     """
     path = events_jsonl_path() or _ensure_default_events()
     if path is None:
+        _warn_unwritable_events_once("events_jsonl_path() is None")
         return
     record = {
         "ts": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
@@ -296,7 +319,10 @@ def _ensure_default_events() -> Path | None:
         setup()
         return _EVENTS_JSONL
     except Exception as e:
-        logger.debug("lazy observability setup failed: %s", e)
+        # D.1 (Round 11): 升级到 ``logger.warning`` + 哨兵。lazy setup 失败通常
+        # 是因为 FOOTBALL_DIR 不可写（pytest tmp 或 ro mount），silent 会让运营
+        # 看不见；首次失败打哨兵，提醒排查。
+        _warn_unwritable_events_once(f"lazy setup failed: {e}")
         return None
 
 
