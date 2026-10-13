@@ -27,8 +27,6 @@ from bball.elo_bball import load_ratings  # noqa: E402
 from bball.odds_api import fetch_odds_games, parse_odds  # noqa: E402
 from bball.predictor import predict_game  # noqa: E402
 
-_BJT = timezone.utc  # 报告只写 UTC 时刻，不本地化
-
 
 def _devig_home(odds_home, odds_away):
     """h2h 双方向去水 → 主胜概率（等比例归一；二者都 >1 才算，否则 None）。
