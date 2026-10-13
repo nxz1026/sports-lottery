@@ -23,7 +23,7 @@ tags: [football, prediction, odds, poisson, elo]
 
 | 优先级 | 数据源 | 覆盖范围 | 说明 |
 |--------|--------|----------|------|
-| 1 | football-data.org | 5 大联赛 + 欧冠 | 免费，含赔率 |
+| 1 | football-data.org | 5 大联赛 + 欧冠 | 免费，赛程+赛果（**不含赔率**；赔率源是 API-Football） |
 | 2 | API-Football | 全联赛 | 备用 |
 | 3 | ESPN | 降级兜底 | 无赔率 |
 

@@ -23,7 +23,7 @@
 | `--dates` | 无 | `YYYYMMDD-YYYYMMDD` | 指定数据窗口；缺省为 BJT「今天-明天」（predict.py:424-429） |
 | `--no-fetch` | False | flag | **语义误导**：实际 `events=[]` 空列表（predict.py:82-84），并非读本地缓存；warning 建议改用 `--data-source football-data`（该源仍联网） |
 | `--no-dc` | False | flag | 禁用 Dixon-Coles（`use_dc=False`，rho 不拟合） |
-| `--update-rankings` | False | flag | **语义误导**：不联网刷新 FIFA 排名。实际仅 `force_refresh=True` 传给 `get_or_init_elo_ratings`，跳过 ELO 持久化缓存、从本地 FIFA 表重建 ELO（predict.py:264；elo.py:235-238）。联网入口 `core.data.fetch.update_fifa_rankings`（fetch.py:302-334）在主链**未被调用**（疑点 15 已 close） |
+| `--update-rankings` | False | flag | **语义误导**：不联网刷新 FIFA 排名。实际仅 `force_refresh=True` 传给 `get_or_init_elo_ratings`，跳过 ELO 持久化缓存、从本地 FIFA 表重建 ELO（predict.py:264；elo.py:242-248）。联网入口 `core.data.fetch.update_fifa_rankings`（fetch.py:302-334）**P4-1 已删**（主链 0 caller；FIFA 排名现统一走 `core.rankings.fetch_fifa_rankings` 读本地 json / 内置默认表，不联网） |
 | `--train-ml` | False | flag | 训练各联赛 ML 模型后**直接 return**（不跑预测；仅 stderr 打印结果，predict.py:404-415） |
 | `--no-ml` | False | flag | 本轮禁用 ML 概率混合（`ML_CONFIG["enabled"]=False`，predict.py:400-402） |
 | `--dashboard` | False | flag | 额外生成静态 HTML：`predictions/dashboard_{league}.html`（predict.py:360-367） |
@@ -473,7 +473,7 @@ def pick_latest_for_league(league):
 | 12 | AI 反馈 league 匹配链脆弱 | **CLOSED**（链脆弱性确定）；实际失配需运行时验证 | ai_enrich_gha.py:35-40（`source=league.get("league","?")`）+ feedback_loop.py:63,38 |
 | 13 | 速率限制状态不可跨进程读取 | **CLOSED** | fetch.py:58-64（进程内 `_rate_limit_info`）；`_API_KEYS_OK`（fetch.py:37）无公开读取入口 |
 | 14 | predictions[] 无 `*_en` 字段 | **CLOSED** | core/data/parse.py:335-336 仅 past_matches 有 `*_en`；backtest.py:49 用 `match` 字符串做键 |
-| 15 | `--update-rankings` 语义与文档不符 | **CLOSED** | predict.py:33 导入 `core.rankings.fetch_fifa_rankings`（无 force_refresh）；fetch.py:337-342 的联网委托版本未被主链调用；elo.py:235-238 仅控制 ELO 缓存 |
+| 15 | `--update-rankings` 语义与文档不符 | **CLOSED** | predict.py:33 导入 `core.rankings.fetch_fifa_rankings`（无 force_refresh）；fetch.py:337-342 的联网委托版本**P4-1 (2026-10-13) 已删**；elo.py:242-248 仅控制 ELO 缓存 |
 
 **结论**：15 条中 14 条 CLOSED（静态读码即可定论），1 条（#2 时区口径）需运行时验证。web 层（M1–M4）可据此直接开工，无需等待运行时确认。
 
@@ -491,5 +491,5 @@ def pick_latest_for_league(league):
 12. **[M0b新增] AI 反馈 league 匹配链脆弱**：`save_ai_scores(..., league_key="")` 用 item 的 `source` 字段存 league（feedback_loop.py:63），而 `source` 来自 `league.get("league", "?")`（ai_enrich_gha.py:35-46）——只有 GHA 流程里 predict 输出顶层的 league key 恰好与引擎 key 一致才匹配得上；`load_ai_adjustments(league_key)` 再按 `v["league"]==league_key` 过滤（feedback_loop.py:38）。任何一环改名即失效。`[需运行时验证]`：跑一轮 enrich + predict 看 `ai_adjusted` 是否出现。
 13. **[M0b新增] 速率限制状态不可跨进程读取**：`get_rate_limit_status()` 返回进程内 `_rate_limit_info`（fetch.py:58-64），predict 子进程退出即丢失；web 层「sources 状态」端点**无法**通过此函数拿到真实配额。且 `_API_KEYS_OK`（fetch.py:37）无公开读取入口。web 层需自行维护配额展示（或接受静态说明）。
 14. **[M0b新增] predictions[] 无 `*_en` 字段**：`predictions[].home`/`away` 的语言随 LLM 可用性漂移（英文/中文），而 `past_matches[]` 有恒英文的 `home_en`/`away_en`（core/data/parse.py:335-336）。web 层做双语展示时 predictions 部分缺稳定英文锚点（§8.3）。回填对账用 `match` 字符串（英文或中文）做键（backtest.py:49），同一场比赛若一次运行翻译可用另一次不可用，**对账键会失配**——进一步支持「web 层自备球队名称表」的结论。
-15. **[M0b新增] `--update-rankings` 语义与文档不符**：predict.py:33 import `from core.rankings import fetch_fifa_rankings`（**无 force_refresh 参数的版本**，rankings.py:12-46 只读本地文件/内置默认表）；`--update-rankings` 的 `force_refresh` 传给 `_update_elo` → `get_or_init_elo_ratings`，仅控制 ELO 持久化缓存是否忽略（elo.py:235-238），**不触发任何 FIFA 排名联网刷新**。真正的联网刷新入口 `core.data.fetch.update_fifa_rankings`（fetch.py:302-334）在 predict 主链**未被调用**（grep 未见）。`[需运行时验证]`：跑 `--update-rankings` 前后对比 `references/fifa_rankings.json` 与 `.elo_ratings.json` 变化可确认（留给 M1）。
+15. **[M0b新增] `--update-rankings` 语义与文档不符**：predict.py:33 import `from core.rankings import fetch_fifa_rankings`（**无 force_refresh 参数的版本**，rankings.py:12-46 只读本地文件/内置默认表）；`--update-rankings` 的 `force_refresh` 传给 `_update_elo` → `get_or_init_elo_ratings`，仅控制 ELO 持久化缓存是否忽略（elo.py:242-248），**不触发任何 FIFA 排名联网刷新**。真正的联网刷新入口 `core.data.fetch.update_fifa_rankings`（fetch.py:302-334）**P4-1 (2026-10-13) 已删**（主链 0 caller）。`[P4-1 已收口]`：FIFA 排名现统一走 `core.rankings` 入口，不再有联网/本地分裂。
 
