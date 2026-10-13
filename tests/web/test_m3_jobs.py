@@ -311,9 +311,12 @@ def test_auto_refresh_trigger_and_dedup(client, tmp_path, monkeypatch):
     import web.services.jobs as jobs_mod
     import web.services.store as store_mod
     monkeypatch.setattr(store_mod, "OUTPUT_DIR", tmp_path / "empty")
-    # 本用例经 API 真实投递任务：必须假 Popen（模块契约：测试绝不真跑引擎），
-    # 并在退出前排空线程，否则会污染真实 web/.data/jobs。
+    # 本用例经 API 真实投递任务：必须假 Popen（模块契约：测试绝不真跑引擎）。
+    # submit_job 改同步内联：原异步版本丢 executor 线程池，与测试 read_text 争同一
+    # jobs/{jid}.json + _drain_jobs 期间偶发 10s 内线程不返回（5x 压测 1/5 flake）。
+    # 内联版零线程，写文件在请求期间同步落盘，read_text 永不遇 PermissionError。
     monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(_OkProc))
+    monkeypatch.setattr(jobs_mod, "submit_job", lambda jid: jobs_mod.run_job(jid))
     _login(client)
     r1 = client.post("/api/v1/jobs/auto/refresh")
     assert r1.json()["triggered"] is True
@@ -325,7 +328,6 @@ def test_auto_refresh_trigger_and_dedup(client, tmp_path, monkeypatch):
     r2 = client.post("/api/v1/jobs/auto/refresh")
     assert r2.json()["triggered"] is False
     assert r2.json()["reason"] == "already_today"
-    _drain_jobs()
 
 
 # --- 验收点 C：AI 模块改坏后 app 仍能起 -------------------------------------
