@@ -13,6 +13,7 @@ import unicodedata
 from datetime import datetime, timezone
 
 from core.log import logger
+from core.team_norm import strip_accents_and_lowercase
 
 # 俱乐部类型/法人词（真报文形态：FC/CF/AS/RC/OGC/US/SS/SSC/VfL/SV…）：只剥类型词，绝不剥队名实词
 STOP_WORDS = frozenset(("fc afc cf sc ac club of the de if kc as rc ogc us ss ssc acf cfc bsc osc hsc"
@@ -28,9 +29,13 @@ OK_REASONS = frozenset({OK, OK_SYNONYM})  # 判"是否命中"用这个集合，�
 
 
 def tokens(name: str | None) -> frozenset[str]:
-    """小写 + 去变音符 + 按非字母数字切词 + 剥类型词：'Newcastle United FC' → {newcastle, united}。"""
-    flat = "".join(c for c in unicodedata.normalize("NFKD", name or "") if not unicodedata.combining(c))
-    return frozenset(w for w in re.split(r"[^a-z0-9]+", flat.lower()) if w and w not in STOP_WORDS)
+    """小写 + 去变音符 + 按非字母数字切词 + 剥类型词：'Newcastle United FC' → {newcastle, united}。
+
+    NFKD + Mn 去除 + lowercase 已收口到 ``core.team_norm.strip_accents_and_lowercase``
+    （P5-3）。STOP 词过滤仍属本模块专有（27 词含 vfl/afc/spvgg/...）。
+    """
+    return frozenset(w for w in re.split(r"[^a-z0-9]+", strip_accents_and_lowercase(name))
+                     if w and w not in STOP_WORDS)
 
 
 def normalize_team(name: str | None) -> str:

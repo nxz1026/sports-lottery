@@ -16,11 +16,11 @@ ESPN 抓取失败非致命：原样返回 future（保持 football-data 基本�
 from __future__ import annotations
 
 import re
-import unicodedata
 from datetime import datetime
 
 from core.data.parse import remove_vig
 from core.log import logger
+from core.team_norm import strip_accents_and_lowercase
 
 
 def american_to_decimal(raw) -> float | None:
@@ -57,10 +57,12 @@ def normalize_team(name: str) -> str:
     组合重音（不能当普通分隔符替换成空格，否则产生 'atl tico' 词内空格），
     再做小写/非字母数字清洗。最后查别名表，把同一队的跨语言/跨源
     惯用变体（Köln=Cologne、München=Munich 等）归到同一键。
+
+    P5-3 收口：NFKD + Mn 去除 + lowercase 三步合到 ``core.team_norm.strip_accents_and_lowercase``。
+    剩余 4 步（re.sub / STOP 过滤 / 逐 token 别名 / 整体别名兜底）属本模块
+    专有（P4-5 mirror 测试锁住）。
     """
-    s = unicodedata.normalize("NFKD", str(name or ""))
-    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
-    s = re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+    s = re.sub(r"[^a-z0-9]+", " ", strip_accents_and_lowercase(name)).strip()
     tokens = [t for t in s.split() if t not in _TEAM_NOISE_TOKENS]
     # 逐 token 别名替换（hamburger→hamburg、koln→cologne…），
     # 再对整体做别名兜底（lyonnais→lyon 等完整名映射）。
