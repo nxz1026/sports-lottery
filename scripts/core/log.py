@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-"""Logging setup for the league-predict engine."""
+"""Logging setup for the league-predict engine。
+
+P-6 增强：本模块顶层 ``logger = setup_logger("predict")`` 之后，``core.observability.setup()``
+会被自动调用以挂载：
+- RotatingFileHandler（``FOOTBALL_DIR/logs/runtime.log``，10MB × 5 份）
+- ``sys.excepthook`` / ``threading.excepthook``（未捕获异常先写日志）
+- JSONL 结构化事件流（``FOOTBALL_DIR/logs/events.jsonl``）
+
+进程崩溃后仍可从 ``runtime.log`` 回看 stderr 内容。
+"""
 
 import logging
 import os
@@ -23,6 +32,16 @@ def setup_logger(name: str = "predict") -> logging.Logger:
 
 
 logger = setup_logger("predict")
+
+
+# 顶层 ``import core.log`` 触发 observability 装挂（lazy — pytest tmp_path
+# 场景下让 observability 自己用 FOOTBALL_DIR；测试 fixture 再调 reset_for_test 隔离）
+try:
+    from core import observability  # noqa: F401 — 触发装挂
+    observability.setup()
+except Exception:  # noqa: BLE001 — 装挂失败不应阻塞 logger 使用
+    # 测试早期 / 异常环境下 skip；上层仍可显式调用 observability.setup
+    pass
 
 
 __all__ = ["setup_logger", "logger"]
