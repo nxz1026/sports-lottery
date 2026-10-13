@@ -108,19 +108,29 @@ class _BlockProc:
         return None
 
 
-def _drain_jobs(timeout: float = 5.0):
-    """等共享线程池里的 run_job 线程写完结态，再让用例退出。
+def _drain_jobs(timeout: float = 10.0):
+    """等共享线程池里的 run_job 线程写结态，再让用例退出。
 
     jobs 模块的 ThreadPoolExecutor 是模块级的，活过 monkeypatch 撤销：用例结束时
     若线程仍在跑，它会把终态写进**真实** web/.data/jobs（此时 config.JOBS_DIR 已被
     还原），造成生产目录污染（实测每次全量测试落 2 条 started_at=null 的幽灵记录）。
+
+    超时：5s → 10s（5x 压测观察到 Windows scheduling 边界紧张，10s 给 worker
+    充足窗口；原 5s 在 executor max_workers=2 下偶发 3 处 flake）。
+    容错：active_job() 抛 PermissionError（Windows fd 释放延迟，前一个 worker
+    持有 jobs/{jid}.json 未释放）→ 视为 None，继续轮询。
     """
     import time as _time
     import web.services.jobs as jobs_mod
     deadline = _time.monotonic() + timeout
     while _time.monotonic() < deadline:
-        if jobs_mod.active_job() is None:
-            return
+        try:
+            if jobs_mod.active_job() is None:
+                return
+        except (PermissionError, OSError):
+            # Windows fd 释放延迟 → 视为瞬态，继续轮询
+            _time.sleep(0.05)
+            continue
         _time.sleep(0.05)
     raise AssertionError("run_job 线程未在超时内结束（会污染真实 jobs 目录）")
 
