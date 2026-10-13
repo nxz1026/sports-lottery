@@ -294,7 +294,15 @@ def _emit_ml_predictions(output: dict, *, league: str) -> None:
     """
     try:
         from core.ml_feedback import record_prediction
-    except Exception as exc:  # noqa: BLE001 — ml_feedback 是 P-6 增量；老 import 路径坏不阻塞主流程
+    except Exception as exc:
+        # B.1 (Round 11): ml_feedback import 失败升级到 log_error，
+        # 让 ml 反馈链路断点可观测（之前仅 logger.debug，排错断链）。
+        try:
+            from core.observability import log_error
+            log_error(exc, context="_emit_ml_predictions.import",
+                      league=league)
+        except Exception:
+            pass
         logger.debug(f"ml_feedback import skipped: {exc}")
         return
     predictions = output.get("predictions") if isinstance(output, dict) else None
@@ -321,7 +329,17 @@ def _emit_ml_predictions(output: dict, *, league: str) -> None:
                 market_signal=m.get("market"),
                 extra=None,
             )
-        except Exception as exc:  # noqa: BLE001 — 单场失败不影响其它
+        except Exception as exc:
+            # B.1 (Round 11): 单场失败升级到 log_error —— 排错"全场 prediction
+            # 数 vs events 行数"对不上时能定位是哪场。
+            try:
+                from core.observability import log_error
+                log_error(exc, context="_emit_ml_predictions.per_match",
+                          league=league,
+                          match=str(m.get("name") or "?"),
+                          match_id=str(m.get("id") or ""))
+            except Exception:
+                pass
             logger.debug(f"record_prediction skipped: {exc}")
 
 
@@ -428,7 +446,15 @@ def _annotate_monte_carlo(predictions: list, run_monte_carlo: bool, n_simulation
     try:
         fixtures, initial_standings, team_strengths = _season_mc_inputs(
             league_key, data_source, now_utc)
-    except Exception as exc:  # 取数/解析异常不应打断整个预测
+    except Exception as exc:
+        # B.3 (Round 11): 取数异常升级 events —— 取整季赛程本就会跨多月，
+        # 偶发拉取失败应当可观测以便排查数据源稳定性。
+        try:
+            from core.observability import log_error
+            log_error(exc, context="_annotate_monte_carlo.season_inputs",
+                      league=league_key, data_source=data_source)
+        except Exception:
+            pass
         logger.warning(f"整季赛程取数失败，回退窗口内赛程: {exc}")
 
     if not fixtures:
@@ -490,6 +516,13 @@ def _build_league_output(now_utc, dates_str, league_key, tournament_type, data_s
             if _acc:
                 accuracy_summary[f"{_d}d"] = _acc
     except Exception as e:
+        # B.3 (Round 11): accuracy_summary 失败升级 events（DB 拉取失败 / db 文件损坏等）
+        try:
+            from core.observability import log_error
+            log_error(e, context="_build_league_output.accuracy_summary",
+                      league=league_key)
+        except Exception:
+            pass
         logger.warning(f"Accuracy summary failed: {e}")
     if accuracy_summary:
         output["accuracy_summary"] = accuracy_summary
@@ -502,6 +535,13 @@ def _build_league_output(now_utc, dates_str, league_key, tournament_type, data_s
             generate_dashboard(output, dash_path)
             logger.info(f"Dashboard generated: {dash_path}")
         except Exception as e:
+            # B.3 (Round 11): dashboard 失败升级 events（template 错 / asset 缺）
+            try:
+                from core.observability import log_error
+                log_error(e, context="_build_league_output.dashboard",
+                          league=league_key)
+            except Exception:
+                pass
             logger.warning(f"Dashboard generation failed: {e}")
     return output, accuracy_summary
 
@@ -595,7 +635,15 @@ def _compute_and_predict(past, future, league_key, fifa_rankings, host_country, 
         try:
             fitted_rho = fit_dc_rho(past)
         except Exception as e:
-            logger.info(f"DC rho fit failed: {e}, using default")
+            # B.3 (Round 11): DC ρ 拟合失败最危险 —— 现默认 ρ 兜底会让 league 间
+            # DC 相关结构失效且运营看不到；升级 log_error + warning。
+            try:
+                from core.observability import log_error
+                log_error(e, context="_compute_and_predict.dc_rho_fit",
+                          league=league_key)
+            except Exception:
+                pass
+            logger.warning(f"DC rho fit failed: {e}, 退回默认 {DC_RHO}")
 
     # 5. 生成预测（AI 反馈分数按联赛隔离加载，P4）
     ai_adjustments = load_ai_adjustments(league_key)
@@ -732,6 +780,13 @@ def _refresh_ml_models(league_key=None, max_age_days: float = 1.0, base_dir=None
             m = train_league_model(k, base_dir=base_dir)
             out[k] = m is not None
         except Exception as e:
+            # B.3 (Round 11): ML 模型重训失败升级 events（特征不一致 / sample 不足）
+            try:
+                from core.observability import log_error
+                log_error(e, context="_refresh_ml_models.train_league_model",
+                          league=k, base_dir=str(base_dir))
+            except Exception:
+                pass
             logger.warning(f"ML refresh failed for {k}: {e}")
             out[k] = None
     return out
@@ -825,6 +880,14 @@ def main() -> None:
                 try:
                     _refresh_ml_models(league_key)
                 except Exception as _e:
+                    # B.3 (Round 11): 单联赛 ML refresh 失败落 events
+                    # （--all 模式内层 catch-all，区别于上层 B.2 per_league）
+                    try:
+                        from core.observability import log_error
+                        log_error(_e, context="_main_loop.refresh_ml_models",
+                                  league=league_key)
+                    except Exception:
+                        pass
                     logger.warning(f"ML refresh failed for {league_key}: {_e}")
             except Exception as e:
                 # B.2 (Round 10): --all 模式整联赛预测失败落 events.jsonl

@@ -192,6 +192,75 @@ class TestLogErrorSmoke:
         assert ctx[0]["league"] == "epl"
 
 
+# ────────────────────── Round 11 B.1+B.3: inner try 静态守门 ──────────────────────────
+
+
+def _read_source(rel_path: str) -> str:
+    return (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+
+
+class TestPredictInnerTryLogErrorWiring:
+    """Round 11: predict.py 内部 try 块升级 log_error 静态守门。"""
+
+    def test_emit_ml_predictions_import_log_error_wired(self):
+        src = _read_source("scripts/predict.py")
+        assert "_emit_ml_predictions.import" in src, (
+            "B.1 设计：ml_feedback import 失败应 log_error context=_emit_ml_predictions.import"
+        )
+
+    def test_emit_ml_predictions_per_match_log_error_wired(self):
+        src = _read_source("scripts/predict.py")
+        assert "_emit_ml_predictions.per_match" in src
+        idx = src.index("_emit_ml_predictions.per_match")
+        snippet = src[max(0, idx - 300):idx + 200]
+        assert "log_error" in snippet
+        assert "match" in snippet and "match_id" in snippet
+
+    def test_season_inputs_log_error_wired(self):
+        """B.3 站点 1: _annotate_monte_carlo.season_inputs。"""
+        src = _read_source("scripts/predict.py")
+        assert "_annotate_monte_carlo.season_inputs" in src
+        idx = src.index("_annotate_monte_carlo.season_inputs")
+        snippet = src[max(0, idx - 200):idx + 200]
+        assert "log_error" in snippet
+        assert "league" in snippet
+        assert "data_source" in snippet
+
+    def test_accuracy_summary_log_error_wired(self):
+        """B.3 站点 2: _build_league_output.accuracy_summary。"""
+        src = _read_source("scripts/predict.py")
+        assert "_build_league_output.accuracy_summary" in src
+
+    def test_dashboard_log_error_wired(self):
+        """B.3 站点 3: _build_league_output.dashboard。"""
+        src = _read_source("scripts/predict.py")
+        assert "_build_league_output.dashboard" in src
+
+    def test_dc_rho_fit_log_error_wired(self):
+        """B.3 站点 4: _compute_and_predict.dc_rho_fit（最危险：默认 ρ 兜底）。"""
+        src = _read_source("scripts/predict.py")
+        assert "_compute_and_predict.dc_rho_fit" in src
+        idx = src.index("_compute_and_predict.dc_rho_fit")
+        # 跨整个 try/except 块：log_error 应升级，logger 应升级到 warning
+        block = src[max(0, idx - 300):idx + 400]
+        assert "log_error" in block
+        assert "league" in block
+        # 不允许 logger.info 出现（之前"静默默认 ρ"的元凶）
+        assert "logger.info" not in block.split("log_error")[0], (
+            "log_error 之前不应再有 logger.info（应升级到 warning 或 error）"
+        )
+
+    def test_refresh_ml_models_train_log_error_wired(self):
+        """B.3 站点 5: _refresh_ml_models.train_league_model。"""
+        src = _read_source("scripts/predict.py")
+        assert "_refresh_ml_models.train_league_model" in src
+
+    def test_main_loop_refresh_ml_models_log_error_wired(self):
+        """B.3 站点 6: --all 模式内层 _main_loop.refresh_ml_models。"""
+        src = _read_source("scripts/predict.py")
+        assert "_main_loop.refresh_ml_models" in src
+
+
 # ────────────────────── Round 10 B.1+B.2: 主循环 log_error ──────────────────────────
 
 
