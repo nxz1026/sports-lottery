@@ -82,5 +82,33 @@ def save_results(past_matches: list[dict[str, Any]]) -> None:
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"date": today, "matches": matches}, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved results: {path} ({len(matches)} matches, merged)")
+
+        # P-6 ML 反馈：每场结果写 events.jsonl（与 prediction 通过 match_key 关联）
+        _emit_ml_outcomes(matches)
     except Exception as e:
         logger.info(f"save_results error: {e}")
+
+
+def _emit_ml_outcomes(matches: list[dict]) -> None:
+    """P-6 ML 反馈：每场已结束比赛写 events.jsonl 一行。失败吞掉。"""
+    try:
+        from core.ml_feedback import record_outcome
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"ml_feedback import skipped: {exc}")
+        return
+    for m in matches:
+        if not isinstance(m, dict):
+            continue
+        try:
+            record_outcome(
+                league=str(m.get("league") or ""),
+                match_id=str(m.get("id") or ""),
+                home=str(m.get("home") or m.get("home_en") or ""),
+                away=str(m.get("away") or m.get("away_en") or ""),
+                kickoff_utc=str(m.get("kickoff_utc") or ""),
+                home_score=int(m.get("home_score", 0) or 0),
+                away_score=int(m.get("away_score", 0) or 0),
+                status=str(m.get("status") or "FT"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"record_outcome skipped: {exc}")

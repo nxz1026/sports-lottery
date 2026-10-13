@@ -205,7 +205,7 @@ def log_event(kind: str, **fields: Any) -> None:
     if path is None:
         return
     record = {
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "ts": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
         "kind": kind,
         **{k: _jsonable(v) for k, v in fields.items()},
     }

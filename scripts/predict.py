@@ -263,12 +263,53 @@ def _save_output(output: dict, calibration_offset: dict | None, now_utc) -> Path
         json.dump(output, f, indent=2, ensure_ascii=False)
     logger.info(f"Saved: {pred_file}")
 
+    # P-6 ML 反馈：每场预测写 events.jsonl 留作训练数据
+    _emit_ml_predictions(output, league=league)
+
     if calibration_offset:
         cal_file = PREDICTIONS_DIR / "pred_calibration.json"
         with open(cal_file, "w", encoding="utf-8") as f:
             json.dump(calibration_offset, f, indent=2)
 
     return pred_file
+
+
+def _emit_ml_predictions(output: dict, *, league: str) -> None:
+    """P-6 ML 反馈：每场预测写 events.jsonl 一行（与 outcomes 通过 match_key 关联）。
+
+    失败安全：写 events 失败不能影响主流程（吞 OSError）。
+    """
+    try:
+        from core.ml_feedback import record_prediction
+    except Exception as exc:  # noqa: BLE001 — ml_feedback 是 P-6 增量；老 import 路径坏不阻塞主流程
+        logger.debug(f"ml_feedback import skipped: {exc}")
+        return
+    predictions = output.get("predictions") if isinstance(output, dict) else None
+    if not isinstance(predictions, list):
+        return
+    for m in predictions:
+        if not isinstance(m, dict):
+            continue
+        try:
+            probs = m.get("probs") or {}
+            record_prediction(
+                league=league or m.get("league") or "",
+                match_id=str(m.get("id") or m.get("name") or ""),
+                home=str(m.get("home") or m.get("home_en") or ""),
+                away=str(m.get("away") or m.get("away_en") or ""),
+                kickoff_utc=str(m.get("kickoff_utc") or ""),
+                probs={
+                    "h": float(probs.get("h", 0.0) or 0.0),
+                    "d": float(probs.get("d", 0.0) or 0.0),
+                    "a": float(probs.get("a", 0.0) or 0.0),
+                },
+                model=str(m.get("model_version") or m.get("model") or "default"),
+                goal_line=m.get("goal_line"),
+                market_signal=m.get("market"),
+                extra=None,
+            )
+        except Exception as exc:  # noqa: BLE001 — 单场失败不影响其它
+            logger.debug(f"record_prediction skipped: {exc}")
 
 
 def _print_summary(predictions: list, calibration: dict, calibration_offset: dict | None,
