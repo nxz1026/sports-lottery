@@ -367,11 +367,14 @@ def _elo_expectations(elo_ratings: dict | None, home_en: str, away_en: str) -> t
 # ESPN 赔率富化字段：predict.py 顺序保证 odds_enrich 已对 match 写完这些字段后再调用本函数。
 # 必须从 match 透传到 result（写入 prediction_*.json），否则 web 层 _market_projection 永远拿不到
 # ``market``，今日推荐 / 串关工作台全部展示「赔率/价值不可用」。仅在值非空时透传，避免污染 None。
+# ``goal_line`` 单独在 _assemble_result 内从 ``total_over_close`` 派生为浮点（兼容 "2.5"/"o2.5"），
+# 给 ml_feedback.record_prediction 提供归一数值字段。
 _ODDS_PROPAGATION_FIELDS = (
     "market", "home_ml_implied", "draw_implied", "away_ml_implied",
     "home_true_prob", "draw_true_prob", "away_true_prob",
     "spread_home_line", "spread_home_close_odds",
     "total_over_close", "total_under_close", "draw_ml",
+    "goal_line",
 )
 
 
@@ -420,6 +423,26 @@ def _assemble_result(
         "onside_signals": onside, "confidence_note": confidence_note,
         "odds_data_available": match.get("odds_data_available", False),
     }
+    # ── ML feedback 必需字段（避免 prediction_*.json 缺 probs / model / goal_line，导致
+    #    events.jsonl 写入 "default"/0 概率塌方）──
+    # probs: 规整后的 H/D/A 概率，给 ml_feedback 直接消费。
+    result["probs"] = {
+        "h": round(home_prob, 4),
+        "d": round(draw_prob_calc, 4),
+        "a": round(away_prob, 4),
+    }
+    # model_version: 区分 ml-blend 与 rule-v1 用，给 retrain 时按模型分段采样。
+    result["model_version"] = (
+        "ml-blend-w{:.2f}".format(ML_CONFIG.get("blend_weight", 0.0))
+        if ml_proba is not None else "rule-v1"
+    )
+    # goal_line: 从 total_over_close 派生（"o2.5" → 2.5），缺则 None 不写入。
+    _to = match.get("total_over_close")
+    if _to is not None:
+        try:
+            result["goal_line"] = float(str(_to).lstrip("oOuU"))
+        except (TypeError, ValueError):
+            pass
     # ESPN 赔率字段透传（仅非空，避免污染 None）。见 _ODDS_PROPAGATION_FIELDS 注释。
     for _k in _ODDS_PROPAGATION_FIELDS:
         _v = match.get(_k)
