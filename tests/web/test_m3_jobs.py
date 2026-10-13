@@ -84,7 +84,7 @@ def _login(client):
     assert res.status_code == 200, res.text
 
 
-def _drain_jobs(timeout: float = 5.0) -> None:
+def _drain_jobs(timeout: float = 10.0) -> None:
     """等后台任务线程写完结态后再退出用例。
 
     ``web.services.jobs.executor`` 是**模块级**线程池：用例结束时若线程仍在跑，
@@ -92,12 +92,22 @@ def _drain_jobs(timeout: float = 5.0) -> None:
     目录里的任务文件）→ 走 ``_default_job`` 兜底，把任务"重建"成一条
     ``started_at=null`` 的垃圾记录写进生产数据目录，污染看板的「任务状态」。
     本函数保证线程在 monkeypatch 生效期内收尾。
+
+    超时：5s → 10s（5x 压测观察到 Windows scheduling 边界紧张，10s 给 worker
+    充足窗口；原 5s 在 executor max_workers=2 下偶发 3 处 flake）。
+    容错：active_job() 抛 PermissionError（Windows fd 释放延迟，前一个 worker
+    持有 jobs/{jid}.json 未释放）→ 视为 None，继续轮询。
     """
     import web.services.jobs as jobs_mod
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if jobs_mod.active_job() is None:
-            return
+        try:
+            if jobs_mod.active_job() is None:
+                return
+        except (PermissionError, OSError):
+            # Windows fd 释放延迟 / 临时文件锁 → 视为瞬态，继续轮询
+            time.sleep(0.05)
+            continue
         time.sleep(0.02)
     raise AssertionError("后台任务线程未在超时内结束，测试隔离可能已破坏")
 

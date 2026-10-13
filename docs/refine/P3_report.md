@@ -79,12 +79,29 @@
 | `test_m3_jobs.py::test_auto_refresh_trigger_and_dedup` | `PermissionError: jobs/{jid}.json` | 前一个测试的 worker 持有 fd 未完全释放 → 新测试的 _spin_state 写文件失败 |
 | `test_m3_jobs.py::test_bball_route_202_and_script` | 同 worker 超时 | 同上 |
 
-3/5 偶发（60%），与 P3-12 修复的 `test_job_trigger_source.py` 无关（已用 fake subprocess）。修法候选（未实施）：
-- executor max_workers 调高（≥4）减少排队
-- _drain_jobs timeout 5s → 10s
-- 每次 fixture 重建 executor（侵入大）
+3/5 偶发（60%），与 P3-12 修复的 `test_job_trigger_source.py` 无关（已用 fake subprocess）。
 
-属于"需更多观察样本"问题，下一轮可单独处理。
+### 修法（commit 本轮）
+
+`_drain_jobs` 改造（最小侵入，不动生产代码）：
+
+```python
+def _drain_jobs(timeout: float = 10.0) -> None:  # 原 5.0
+    ...
+    while time.time() < deadline:
+        try:
+            if jobs_mod.active_job() is None:
+                return
+        except (PermissionError, OSError):
+            # Windows fd 释放延迟 → 视为瞬态继续轮询
+            time.sleep(0.05)
+            continue
+        time.sleep(0.02)
+```
+
+- timeout 5s → 10s（给 worker 充足窗口）
+- active_job() 加 try/except（PermissionError / OSError 视为 None，不打断 drain）
+- 10x 压测验证（待 bg_af406f68 完成）
 
 ## 关键决策
 
