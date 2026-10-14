@@ -234,7 +234,8 @@ def _derive_offsets(actual_home_rate: float, actual_draw_rate: float, actual_awa
 def compute_calibration_offset(past_matches: list[dict[str, Any]], league: str | None = None) -> dict[str, Any] | None:
     """
     从累积 past_matches 计算 calibration 修正因子。
-    用实际赛果分布 vs 均匀分布(1/3)的比率做软修正。
+    用实际赛果分布 vs 历史联赛分布 45/25/30（_baseline_home/_baseline_draw/_baseline_away
+    in _derive_offsets）的比率做软修正。
 
     P0-1 修复: 指数平滑现在会真正执行，通过 _load_prev_offset / _save_offset 持久化。
     P1-2 修复: league 参数使指数平滑按联赛独立进行，不再跨联赛污染。
@@ -280,9 +281,10 @@ def build_calibration(past_matches: list[dict[str, Any]], future_matches: list[d
     if not past_matches:
         return {"note": "no past matches to calibrate from"}
 
-    home_wins = sum(1 for m in past_matches if (s := _parse_score(m.get("score"))) and s[0] > s[1])
-    draws = sum(1 for m in past_matches if (s := _parse_score(m.get("score"))) and s[0] == s[1])
-    away_wins = sum(1 for m in past_matches if (s := _parse_score(m.get("score"))) and s[0] < s[1])
+    # R13 #7 (a)：复用 _collect_calibration_samples 解析比分 + 计数，
+    # 避免重复实现 home_wins/draws/away_wins 统计（line 283-285 三次 sum
+    # 调用 _parse_score 重新解析同一份数据）。
+    home_wins, draws, away_wins = _collect_calibration_samples(past_matches)
     total = home_wins + draws + away_wins
 
     favorite_wins = 0
@@ -291,12 +293,17 @@ def build_calibration(past_matches: list[dict[str, Any]], future_matches: list[d
         hp = m.get("home_true_prob")
         if hp and hp > 0.5:
             total_odds_based += 1
-            if m["score"]:
+            # R13 #7 (b)：m["score"] → m.get("score")，避免 dict 缺 score 时
+            # KeyError 冒泡到 predict 主流程（原 try/except 只捕 ValueError/AttributeError，
+            # KeyError 不在白名单）。
+            if m.get("score"):
                 try:
                     s = _parse_score(m.get("score"))
                     if s and s[0] > s[1]:
                         favorite_wins += 1
-                except (ValueError, AttributeError):
+                except (KeyError, ValueError, AttributeError, TypeError):
+                    # R13 #7 (b)：扩大白名单到 KeyError + TypeError，覆盖 m.get("score")
+                    # 返回非字符串时 _parse_score 里 str(score) 仍然 OK 但 .split("-") 可能抛 TypeError 的边界。
                     pass
 
     return {
