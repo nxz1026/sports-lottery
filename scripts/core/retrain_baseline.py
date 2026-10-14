@@ -462,7 +462,10 @@ def _kfold_metrics(
     n = len(X)
     if n < _CV_MIN_SAMPLES:
         return None, None
-    if k < k or k > n:
+    # R16 #1: ``k < k`` 显然是 typo（原意 ``k < 2``）—— k=0/1 会让 fold_size = n // k
+    # 后续 ZeroDivisionError 且不落 events.jsonl。生产 ML 重训若外部传 k=0
+    # 会崩。k < 2 时直接返回 None（K-fold 至少要 2 折）。
+    if k < 2 or k > n:
         return None, None
 
     correct_total = 0

@@ -3,8 +3,13 @@ Set-Location E:\2026Workplace\Code\sports-lottery
 $logdir = ".\stress_runs"
 if (-not (Test-Path $logdir)) { New-Item -ItemType Directory -Path $logdir | Out-Null }
 
+# R16 #2: 动态取 HEAD 短哈希（之前硬编码 4074457 是 R12 时写下的，HEAD 现已
+# 1cb7e4d —— 每次跑仍写旧 commit 哈希到 5x_summary.txt，误导运维以为测试在
+# 4074457 上跑过）。
+$headShort = (& git rev-parse --short HEAD).Trim()
+
 $summaryLines = @()
-$summaryLines += "5x pytest stress test @ HEAD=4074457"
+$summaryLines += ("5x pytest stress test @ HEAD={0}" -f $headShort)
 $summaryLines += ("started: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
 
 for ($i = 1; $i -le 5; $i++) {

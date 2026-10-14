@@ -29,7 +29,8 @@ import core.observability as obs  # noqa: E402
 import core.ml_feedback as mlf  # noqa: E402
 from core.retrain_baseline import (  # noqa: E402
     TrainResult, _common_feature_keys, _build_xy_from_samples, _train_metrics,
-    _events_model_path, train_league_model_from_events, format_train_report,
+    _events_model_path, _kfold_metrics,
+    train_league_model_from_events, format_train_report,
 )
 
 
@@ -181,6 +182,42 @@ class TestTrainMetrics:
         acc, brier = _train_metrics([[1.0, 0.0]], [0], model)
         assert isinstance(acc, float)
         assert isinstance(brier, float)
+
+
+class TestKfoldMetricsGuards:
+    """R16 #1: _kfold_metrics 守门 k=0/1 防 ZeroDivisionError。"""
+
+    def test_k_zero_returns_none(self):
+        """k=0（typo 原 ``k < k`` 守门无效 → ZeroDivisionError）→ 应返回 (None, None)。"""
+        X = [[0.0] * 3 for _ in range(60)]
+        y = [0] * 60
+        acc, brier = _kfold_metrics(X, y, n_features=3, k=0)
+        assert acc is None
+        assert brier is None
+
+    def test_k_one_returns_none(self):
+        """k=1（无 fold 划分）→ 应返回 (None, None)。"""
+        X = [[0.0] * 3 for _ in range(60)]
+        y = [0] * 60
+        acc, brier = _kfold_metrics(X, y, n_features=3, k=1)
+        assert acc is None
+        assert brier is None
+
+    def test_k_greater_than_n_returns_none(self):
+        """k>n（折数比样本还多）→ 应返回 (None, None)。"""
+        X = [[0.0] * 3 for _ in range(10)]
+        y = [0] * 10
+        acc, brier = _kfold_metrics(X, y, n_features=3, k=20)
+        assert acc is None
+        assert brier is None
+
+    def test_k_below_min_samples_returns_none(self):
+        """n < _CV_MIN_SAMPLES (50) → 应返回 (None, None)。"""
+        X = [[0.0] * 3 for _ in range(30)]
+        y = [0] * 30
+        acc, brier = _kfold_metrics(X, y, n_features=3, k=5)
+        assert acc is None
+        assert brier is None
 
 
 # ───────────────────── events.jsonl 合成 helper ─────────────────────
