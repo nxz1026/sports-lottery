@@ -314,8 +314,11 @@ class TrainResult:
     设计要点：
     - ``reason`` 用短语标签 ("ok" / "no joined samples" / "insufficient features" /
       "insufficient samples" / "training failed")，CLI/测试可直接 ``assertEqual``。
-    - 训练后的 in-sample metrics（accuracy / brier）只是参考，真正的好坏留给
-      ``evaluate_baseline`` 在 held-out 上评估（Round 12 暂不引入 split，标注用）。
+    - 训练后的 in-sample metrics（accuracy / brier）只是参考，**真正的可信度
+      由 cv_accuracy / cv_brier 给**（R13 #6：K-fold cross-validation，避免
+      小样本 in-sample 严重过乐观）。
+    - cv_* 在 n_samples >= ``_CV_MIN_SAMPLES`` (50) 时计算，否则 None —— K-fold
+      每折 ~6-10 样本噪声极大，报 cv_* 会误导。
     - ``path`` 与 ``model`` 互斥：失败时 path=None；model 内存对象若用户后续想
       load_league_model 验证，给的是同 league_key 但 ``_from_events`` 后缀路径。
     """
@@ -327,6 +330,8 @@ class TrainResult:
     path: Path | None = None
     train_accuracy: float | None = None
     train_brier: float | None = None
+    cv_accuracy: float | None = None  # R13 #6: K-fold 5-fold CV accuracy（None=n<50）
+    cv_brier: float | None = None      # R13 #6: K-fold 5-fold CV brier（None=n<50）
     detail: str = ""
 
 
@@ -429,6 +434,72 @@ def _train_metrics(X: list[list[float]], y: list[int], model) -> tuple[float, fl
     return correct / n, brier_sum / n
 
 
+# ── R13 #6: K-fold cross-validation 评估 held-out 表现 ──
+_CV_K: int = 5                                  # 折数
+_CV_MIN_SAMPLES: int = 50                       # 启用 CV 的样本下限（n<50 噪声大 → 不报）
+
+
+def _kfold_metrics(
+    X: list[list[float]], y: list[int], *,
+    n_features: int, k: int = _CV_K,
+) -> tuple[float | None, float | None]:
+    """K-fold cross-validation：每折用其余 k-1 折训练、当前折验证，循环 k 次。
+
+    返回 ``(cv_accuracy, cv_brier)``：
+    - ``cv_accuracy``：5 折验证集平均准确率
+    - ``cv_brier``：5 折验证集平均 Brier sum
+
+    R13 #6 设计要点：
+    - **入口守门**：n_samples < ``_CV_MIN_SAMPLES`` (50) 时返回 ``(None, None)``，
+      因为每折 ~10 样本噪声极大，cv_* 会误导运维。
+    - **零依赖**：纯 Python 列表索引切分 + 复用 ``MatchMLModel.fit``；
+      不用 scikit-learn。
+    - **顺序切分**而非随机：保留 events.jsonl 时间序列语义（最早 → 最新按 match_key
+      排列，k-fold 切前 80% / 后 20% 等）。如未来要随机化再扩展。
+    - 用 ``MatchMLModel(n_features=n_features).fit(X_tr, y_tr).predict_proba(x_te)``
+      对每条验证样本单独 predict；与推理路径一致。
+    """
+    n = len(X)
+    if n < _CV_MIN_SAMPLES:
+        return None, None
+    if k < k or k > n:
+        return None, None
+
+    correct_total = 0
+    brier_total = 0.0
+    n_eval = 0
+    fold_size = n // k
+    from core.model.ml_model import MatchMLModel            # noqa: PLC0415
+
+    for fold in range(k):
+        lo = fold * fold_size
+        hi = (fold + 1) * fold_size if fold < k - 1 else n  # 最后一折兜底剩余
+        # 验证集 = 折 [lo, hi)；训练集 = 其余（顺序切分保 events.jsonl 时间线语义）
+        X_tr = X[:lo] + X[hi:]
+        y_tr = y[:lo] + y[hi:]
+        X_te = X[lo:hi]
+        y_te = y[lo:hi]
+        if not X_tr or not X_te:
+            continue
+        try:
+            fold_model = MatchMLModel(n_features=n_features).fit(X_tr, y_tr)
+        except ValueError:
+            continue
+        for row, label_idx in zip(X_te, y_te):
+            probs = fold_model.predict_proba(row)
+            pred_idx = max(range(3), key=lambda i: probs[i])
+            if pred_idx == label_idx:
+                correct_total += 1
+            for i in range(3):
+                actual = 1.0 if i == label_idx else 0.0
+                brier_total += (probs[i] - actual) ** 2
+            n_eval += 1
+
+    if n_eval == 0:
+        return None, None
+    return correct_total / n_eval, brier_total / n_eval
+
+
 def train_league_model_from_events(
     league: str, *,
     min_train_samples: int = 30,
@@ -519,6 +590,8 @@ def train_league_model_from_events(
         )
 
     train_acc, train_brier = _train_metrics(X, y, model)
+    # R13 #6：K-fold CV 给 held-out 评估（n<50 时返回 None，避免每折 ~10 样本噪声误导）。
+    cv_acc, cv_brier = _kfold_metrics(X, y, n_features=len(feature_cols))
     path = _events_model_path(league, base_dir)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -534,12 +607,20 @@ def train_league_model_from_events(
             model=model,
             train_accuracy=train_acc,
             train_brier=train_brier,
+            cv_accuracy=cv_acc,
+            cv_brier=cv_brier,
             detail=f"落盘 {path} 失败: {e}",
         )
 
+    cv_summary = ""
+    if cv_acc is not None:
+        cv_summary = f" cv_acc={cv_acc:.4f} cv_brier={cv_brier:.4f}"
+    else:
+        cv_summary = " cv_*=None(n<50)"
     logger.info(
-        "train_league %s: 训练完成 n_samples=%d n_features=%d train_acc=%.4f train_brier=%.4f -> %s",
-        league, len(X), len(feature_cols), train_acc, train_brier, path,
+        "train_league %s: 训练完成 n_samples=%d n_features=%d train_acc=%.4f train_brier=%.4f"
+        "%s -> %s",
+        league, len(X), len(feature_cols), train_acc, train_brier, cv_summary, path,
     )
     return TrainResult(
         reason="ok",
@@ -550,6 +631,8 @@ def train_league_model_from_events(
         path=path,
         train_accuracy=train_acc,
         train_brier=train_brier,
+        cv_accuracy=cv_acc,
+        cv_brier=cv_brier,
         detail=f"trained on {len(X)} samples × {len(feature_cols)} features",
     )
 
@@ -578,6 +661,15 @@ def format_train_report(result: TrainResult) -> str:
         lines.append(f"  train accuracy:   {result.train_accuracy:.4f}")
     if result.train_brier is not None:
         lines.append(f"  train brier:      {result.train_brier:.4f}")
+    # R13 #6: cv_* 给 held-out 真指标（None 表示 n<50 未启用）
+    if result.cv_accuracy is not None:
+        lines.append(f"  cv accuracy (5-fold):  {result.cv_accuracy:.4f}")
+    else:
+        lines.append("  cv accuracy (5-fold):  n/a (n<50)")
+    if result.cv_brier is not None:
+        lines.append(f"  cv brier (5-fold):     {result.cv_brier:.4f}")
+    else:
+        lines.append("  cv brier (5-fold):     n/a (n<50)")
     lines.append(f"  saved to: {result.path}")
     return "\n".join(lines)
 
