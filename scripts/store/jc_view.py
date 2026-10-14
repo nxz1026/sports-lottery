@@ -126,6 +126,40 @@ def _fetch(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any
         return []
 
 
+# R18 #6 (重提 R17 #6)：latest business_date 60s LRU 缓存。
+# 原设计用 SQL 子查询 ``(select max(business_date) from fact.jc_match)`` 嵌入
+# 主 SQL，每次 fixtures_on / jc_movement 触发 2~4 次 max 子查询。看板页面每晚刷新
+# 5~10 分钟一次，60s 缓存命中率 ≥ 80%，省 ~5×min 子查询/worker。
+_LATEST_BD_CACHE: dict = {"value": None, "expires_at": 0.0}
+_LATEST_BD_TTL = 60.0  # seconds
+
+
+def _latest_business_date() -> str | None:
+    """返回 fact.jc_match 的最新 business_date（ISO 'YYYY-MM-DD' 字符串）。
+
+    60s LRU 缓存（仅进程内，PG max 子查询本身 sub-ms 但省 5x 重复 IO + round-trip）。
+    失败时返回 None（调用方退化为空查询 = 0 行）。
+    """
+    import time as _time
+    now = _time.monotonic()
+    cached = _LATEST_BD_CACHE
+    if cached["value"] is not None and now < cached["expires_at"]:
+        return cached["value"]
+    try:
+        with pg.read_conn("ro") as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT max(business_date)::text FROM fact.jc_match")
+                row = cur.fetchone()
+        if row and row[0]:
+            value = str(row[0])
+            cached["value"] = value
+            cached["expires_at"] = now + _LATEST_BD_TTL
+            return value
+    except Exception:
+        pass
+    return None
+
+
 def fixtures_on(day: str | None) -> list[dict[str, Any]]:
     """场次 × 玩法一行（一场 5 行）；盘口取各玩法最新一版；day 缺省 → 最新 business_date。"""
     if day is not None:
@@ -134,7 +168,11 @@ def fixtures_on(day: str | None) -> list[dict[str, Any]]:
         except ValueError:
             return []
         return _fetch(_FIX_SQL.format(DAY=_DAY_BY), {"day": day})
-    return _fetch(_FIX_SQL.format(DAY=_DAY_LATEST))
+    # R18 #6: 用缓存的最新 business_date 替换 max 子查询（60s LRU）
+    latest = _latest_business_date()
+    if not latest:
+        return []
+    return _fetch(_FIX_SQL.format(DAY=_DAY_BY), {"day": latest})
 
 
 def issues(limit: int = 20) -> list[dict[str, Any]]:
@@ -195,7 +233,13 @@ def jc_movement(day: str | None = None) -> list[dict[str, Any]]:
     返回每场每玩法一条：开盘/临场时点、逐侧赔率、delta、归一化隐含概率。
     day 缺省 → 最新 business_date。只读，异常降级 []。
     """
-    sql = _MOV_SQL_DAY if day else _MOV_SQL_LATEST
+    sql = _MOV_SQL_DAY if day else None
+    if day is None:
+        # R18 #6: latest business_date 走 60s LRU 缓存（同 fixtures_on）
+        latest = _latest_business_date()
+        if not latest:
+            return []
+        return _fetch(_MOV_SQL_DAY, {"day": latest})
     rows = _fetch(sql, {"day": day} if day else {})
     groups: dict = {}
 

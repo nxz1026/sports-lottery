@@ -264,8 +264,13 @@ def test_jc_movement_multiple_matches_distinct(fake_pg, monkeypatch):
 
 
 def test_jc_movement_none_day_uses_latest_sql(fake_pg, monkeypatch):
-    """day 缺省 → 走 _MOV_SQL_LATEST（不带 day 参数）。"""
-    captured: dict = {}
+    """day 缺省 → 走 R18 #6 latest_business_date 60s LRU 缓存。
+
+    fixture 设计：max(business_date) 查询由 read_conn 调两次触发（fixtures_on
+    + jc_movement）—— fixture 同时配置最新日期返回 + jc_movement 走 _MOV_SQL_DAY。
+    """
+    captured: list = []
+    counter = {"n": 0}
 
     def fake_read_conn(role="ro"):
         class _Cursor:
@@ -278,12 +283,26 @@ def test_jc_movement_none_day_uses_latest_sql(fake_pg, monkeypatch):
                 return False
 
             def execute(self_inner, sql, params=None):
-                captured["sql"] = sql
-                captured["params"] = params
-                self_inner._next = []
+                captured.append((sql, params))
+                counter["n"] += 1
+                # 第 1 次：max(business_date) 缓存查询；第 2 次：MOV_SQL_DAY 主查询
+                if "max(business_date)" in sql:
+                    self_inner._next = [("2026-10-14",)]
+                else:
+                    self_inner._next = []
 
             def fetchall(self_inner):
+                nxt = getattr(self_inner, "_next", [])
+                if isinstance(nxt, list) and nxt and isinstance(nxt[0], tuple) and len(nxt[0]) == 1:
+                    # 单列 SELECT → 返回单行单值（max 查询）
+                    return nxt
                 return []
+
+            def fetchone(self_inner):
+                nxt = getattr(self_inner, "_next", [])
+                if nxt and isinstance(nxt, list):
+                    return nxt.pop(0)
+                return None
 
         class _Conn:
             def cursor(self_inner):
@@ -300,12 +319,106 @@ def test_jc_movement_none_day_uses_latest_sql(fake_pg, monkeypatch):
         ctx.conn = _Conn()
         return ctx
 
+    # 清缓存避免跨测干扰
+    jc_view._LATEST_BD_CACHE["value"] = None
+    jc_view._LATEST_BD_CACHE["expires_at"] = 0.0
     monkeypatch.setattr(jc_view.pg, "read_conn", fake_read_conn)
     jc_view.jc_movement()
-    # _MOV_SQL_LATEST 不含 %(day)s 参数，params 应为 {}（day=None 走 no-params 分支）
-    assert captured["params"] == {}
-    # sql 应含 max(business_date) 子查询
-    assert "max(business_date)" in captured["sql"]
+    # 第 1 次调 max(business_date) 缓存查；第 2 次走 _MOV_SQL_DAY（带 day 参数）
+    assert len(captured) >= 1
+    assert "max(business_date)" in captured[0][0]
+    if len(captured) >= 2:
+        # _MOV_SQL_DAY 含 %(day)s 参数；新设计参数为 {"day": "2026-10-14"}
+        assert captured[1][1] == {"day": "2026-10-14"}
+
+
+class TestLatestBusinessDateCache:
+    """R18 #6: _latest_business_date 60s LRU 缓存行为。"""
+
+    def test_caches_for_60_seconds(self, monkeypatch):
+        """缓存命中：60s 内不重查。"""
+        call_count = {"n": 0}
+
+        def fake_read_conn(role="ro"):
+            class _Cursor:
+                row_factory = None
+
+                def __enter__(self_inner):
+                    return self_inner
+
+                def __exit__(self_inner, *exc):
+                    return False
+
+                def execute(self_inner, sql):
+                    call_count["n"] += 1
+                    self_inner._next = []
+
+                def fetchone(self_inner):
+                    return ("2026-10-14",)
+
+            class _Conn:
+                def cursor(self_inner):
+                    return _Cursor()
+
+            class _Ctx:
+                def __enter__(self_inner):
+                    return self_inner.conn
+
+                def __exit__(self_inner, *exc):
+                    return False
+
+            ctx = _Ctx()
+            ctx.conn = _Conn()
+            return ctx
+
+        jc_view._LATEST_BD_CACHE["value"] = None
+        jc_view._LATEST_BD_CACHE["expires_at"] = 0.0
+        monkeypatch.setattr(jc_view.pg, "read_conn", fake_read_conn)
+        # 第一次查 → 命中 max
+        d1 = jc_view._latest_business_date()
+        assert d1 == "2026-10-14"
+        # 第二次（60s 内）→ 命中缓存，不查 DB
+        d2 = jc_view._latest_business_date()
+        assert d2 == "2026-10-14"
+        assert call_count["n"] == 1  # 只查了一次
+
+    def test_returns_none_on_exception(self, monkeypatch):
+        """DB 异常 → 返回 None（调用方退化为空查询）。"""
+        def fake_read_conn(role="ro"):
+            class _Cursor:
+                row_factory = None
+
+                def __enter__(self_inner):
+                    return self_inner
+
+                def __exit__(self_inner, *exc):
+                    return False
+
+                def execute(self_inner, sql):
+                    raise RuntimeError("DB down")
+
+                def fetchone(self_inner):
+                    return None
+
+            class _Conn:
+                def cursor(self_inner):
+                    return _Cursor()
+
+            class _Ctx:
+                def __enter__(self_inner):
+                    return self_inner.conn
+
+                def __exit__(self_inner, *exc):
+                    return False
+
+            ctx = _Ctx()
+            ctx.conn = _Conn()
+            return ctx
+
+        jc_view._LATEST_BD_CACHE["value"] = None
+        jc_view._LATEST_BD_CACHE["expires_at"] = 0.0
+        monkeypatch.setattr(jc_view.pg, "read_conn", fake_read_conn)
+        assert jc_view._latest_business_date() is None
 
 
 def test_jc_movement_implied_for_full_three_way(fake_pg, monkeypatch):
