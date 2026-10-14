@@ -149,12 +149,37 @@ def test_join_skips_unsettled_predictions():
     assert samples[0]["match_id"] == "settled"
 
 
-def test_join_keeps_latest_prediction_for_duplicate_match_key():
-    """同 match_key 多次预测（重跑）→ 用最新那条。"""
-    import time
+def test_join_keeps_latest_prediction_for_duplicate_match_key(monkeypatch):
+    """同 match_key 多次预测（重跑）→ 用最新那条。
+
+    R15e: 原用 ``time.sleep(0.01)`` 强制 ts 递增 —— 真实挂钟在重负载 + 10ms 精度下
+    可能两次记录同毫秒，join 时 ISO 字符串字典序无法保证先后。改用 monkeypatch
+    ``ml_feedback._obs.log_event`` 注入递增 ts（避免 datetime.now + freezegun 引入
+    新依赖），更稳：每次 ``_fake_log_event`` 返回时 ``_fake_now`` 累加 1ms。
+    """
+    from datetime import datetime, timezone, timedelta
+
+    base = datetime(2026, 10, 14, 0, 0, 0, tzinfo=timezone.utc)
+    counter = {"n": 0}
+
+    def _fake_log_event(kind, **fields):
+        # 每次调都让 mlf.record_prediction 内部 ts 自增 1ms
+        counter["n"] += 1
+        ts = (base + timedelta(milliseconds=counter["n"])).isoformat()
+        # ml_feedback._safe_log_event -> _obs.log_event(... **fields)；通过
+        # 临时 monkeypatch 整体替换，捕获 fields["ts"] 替换成递增 ts。
+        fields["ts"] = ts
+        # 写 events.jsonl 用真实路径（fixture 已设）
+        return _orig_log_event(kind, **fields)
+
+    from core import observability as _obs
+    _orig_log_event = _obs.log_event
+    monkeypatch.setattr(mlf._obs, "log_event", _fake_log_event)
+    # ml_feedback._safe_log_event 已经持有 _obs 模块引用，直接 patch 模块即可。
+    monkeypatch.setattr(_obs, "log_event", _fake_log_event)
+
     mlf.record_prediction(league="epl", match_id="x", home="A", away="B",
                           kickoff_utc="t", probs={"h": 0.5, "d": 0.3, "a": 0.2})
-    time.sleep(0.01)  # ensure ts 严格递增
     mlf.record_prediction(league="epl", match_id="x", home="A", away="B",
                           kickoff_utc="t", probs={"h": 0.7, "d": 0.2, "a": 0.1},
                           model="updated")

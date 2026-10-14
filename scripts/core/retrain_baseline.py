@@ -799,6 +799,19 @@ def _cli(argv: list[str] | None = None) -> int:
     except FileNotFoundError as exc:
         print(f"[retrain] {exc}", file=sys.stderr)
         return 2
+    except (OSError, ValueError) as exc:
+        # R15f: 顶层 try 扩到 OSError（JSON 序列化 / 目录权限 / 磁盘满）+ ValueError
+        # （train_league_model_from_events 边界）；落 events.jsonl 让运维可观测，
+        # 不再默默 raise 让 stderr 不可追溯。reason 短语复用训练失败三档语义。
+        try:
+            import core.observability as _obs
+            _obs.log_error(exc, context="retrain_baseline._cli",
+                           mode=("train-league" if args.train_league else "calibration"),
+                           league=args.league or args.train_league or "")
+        except OSError:
+            pass
+        print(f"[retrain] {exc}", file=sys.stderr)
+        return 4
     return 0
 
 
