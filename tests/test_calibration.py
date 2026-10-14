@@ -71,7 +71,7 @@ class TestComputeCalibrationOffset(unittest.TestCase):
 
 class TestBuildCalibration(unittest.TestCase):
     def test_empty_past(self):
-        result = build_calibration([], [])
+        result = build_calibration([])
         self.assertIn("note", result)
 
     def test_with_matches(self):
@@ -80,7 +80,7 @@ class TestBuildCalibration(unittest.TestCase):
             {"score": "1-2", "home_true_prob": 0.3},
             {"score": "1-1", "home_true_prob": 0.5},
         ]
-        result = build_calibration(past, [])
+        result = build_calibration(past)
         self.assertEqual(result["total_matches"], 3)
 
 

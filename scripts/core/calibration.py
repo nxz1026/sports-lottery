@@ -276,8 +276,13 @@ def _parse_score(score_str: str | None) -> tuple[int, int] | None:
     return int(parts[0]), int(parts[1])
 
 
-def build_calibration(past_matches: list[dict[str, Any]], future_matches: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """从结束比赛计算校准参数"""
+def build_calibration(past_matches: list[dict[str, Any]]) -> dict[str, Any]:
+    """从结束比赛计算校准参数
+
+    R15d: 删除 ``future_matches`` 死参数 —— 函数体内 0 处使用，
+    predict.py:181 / 722 + tests/test_calibration.py:74 / 83 调用方
+    都不需要未来支持。
+    """
     if not past_matches:
         return {"note": "no past matches to calibrate from"}
 
