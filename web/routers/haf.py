@@ -19,19 +19,31 @@ router = APIRouter(prefix="/api/v1", tags=["haf"])
 
 
 def _find_prediction(home: str, away: str):
-    """在所有历史/最新预测文档里按 (home,away) 匹配预测 entry；无匹 → None。"""
+    """在所有历史/最新预测文档里按 (home,away) 匹配预测 entry；无匹 → None。
+
+    R19 #B（haf 反查哈希化）：原实现每请求遍历所有 doc × preds × teams_match
+    模糊匹配 ≈ 1000 次；现走 ``store.pred_index_by_pair()`` 字典命中 O(1)，
+    miss 时回退 fuzzy —— 仅遍历 dict 的 values 池（与原 all_docs × preds 一致
+    数据量但少了一层嵌套），fuzzy 调用次数同前。
+    """
     from web.services import store as web_store
     try:
-        all_docs = web_store.load_prediction_docs()
+        idx = web_store.pred_index_by_pair()
     except Exception as exc:  # noqa: BLE001 - store 损坏时返回空 hist
-        logger.warning("haf: load_prediction_docs failed: %s", exc)
-        all_docs = []
+        logger.warning("haf: pred_index_by_pair failed: %s", exc)
+        idx = {}
+    h = (home or "").strip()
+    a = (away or "").strip()
+    e = idx.get((h, a))
+    if e is not None:
+        return e
+    # fuzzy 兜底（与原实现同语义：补齐别名差异，如 "曼彻斯特联" / "曼联"）
+    if not idx:
+        return None
     from web.services.team_match import teams_match
-    for doc in (all_docs or []):
-        preds = (doc.get("data") or {}).get("predictions", []) or []
-        for e in preds:
-            if teams_match(home, away, e.get("home") or "", e.get("away") or ""):
-                return e
+    for entry in idx.values():
+        if teams_match(home, away, entry.get("home") or "", entry.get("away") or ""):
+            return entry
     return None
 
 

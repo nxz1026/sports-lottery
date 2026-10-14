@@ -128,6 +128,56 @@ def load_prediction_docs() -> list[dict]:
 
 
 _load_prediction_docs_cached: dict = {}
+_pred_index_by_pair_cached: dict = {}
+
+
+def pred_index_by_pair() -> dict[tuple[str, str], dict]:
+    """全部可解析预测文档的 ``(home, away) -> entry`` 反查索引（O(1) 命中）。
+
+    用途：web/routers/haf + combo 路由把原本线性 O(N×M) 的 ``teams_match``
+    模糊匹配降到字典命中 + 兜底 fuzzy（miss 才走）。
+
+    实现要点：
+      * 与 ``load_prediction_docs`` **共享 mtime 签名缓存**（``_load_prediction_docs_cached``
+        由 ``load_prediction_docs`` 内 LRU 维护，先调它拿 docs；自己再额外独立 sig
+        cache 让 dict 重建可独立失效）。
+      * key 标准化为 ``(home.strip(), away.strip())`` —— 与现有 fuzzy 兜底一致。
+      * first-match-wins：同一对阵若多文档都出现，保留**最早**（按文件名升序的
+        sorted output）—— 对齐 ``haf._find_prediction`` 现行选择语义。
+      * 坏 / 缺 home/away 的 entry 跳过（不污染索引）。
+
+    缓存按 ``OUTPUT_DIR`` 分键（与 ``load_prediction_docs`` 对齐）；同一进程不同
+    ``LP_OUTPUT_DIR`` 不串数据。测试可用 ``_pred_index_by_pair_cached.clear()``
+    强制失效。
+    """
+    files = iter_prediction_files()
+    cache_key = str(OUTPUT_DIR)
+    try:
+        file_sigs = tuple((f.name, f.stat().st_mtime) for f in files)
+    except OSError as exc:
+        logger.warning("stat predictions 失败: %s", exc)
+        _pred_index_by_pair_cached.pop(cache_key, None)
+        return {}
+    sig_id = (len(file_sigs),) + tuple(s for _, s in file_sigs)
+    cached = _pred_index_by_pair_cached.get(cache_key)
+    if cached is not None and cached[0] == sig_id:
+        return cached[1]
+    docs = load_prediction_docs()
+    idx: dict[tuple[str, str], dict] = {}
+    for doc in docs:
+        preds = (doc.get("data") or {}).get("predictions") or []
+        for e in preds:
+            if not isinstance(e, dict):
+                continue
+            h = (e.get("home") or "").strip()
+            a = (e.get("away") or "").strip()
+            if not h or not a:
+                continue
+            # first-match-wins：同一对阵只有在**尚未入索引**时才覆盖，与 haf
+            # 现行循环语义一致；现实数据每对阵只出现在一份最新 doc 里。
+            idx.setdefault((h, a), e)
+    _pred_index_by_pair_cached[cache_key] = (sig_id, idx)
+    return idx
 
 
 def _file_dt(path: Path) -> datetime | None:

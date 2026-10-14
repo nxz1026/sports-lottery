@@ -59,15 +59,10 @@ def _assemble_legs(selections: list[dict]) -> list[dict]:
             m["plays"][pt] = f.get("options") or {}
 
     try:
-        all_docs = web_store.load_prediction_docs()
+        pred_by_pair = web_store.pred_index_by_pair()
     except Exception as exc:  # noqa: BLE001 - 模型概率缺失时降级为无 p_model 模式
-        logger.warning("combo: load_prediction_docs failed: %s", exc)
-        all_docs = []
-    # 模型概率从所有历史预测文件里匹配（当日空文档时回退到最近一份非空）
-    pred_index: list[dict] = []
-    for doc in (all_docs or []):
-        for e in (doc.get("data") or {}).get("predictions", []) or []:
-            pred_index.append(e)
+        logger.warning("combo: pred_index_by_pair failed: %s", exc)
+        pred_by_pair = {}
 
     def _find_fix(home: str, away: str):
         h, a = (home or "").strip(), (away or "").strip()
@@ -102,17 +97,23 @@ def _assemble_legs(selections: list[dict]) -> list[dict]:
                 odds = 0.0
         p_model = 0.0
         if m and (m.get("home_cn") or m.get("away_cn")):
-            for e in pred_index:
-                if teams_match_safe(home, away, e.get("home") or "", e.get("away") or ""):
-                    rf = e.get("reasoning_factors") or {}
-                    p_field = {"h": "home_ml_true_prob", "d": "draw_true_prob",
-                               "a": "away_ml_true_prob"}.get(key)
-                    if p_field:
-                        try:
-                            p_model = float(rf.get(p_field) or 0.0)
-                        except (TypeError, ValueError):
-                            p_model = 0.0
-                    break
+            # R19 #C（combo 反查哈希化）：O(N×M) fuzzy → O(1) dict 命中 + miss fuzzy 兜底。
+            entry = pred_by_pair.get(((home or "").strip(), (away or "").strip()))
+            if entry is None and pred_by_pair:
+                # fuzzy 兜底（与原 while-loop 同样语义：补齐中英文别名差异）
+                for cand in pred_by_pair.values():
+                    if teams_match_safe(home, away, cand.get("home") or "", cand.get("away") or ""):
+                        entry = cand
+                        break
+            if entry is not None:
+                rf = entry.get("reasoning_factors") or {}
+                p_field = {"h": "home_ml_true_prob", "d": "draw_true_prob",
+                           "a": "away_ml_true_prob"}.get(key)
+                if p_field:
+                    try:
+                        p_model = float(rf.get(p_field) or 0.0)
+                    except (TypeError, ValueError):
+                        p_model = 0.0
         out.append({"side": side, "odds": odds, "p_model": p_model})
     return out
 

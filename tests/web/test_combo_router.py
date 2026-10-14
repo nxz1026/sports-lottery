@@ -138,14 +138,13 @@ def test_assemble_legs_picks_odds_and_p_model_from_fixtures(monkeypatch):
     ]
     monkeypatch.setattr("store.jc_view.fixtures_on", lambda d: fake_fixtures)
     from web.services import store as ws
-    monkeypatch.setattr(ws, "load_prediction_docs", lambda: [
-        {"data": {"predictions": [
-            {"home": "A", "away": "B",
-             "reasoning_factors": {"home_ml_true_prob": 0.55,
-                                   "draw_true_prob": 0.25,
-                                   "away_ml_true_prob": 0.20}}
-        ]}}
-    ])
+    # R19 #C：combo 改走 pred_index_by_pair 反查；mock 入口切换
+    monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {
+        ("A", "B"): {"home": "A", "away": "B",
+                     "reasoning_factors": {"home_ml_true_prob": 0.55,
+                                           "draw_true_prob": 0.25,
+                                           "away_ml_true_prob": 0.20}},
+    })
 
     legs = combo_mod._assemble_legs([
         {"home": "A", "away": "B", "side": "主胜"},
@@ -165,7 +164,7 @@ def test_assemble_legs_match_num_reverse_lookup(monkeypatch):
     ]
     monkeypatch.setattr("store.jc_view.fixtures_on", lambda d: fake_fixtures)
     from web.services import store as ws
-    monkeypatch.setattr(ws, "load_prediction_docs", lambda: [])
+    monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {})
 
     legs = combo_mod._assemble_legs([{"match_num": 7001, "side": "主胜"}])
     assert legs[0]["odds"] == 2.1
@@ -180,7 +179,7 @@ def test_assemble_legs_fixtures_failure_returns_empty_odds(monkeypatch):
 
     monkeypatch.setattr("store.jc_view.fixtures_on", boom)
     from web.services import store as ws
-    monkeypatch.setattr(ws, "load_prediction_docs", lambda: [])
+    monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {})
 
     legs = combo_mod._assemble_legs([{"home": "X", "away": "Y", "side": "主胜"}])
     assert legs[0]["odds"] == 0.0
@@ -188,7 +187,7 @@ def test_assemble_legs_fixtures_failure_returns_empty_odds(monkeypatch):
 
 
 def test_assemble_legs_load_predictions_failure(monkeypatch):
-    """load_prediction_docs 抛错 → 不崩，p_model=0 但 odds 正常取。"""
+    """pred_index_by_pair 抛错 → 不崩，p_model=0 但 odds 正常取。"""
     from web.routers import combo as combo_mod
 
     monkeypatch.setattr("store.jc_view.fixtures_on", lambda d: [
@@ -200,7 +199,7 @@ def test_assemble_legs_load_predictions_failure(monkeypatch):
     def boom():
         raise RuntimeError("predictions read failed")
 
-    monkeypatch.setattr(ws, "load_prediction_docs", boom)
+    monkeypatch.setattr(ws, "pred_index_by_pair", boom)
 
     legs = combo_mod._assemble_legs([{"home": "A", "away": "B", "side": "主胜"}])
     assert legs[0]["odds"] == 1.5
@@ -216,7 +215,7 @@ def test_assemble_legs_unknown_side_yields_zero(monkeypatch):
          "options": {"h": "2.0", "d": "3.0", "a": "4.0"}},
     ])
     from web.services import store as ws
-    monkeypatch.setattr(ws, "load_prediction_docs", lambda: [])
+    monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {})
 
     legs = combo_mod._assemble_legs([{"home": "A", "away": "B", "side": "无效"}])
     assert legs[0]["odds"] == 0.0
@@ -231,7 +230,7 @@ def test_assemble_legs_hhad_fallback_when_had_missing(monkeypatch):
          "options": {"h": "1.95", "d": "3.5", "a": "3.8"}},
     ])
     from web.services import store as ws
-    monkeypatch.setattr(ws, "load_prediction_docs", lambda: [])
+    monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {})
 
     legs = combo_mod._assemble_legs([{"home": "A", "away": "B", "side": "主胜"}])
     assert legs[0]["odds"] == 1.95
