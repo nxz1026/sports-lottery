@@ -26,5 +26,9 @@ for ($i = 1; $i -le 5; $i++) {
 
 $summaryLines += ("finished: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
 $content = ($summaryLines -join "`n")
-$content | Out-File -FilePath ".\stress_runs\5x_summary.txt" -Encoding utf8
+# R17 #8 BOM 修复：Out-File -Encoding utf8 在 PowerShell 5.x 写 BOM，
+# PS 7+ 不写但版本不一致会留 BOM 干扰 grep/字符串解析。
+# 用 ``[System.IO.File]::WriteAllText`` 强制 no-BOM（utf-8 / no-BOM）。
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText(".\stress_runs\5x_summary.txt", $content, $utf8NoBom)
 Write-Output $content

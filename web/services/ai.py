@@ -176,5 +176,7 @@ def ai_ranking(day: date, limit: int = 10) -> dict:
     if not report.get("available"):
         return {**report, "metric": "ai_score", "definition": definition, "matched_count": 0, "hot": [], "cold": []}
     ranked = [item for item in report["items"] if item["ai_matched"] and isinstance(item.get("ai_score"), (int, float)) and not isinstance(item.get("ai_score"), bool) and math.isfinite(float(item["ai_score"]))]
-    key = lambda item: (float(item["ai_score"]), str(item.get("league", "")), str(item.get("match", "")))
-    return {"available": True, "date": report["date"], "metric": "ai_score", "definition": definition, "matched_count": len(ranked), "hot": sorted(ranked, key=key, reverse=True)[:limit], "cold": sorted(ranked, key=key)[:limit]}
+    # R17 #12: rename lambda ``key`` → ``sort_key``（原名 shadowing builtin
+    # ``dict.key`` + 与 ``_score_key`` 字段命名混淆；sorted 的 key 参数名同名也踩）
+    sort_key = lambda item: (float(item["ai_score"]), str(item.get("league", "")), str(item.get("match", "")))
+    return {"available": True, "date": report["date"], "metric": "ai_score", "definition": definition, "matched_count": len(ranked), "hot": sorted(ranked, key=sort_key, reverse=True)[:limit], "cold": sorted(ranked, key=sort_key)[:limit]}
