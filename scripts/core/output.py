@@ -90,10 +90,23 @@ def save_results(past_matches: list[dict[str, Any]]) -> None:
 
 
 def _emit_ml_outcomes(matches: list[dict]) -> None:
-    """P-6 ML 反馈：每场已结束比赛写 events.jsonl 一行。失败吞掉。"""
+    """P-6 ML 反馈：每场已结束比赛写 events.jsonl 一行。失败吞掉。
+
+    R13 #5：outcome 缺一行 = 该场进不了训练集，比 prediction 缺一行更关键
+    （predict 还在，只是少个样本；outcome 缺则训练样本直接消失）。
+    per-match except 升级到 log_error，对齐 _emit_ml_predictions (predict.py:337-348)
+    模板 —— 排错"events.jsonl outcome 行数 vs predictions 行数"对不上时能定位是哪场。
+    """
     try:
         from core.ml_feedback import record_outcome
     except Exception as exc:  # noqa: BLE001
+        # B.1 (Round 11): ml_feedback import 失败升级到 log_error，让 ML 反馈
+        # 链路断点可观测（之前仅 logger.debug，排错断链）。
+        try:
+            from core.observability import log_error
+            log_error(exc, context="_emit_ml_outcomes.import")
+        except Exception:
+            pass
         logger.debug(f"ml_feedback import skipped: {exc}")
         return
     for m in matches:
@@ -111,4 +124,13 @@ def _emit_ml_outcomes(matches: list[dict]) -> None:
                 status=str(m.get("status") or "FT"),
             )
         except Exception as exc:  # noqa: BLE001
+            # B.1 (R13 #5): outcome 失败比 prediction 失败更要紧 —— 单场缺 outcome
+            # = 该场进不了 ML 训练集。log_error 上 events.jsonl 让排错可观测，
+            # 对齐 _emit_ml_predictions per-match log_error 模板。
+            try:
+                from core.observability import log_error
+                log_error(exc, context="_emit_ml_outcomes.per_match",
+                          league=m.get("league", ""), match_id=m.get("id", ""))
+            except Exception:
+                pass
             logger.debug(f"record_outcome skipped: {exc}")
