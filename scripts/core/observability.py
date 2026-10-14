@@ -375,12 +375,93 @@ def iter_events(
                 break
 
 
+# ── R15b: events.jsonl 增长治理 ────────────────────────────
+def events_jsonl_size(path: Path | None = None) -> int:
+    """当前 events.jsonl 字节数（含 H8 rotation 形成的 ``.{N}.bak`` 备份）。
+
+    R15b 用途：运维轮询文件大小 + rotation 状态；``/admin/events/summary``
+    端点直接调用。rotation 备份命名（observability.py:_maybe_rotate_events）：
+    ``events.jsonl.1.bak`` … ``events.jsonl.N.bak``；额外行总占用一并统计。
+    """
+    p = path or events_jsonl_path()
+    if p is None or not p.exists():
+        return 0
+    total = p.stat().st_size
+    # rotation 备份 glob：与 p 同 stem + .{N}.bak 后缀
+    for backup in p.parent.glob(f"{p.name}.*.bak"):
+        try:
+            total += backup.stat().st_size
+        except OSError:
+            pass
+    return total
+
+
+def events_summary(
+    *,
+    since_ts: str | None = None,
+    by_kind: bool = True,
+    by_league: bool = True,
+    path: Path | None = None,
+) -> dict[str, Any]:
+    """聚合 events.jsonl 摘要 —— 给 ``/admin/events/summary`` 端点直接消费。
+
+    Returns
+    -------
+    {
+        "total": int,                      # 事件总行数
+        "size_bytes": int,                 # events.jsonl + rotation 备份总字节（R15b）
+        "kinds": {kind: int},              # by_kind=True 时：按事件类型计数
+        "leagues": {league: int},          # by_league=True 时：按 league 字段计数（"unknown" 表示缺字段）
+        "first_ts": str | None,           # 最早事件 ts（ISO 字符串）
+        "last_ts": str | None,            # 最新事件 ts
+    }
+
+    设计：
+    - 复用 ``iter_events`` 真惰性读，几十万行也不爆内存（流式聚合）。
+    - 解析失败行忽略（iter_events 自身已 logger.warning）。
+    - 空文件 / path 不存在 → 全零 + None。
+    """
+    p = path or events_jsonl_path()
+    total = 0
+    kinds: dict[str, int] = {}
+    leagues: dict[str, int] = {}
+    first_ts: str | None = None
+    last_ts: str | None = None
+
+    for rec in iter_events(since_ts=since_ts, path=p):
+        total += 1
+        if by_kind:
+            k = rec.get("kind", "<unknown>")
+            kinds[k] = kinds.get(k, 0) + 1
+        if by_league:
+            lg = rec.get("league")
+            league_key = lg if isinstance(lg, str) and lg else "<empty>"
+            leagues[league_key] = leagues.get(league_key, 0) + 1
+        ts = rec.get("ts")
+        if isinstance(ts, str):
+            if first_ts is None or ts < first_ts:
+                first_ts = ts
+            if last_ts is None or ts > last_ts:
+                last_ts = ts
+
+    return {
+        "total": total,
+        "size_bytes": events_jsonl_size(p),
+        "kinds": kinds if by_kind else None,
+        "leagues": leagues if by_league else None,
+        "first_ts": first_ts,
+        "last_ts": last_ts,
+    }
+
+
 __all__ = [
     "setup",
     "reset_for_test",
     "log_error",
     "log_event",
     "iter_events",
+    "events_jsonl_size",
+    "events_summary",
     "logs_dir",
     "runtime_log_path",
     "events_jsonl_path",

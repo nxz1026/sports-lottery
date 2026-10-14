@@ -31,6 +31,7 @@ from web.routers.combo import router as combo_router
 from web.routers.haf import router as haf_router
 from web.routers.lottery_api import router as lottery_api_router
 from web.routers.ticket import router as ticket_router
+from web.routers.admin import router as admin_router  # R15b
 from web.lifecycle import lifespan
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(haf_router)
     app.include_router(lottery_api_router)
     app.include_router(ticket_router)
+    app.include_router(admin_router)  # R15b
     return app
 
 
