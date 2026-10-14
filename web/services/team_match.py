@@ -16,6 +16,11 @@ from __future__ import annotations
 
 import re
 
+# R19 #G2：build_rows 复用 store.pred_index_by_pair 反查字典；提到顶部便于
+# 测试 monkeypatch（tests/test_team_match.py 等）。store 模块只引 IO + JSON，
+# 无脚本侧依赖，循环 import 风险低。
+from web.services.store import pred_index_by_pair
+
 # --- 队名规范化 -----------------------------------------------------------
 _WS = re.compile(r"\s+")
 
@@ -68,6 +73,22 @@ def teams_match(h1: str, a1: str, h2: str, a2: str) -> bool:
     if S1h & S2a and S1a & S2h:
         return True
     return False
+
+
+def teams_match_safe(h1: str, a1: str, h2: str, a2: str) -> bool:
+    """``teams_match`` 的容错 wrapper：异常时退化为精确字符串相等比较。
+
+    R19 #G1：原 ``web/routers/combo.py`` 内嵌同名 wrapper，与 haf 直接用
+    ``teams_match``（抛错时自然上浮）行为不一致。统一收口到本模块，供
+    haf / combo 任意一方复用，避免后续在两处维护不同 fallback 语义。
+    """
+    try:
+        return teams_match(h1, a1, h2, a2)
+    except Exception:  # noqa: BLE001 - 容错路径（fuzzy 失败回退字符串相等）
+        return (
+            (h1 or "").strip() == (h2 or "").strip()
+            and (a1 or "").strip() == (a2 or "").strip()
+        )
 
 
 # --- odd 层：官方赔率倾向 ------------------------------------------------
@@ -283,11 +304,10 @@ def build_rows(fixture_rows: list[dict], pred_by_league: dict[str, list[dict]]) 
         })
         m["plays"][r.get("play_type")] = r.get("options") or {}
 
-    # 扁平建预测索引 (home,away)->entry
-    pred_index: list[tuple[dict, dict]] = []  # (entry, league)
-    for league, entries in pred_by_league.items():
-        for e in entries:
-            pred_index.append((e, league))
+    # R19 #G2：复用 web.services.store.pred_index_by_pair 反查字典（haf / combo 同源），
+    # 把原 per-row × all-preds fuzzy 遍历降到 O(1) 命中 + miss fuzzy 兜底。
+    # pred_index_by_pair 已独立 mtime LRU 失效缓存。
+    pred_index = pred_index_by_pair()
 
     rows = []
     for mn, m in by_match.items():
@@ -300,12 +320,17 @@ def build_rows(fixture_rows: list[dict], pred_by_league: dict[str, list[dict]]) 
         goal_line = str(hhad.get("goalLine")
                         or hhad.get("goalLineValue")
                         or hhad.get("goal_line") or "")
-        # 匹配预测
+        # 匹配预测：dict 命中 → 不用 fuzzy；miss → 遍历 values 调 teams_match 兜底
         best = None
-        for e, lg in pred_index:
-            if teams_match(home or "", away or "", e.get("home") or "", e.get("away") or ""):
-                best = e
-                break
+        h_stripped = (home or "").strip()
+        a_stripped = (away or "").strip()
+        if h_stripped and a_stripped:
+            best = pred_index.get((h_stripped, a_stripped))
+        if best is None and pred_index:
+            for cand in pred_index.values():
+                if teams_match(home or "", away or "", cand.get("home") or "", cand.get("away") or ""):
+                    best = cand
+                    break
         row = {
             "match_num": mn,
             "league_cn": m["league_cn"],

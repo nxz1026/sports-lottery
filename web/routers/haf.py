@@ -40,9 +40,9 @@ def _find_prediction(home: str, away: str):
     # fuzzy 兜底（与原实现同语义：补齐别名差异，如 "曼彻斯特联" / "曼联"）
     if not idx:
         return None
-    from web.services.team_match import teams_match
+    from web.services.team_match import teams_match_safe
     for entry in idx.values():
-        if teams_match(home, away, entry.get("home") or "", entry.get("away") or ""):
+        if teams_match_safe(home, away, entry.get("home") or "", entry.get("away") or ""):
             return entry
     return None
 

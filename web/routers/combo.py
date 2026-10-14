@@ -101,8 +101,9 @@ def _assemble_legs(selections: list[dict]) -> list[dict]:
             entry = pred_by_pair.get(((home or "").strip(), (away or "").strip()))
             if entry is None and pred_by_pair:
                 # fuzzy 兜底（与原 while-loop 同样语义：补齐中英文别名差异）
+                from web.services.team_match import teams_match_safe as _tms
                 for cand in pred_by_pair.values():
-                    if teams_match_safe(home, away, cand.get("home") or "", cand.get("away") or ""):
+                    if _tms(home, away, cand.get("home") or "", cand.get("away") or ""):
                         entry = cand
                         break
             if entry is not None:
@@ -118,14 +119,14 @@ def _assemble_legs(selections: list[dict]) -> list[dict]:
     return out
 
 
-def teams_match_safe(h1: str, a1: str, h2: str, a2: str) -> bool:
-    """复用 web.services.team_match.teams_match（容错别名匹配），异常时退化为字符串相等。"""
-    try:
-        from web.services.team_match import teams_match as _tm
-        return _tm(h1, a1, h2, a2)
-    except Exception as exc:  # noqa: BLE001 - fuzzy match 失败退化精确字符串比较
-        logger.warning("combo: teams_match failed (%s vs %s): %s", h1, h2, exc)
-        return (h1.strip() == h2.strip() and a1.strip() == a2.strip())
+def teams_match_safe(h1: str, a1: str, h2: str, a2: str) -> bool:  # noqa: D401
+    """R19 #G1 收口 thin wrapper：复用 ``web.services.team_match.teams_match_safe``。
+
+    仅保留路由层公共符号，便于单元测试与既有
+    ``monkeypatch.setattr(combo_mod, "teams_match_safe", ...)`` 调用稳定。
+    """
+    from web.services.team_match import teams_match_safe as _tms
+    return _tms(h1, a1, h2, a2)
 
 
 @router.post("/combo/eval")

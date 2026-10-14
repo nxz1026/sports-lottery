@@ -7,6 +7,43 @@ from __future__ import annotations
 import web.services.team_match as tm
 
 
+def _pred_index_from_leagues(pred_by_league):
+    """R19 #G2 验收 helper：把 ``pred_by_league`` flatten 为 (home,away) -> entry 反查字典。
+
+    与 ``web.services.store.pred_index_by_pair`` 同语义（first-match-wins + strip 归一）。
+    """
+    idx = {}
+    for entries in pred_by_league.values():
+        if not isinstance(entries, list):
+            continue
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            h = (e.get("home") or "").strip()
+            a = (e.get("away") or "").strip()
+            if h and a:
+                idx.setdefault((h, a), e)
+    return idx
+
+
+def test_teams_match_safe_in_team_match_module(monkeypatch):
+    """R19 #G1 验收：teams_match_safe 收口到 web.services.team_match，行为与原有 wrapper 一致。"""
+    monkeypatch.setattr(tm, "teams_match", lambda h1, a1, h2, a2: True)
+    assert tm.teams_match_safe("A", "B", "C", "D") is True
+
+
+def test_teams_match_safe_string_eq_fallback(monkeypatch):
+    """teams_match 抛错 → 退化为 strip 字符串相等比较；None/空串安全。"""
+    def boom(*a, **kw):
+        raise RuntimeError("fuzzy crashed")
+    monkeypatch.setattr(tm, "teams_match", boom)
+    assert tm.teams_match_safe("A", "B", "A", "B") is True
+    assert tm.teams_match_safe("A", "B", "C", "D") is False
+    # None / 空串：与 strip("")==strip("") 比较时两侧均空 → True
+    assert tm.teams_match_safe("", "", "", "") is True
+    assert tm.teams_match_safe("A", "", "A", "") is True
+
+
 def test_norm_name_strips_whitespace_and_case():
     assert tm.norm_name(" 博洛尼亚 ") == "博洛尼亚"
     assert tm.norm_name(" PSV 埃因霍温 ") == "psv埃因霍温"
@@ -53,7 +90,7 @@ def test_algo_suggestion_parses_direction():
     assert r["stars"] == 0
 
 
-def test_build_rows_combines_fixture_and_prediction():
+def test_build_rows_combines_fixture_and_prediction(monkeypatch):
     fixtures = [
         {"match_num": 7006, "league_cn": "意甲", "home_cn": "佛罗伦萨",
          "away_cn": "那不勒斯", "kickoff_bj": "09-20 02:45",
@@ -73,6 +110,9 @@ def test_build_rows_combines_fixture_and_prediction():
             "predicted_score": "0-1",
         }],
     }
+    # R19 #G2：build_rows 改走 web.services.team_match.pred_index_by_pair 反查字典
+    monkeypatch.setattr(tm, "pred_index_by_pair",
+                        lambda: _pred_index_from_leagues(pred_by_league))
     rows = tm.build_rows(fixtures, pred_by_league)
     assert len(rows) == 2
     by_mn = {r["match_num"]: r for r in rows}
@@ -89,7 +129,7 @@ def test_build_rows_combines_fixture_and_prediction():
     assert r2["odd"]["pick"] == "主胜"
 
 
-def test_build_rows_matches_via_alias():
+def test_build_rows_matches_via_alias(monkeypatch):
     fixtures = [
         {"match_num": 7020, "league_cn": "英超", "home_cn": "富勒姆",
          "away_cn": "曼彻斯特联", "kickoff_bj": "09-20 00:30",
@@ -99,6 +139,10 @@ def test_build_rows_matches_via_alias():
         "epl": [{"home": "富勒姆", "away": "曼联", "direction": "曼彻斯特联 胜",
                  "stars": "3-star", "predicted_score": "0-2"}],
     }
+    # R19 #G2：dict 命中 miss（"富勒姆"+"曼彻斯特联" ≠ "富勒姆"+"曼联"）→ 走 fuzzy
+    # teams_match 兜底命中。验证 fuzzy 兜底路径仍生效。
+    monkeypatch.setattr(tm, "pred_index_by_pair",
+                        lambda: _pred_index_from_leagues(pred_by_league))
     rows = tm.build_rows(fixtures, pred_by_league)
     assert rows and rows[0]["matched"] is True
     assert rows[0]["algo"]["pick"] == "客胜"
@@ -182,7 +226,7 @@ def test_poisson_hhad_returns_none_on_bad_input():
     assert tm.poisson_hhad(1.0, 1.0, "abc") is None
 
 
-def test_build_rows_attaches_hhad_model():
+def test_build_rows_attaches_hhad_model(monkeypatch):
     fixtures = [
         {"match_num": 7100, "league_cn": "意甲", "home_cn": "佛罗伦萨",
          "away_cn": "那不勒斯", "kickoff_bj": "09-20 02:45",
@@ -192,11 +236,16 @@ def test_build_rows_attaches_hhad_model():
         "seriea": [{"home": "佛罗伦萨", "away": "那不勒斯", "direction": "佛罗伦萨 胜",
                     "lambda_home": 1.8, "lambda_away": 0.8, "predicted_score": "2-0"}],
     }
+    # R19 #G2
+    monkeypatch.setattr(tm, "pred_index_by_pair",
+                        lambda: _pred_index_from_leagues(pred_by_league))
     rows = tm.build_rows(fixtures, pred_by_league)
     assert rows[0]["hhad_model"]["line"] == "-1"
     assert rows[0]["hhad_model"]["pick"] in ("让胜", "让平", "让负")
     # 缺 λ 的预测不产 hhad_model（不编数）
-    rows2 = tm.build_rows(fixtures, {"seriea": [{"home": "佛罗伦萨", "away": "那不勒斯"}]})
+    empty_preds = {"seriea": [{"home": "佛罗伦萨", "away": "那不勒斯"}]}
+    monkeypatch.setattr(tm, "pred_index_by_pair", lambda: {})
+    rows2 = tm.build_rows(fixtures, empty_preds)
     assert "hhad_model" not in rows2[0]
 
 
@@ -241,8 +290,11 @@ def _gap_preds():
     }
 
 
-def test_jc_gap_ranks_and_filters():
-    rows = tm.build_rows(_gap_fixture_rows(), _gap_preds())
+def test_jc_gap_ranks_and_filters(monkeypatch):
+    pred_by_league = _gap_preds()
+    monkeypatch.setattr(tm, "pred_index_by_pair",
+                        lambda: _pred_index_from_leagues(pred_by_league))
+    rows = tm.build_rows(_gap_fixture_rows(), pred_by_league)
     out = tm.jc_gap(rows)
     assert len(out) == 2                 # 缺 a 的场次被过滤
     for it in out:
