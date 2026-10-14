@@ -23,57 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from store import jc_ops_view  # noqa: E402,F401
 
 
-@pytest.fixture
-def fake_pg():
-    """返回一个工厂 fake_read_conn(rows)，可按段配置异常/数据。
-
-    rows 是 list，按 cursor.execute 调用顺序消费（顺序与 _SQLS.items()
-    一致：teams → topics → quota → rejects）；元素 = list[dict] 或 Exception。
-
-    实现要点：``queue`` 是 ``_make`` 闭包变量，所有 fake_read_conn 调用
-    共享同一队列（ops_snapshot 会调 4 次 read_conn，每次走同一 queue）。
-    """
-
-    def _make(rows: list):
-        queue = list(rows)
-
-        def fake_read_conn(role: str = "ro"):
-            class _Cursor:
-                row_factory = None
-
-                def __enter__(self_inner):
-                    return self_inner
-
-                def __exit__(self_inner, *exc):
-                    return False
-
-                def execute(self_inner, sql):
-                    self_inner._next = queue.pop(0) if queue else []
-
-                def fetchall(self_inner):
-                    nxt = getattr(self_inner, "_next", [])
-                    if isinstance(nxt, Exception):
-                        raise nxt
-                    return list(nxt)
-
-            class _Conn:
-                def cursor(self_inner):
-                    return _Cursor()
-
-            class _Ctx:
-                def __enter__(self_inner):
-                    return self_inner.conn
-
-                def __exit__(self_inner, *exc):
-                    return False
-
-            ctx = _Ctx()
-            ctx.conn = _Conn()
-            return ctx
-
-        return fake_read_conn
-
-    return _make
+# R17 #5: ``fake_pg`` fixture 已收敛到 tests/conftest.py（跨文件复用）。
+# 此处只保留本文件特有的 autouse fixture。
 
 
 # _SQLS.items() 顺序：teams → topics → quota → rejects
