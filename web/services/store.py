@@ -84,6 +84,15 @@ def load_prediction_docs() -> list[dict]:
     直接命中缓存；引擎写入新文件 → mtime 变化 → 自动失效。
 
     缓存按 OUTPUT_DIR 分别持有条目（同一进程内不同路径不会串数据）。
+
+    R17 #8（cache invalidation 边界）：mtime-based invalidation 假设文件系统
+    时间戳精度足以分辨单次重写（NTFS / ext4 / APFS 都是 100ns 级）——
+    网络盘 / FAT32 / 某些虚拟化 FS 上 mtime 精度可能只有 2s，**理论存在
+    "内容变化但 mtime 不变"的极端情形**（如 sub-second 多次重写）。当前数据流
+    下不可触发；若未来接入网络盘 / 低精度 FS，应额外把 file_size 进 sig：
+      sig_id = (len(file_sigs),) + tuple(
+          (name, mtime, size) for name, mtime in file_sigs
+      )
     """
     files = iter_prediction_files()
     cache_key = str(OUTPUT_DIR)

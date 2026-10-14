@@ -111,6 +111,12 @@ def _score_key(league: str, home_en: str, away_en: str) -> str:
 
     必须与 ``ai/feedback_loop.py::score_key`` 保持一致。此处**故意复制**而非 import：
     契约 §5（见模块 docstring）规定 web 层绝不 import scripts/ 与 ai/，只读持久化产物。
+
+    R17 #7（mirror 一致性守门）：任何修改两侧必须同步 + 加新 unit 覆盖两侧
+    分别被影响（tests/test_ai_score_key.py 仅断言输出相等，不校验两侧各自规则）。
+    若需新增 normalization（如去 `` FC``/`` United`` 后缀），必须：
+      1. 同步更新 ``ai/feedback_loop.py::score_key``
+      2. 在 tests/test_ai_score_key.py 加两侧各一条 unit（输出相等 + 两侧规则都被覆盖）
     """
     home_en = (home_en or "").strip()
     away_en = (away_en or "").strip()
