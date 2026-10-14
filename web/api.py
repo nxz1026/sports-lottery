@@ -54,7 +54,10 @@ if _SCRIPTS_DIR not in _sys.path:
 try:
     from core import observability  # noqa: E402 — sys.path 已加
 
-    observability.setup(process_name="web")
+    # R13 #1：events.web.jsonl 启用 10MB×5 rotation（H8）。
+    # web jobs spin_state + AI LLM 失败持续累积；无 rotation 单文件月级 GB。
+    observability.setup(process_name="web", events_max_bytes=10 * 1024 * 1024,
+                        events_backup_count=5)
 except Exception as _obs_exc:  # noqa: BLE001 — 装挂失败仅记日志，进程继续
     errors.logger.warning("observability.setup(process_name='web') 失败：%s", _obs_exc)
 

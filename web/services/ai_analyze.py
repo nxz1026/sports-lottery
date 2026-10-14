@@ -38,7 +38,10 @@ except Exception:
 # "ai_analyze" 让 web + ai sub 各自落不同 events 文件（H9 隔离延伸）。
 try:
     from core import observability as _ai_obs  # noqa: E402 — sys.path 已加
-    _ai_obs.setup(process_name="ai_analyze")
+    # R13 #1：events.ai_analyze.jsonl 启用 10MB×5 rotation（H8）。
+    # ai_analyze LLM 失败 + reasoning 错误持续累积；不轮转会无界增长。
+    _ai_obs.setup(process_name="ai_analyze", events_max_bytes=10 * 1024 * 1024,
+                  events_backup_count=5)
 except Exception:  # noqa: BLE001 — 装挂失败仅记日志，不阻塞模块加载
     try:
         logger.warning("observability.setup(process_name='ai_analyze') 失败，被跳过")

@@ -40,7 +40,11 @@ logger = setup_logger("predict")
 # web 进程的 ``events.web.jsonl`` 不抢同一文件（Round 9 H9 多进程隔离）。
 try:
     from core import observability  # noqa: F401 — 触发装挂
-    observability.setup(process_name="predict")
+    # R13 #1：补 events.jsonl 10MB×5 rotation（对齐 runtime.log）——
+    # features_snapshot 26 维 + 7 处 log_error + 5 联赛 × 多 league 持续累积，
+    # 不限大小 → 月级 GB 级增长；启用 H8 rotation（observability.py:_maybe_rotate_events）
+    observability.setup(process_name="predict", events_max_bytes=10 * 1024 * 1024,
+                        events_backup_count=5)
 except Exception:  # noqa: BLE001 — 装挂失败不应阻塞 logger 使用
     # 测试早期 / 异常环境下 skip；上层仍可显式调用 observability.setup
     pass
