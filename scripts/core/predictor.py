@@ -389,12 +389,17 @@ def _assemble_result(
     elo_ratings: dict[str, float] | None, use_dixon_coles: bool,
     dc_rho: float | None, league_key: str, onside: dict,
     confidence_note: str | None, hp: float, dp: float, ap: float,
+    home_en: str, away_en: str, host_country: str | None,
 ) -> dict:
     """组装最终预测结果字典（含 95% CI 与 Over/Under）。纯函数。
 
     ESPN 赔率字段（``market`` / ``home_ml_implied`` 等）由 ``odds_enrich._apply_enrichment``
     就地写入 ``match``，本函数负责透传到 ``result`` 让 prediction_*.json 落盘带上盘口；
     见 ``_ODDS_PROPAGATION_FIELDS``。空值（None / "" / 空 dict）一律不写，避免污染下游默认降级。
+
+    R13 #4：``home_en``/``away_en``/``host_country`` 是新增参数，用于 ``_debug_fields``
+    落 26 维 features_snapshot（FEATURE_COLUMNS 全部覆盖）—— 给 retrain_baseline
+    ``train_league_model_from_events`` 用全 26 维训练，与生产主模型并轨。
     """
     # 95% 置信区间
     ci_home = poisson_confidence_interval(lambda_home)
@@ -406,6 +411,16 @@ def _assemble_result(
         ou = f"Over {ou_total}"
     else:
         ou = f"Under {ou_total}"
+
+    # R13 #4：odds_available / hmi / di 从 match 提（OddsEnrich 写入的），
+    # _debug_fields 内部还要用 home_fifa_score / home_elo / away_elo → 一起传 onside+elo_ratings。
+    # hmi/di 缺或为空字符串时按 None 走（避免 round("", 3) TypeError），
+    # 对齐 _ODDS_PROPAGATION_FIELDS 透传规则（line 451-452 拒绝空 str/dict/list）。
+    odds_available = bool(match.get("odds_data_available", False))
+    _hmi_raw = match.get("home_ml_implied")
+    _di_raw = match.get("draw_implied")
+    hmi = _hmi_raw if isinstance(_hmi_raw, (int, float)) else None
+    di = _di_raw if isinstance(_di_raw, (int, float)) else None
 
     result = {
         "direction": direction, "stars": stars,
@@ -421,7 +436,7 @@ def _assemble_result(
         "ml_proba": [round(p, 4) for p in ml_proba] if ml_proba else None,
         "dixon_coles_league_rho": LEAGUE_DC_RHO.get(league_key, DC_RHO),  # P0-3: 报告使用的 ρ 来源
         "onside_signals": onside, "confidence_note": confidence_note,
-        "odds_data_available": match.get("odds_data_available", False),
+        "odds_data_available": odds_available,
     }
     # ── ML feedback 必需字段（避免 prediction_*.json 缺 probs / model / goal_line，导致
     #    events.jsonl 写入 "default"/0 概率塌方）──
@@ -451,10 +466,15 @@ def _assemble_result(
         if isinstance(_v, (str, list, dict)) and len(_v) == 0:
             continue
         result[_k] = _v
-    result.update(_debug_fields(hfs, hrs, afs, ars, sm, home_onside,
+    result.update(_debug_fields(
+        hfs, hrs, afs, ars, sm, home_onside,
         away_onside, home_prob, draw_prob_calc, away_prob,
         elo_home_expected, elo_ratings, raw_home, raw_away,
-        hp, dp, ap))
+        hp, dp, ap,
+        # R13 #4：扩参透传 → 让 reasoning_factors 能落 26 维 features_snapshot
+        onside=onside, hmi=hmi, di=di, odds_available=odds_available,
+        host_country=host_country, home_en=home_en, away_en=away_en,
+    ))
     return result
 
 
@@ -464,26 +484,83 @@ def _debug_fields(
     draw_prob_calc: float, away_prob: float, elo_home_expected: float | None,
     elo_ratings: dict[str, float] | None, raw_home: float, raw_away: float,
     hp: float, dp: float, ap: float,
+    # R13 #4：扩参支持 26 维 features_snapshot（FEATURE_COLUMNS 全覆盖）
+    onside: dict | None = None,
+    hmi: float | None = None,
+    di: float | None = None,
+    odds_available: bool = False,
+    host_country: str | None = None,
+    home_en: str = "",
+    away_en: str = "",
 ) -> dict:
-    """构造调试/审计字段（暴露输入便于调试）。纯函数。"""
+    """构造调试/审计字段（暴露输入便于调试）。纯函数。
+
+    R13 #4 扩 26 维 features_snapshot：``reasoning_factors`` 增加 FEATURE_COLUMNS
+    26 键全集（odds / form / market movement / signal / ELO / engineering / host）。
+    旧 16 维字段保留向后兼容（home_ml_true_prob/away_ml_true_prob 名不规范但 events
+    历史已用，**保留别名以免 join 历史事件时丢样本**）。
+    """
+    # 从 onside 提 FIFA
+    home_fifa_score = (onside or {}).get("home", {}).get("fifa_score")
+    away_fifa_score = (onside or {}).get("away", {}).get("fifa_score")
+    # 从 elo_ratings 提 ELO（缺则 DEFAULT_ELO）
+    home_elo = (elo_ratings or {}).get(home_en, DEFAULT_ELO)
+    away_elo = (elo_ratings or {}).get(away_en, DEFAULT_ELO)
+    elo_diff = home_elo - away_elo
+    # 派生工程特征
+    home_form_vs_away_form = hfs - afs
+    home_record_vs_away_record = hrs - ars
+    form_x_record_home = hfs * hrs
+    form_x_record_away = afs * ars
+    elo_home_exp = elo_home_expected if elo_home_expected is not None else 0.5
+    odds_vs_elo_diff = (hp - ap) - (elo_home_exp - 0.5)
+    onside_vs_elo_diff = (home_onside - away_onside) - (elo_home_exp - 0.5)
+    is_host_country = 1.0 if host_country and home_en == host_country else 0.0
+
     return {
         "reasoning_factors": {
-            "home_ml_true_prob": round(hp, 3),
+            # Odds（FEATURE_COLUMNS 第 1-4）
+            "home_true_prob": round(hp, 3),         # R13 #4：新增（FEM 关键 key）
             "draw_true_prob": round(dp, 3),
-            "away_ml_true_prob": round(ap, 3),
+            "away_true_prob": round(ap, 3),         # R13 #4：新增
+            "odds_available": 1.0 if odds_available else 0.0,  # R13 #4
+            # Form（5-8）
             "home_form_score": round(hfs, 3),
             "away_form_score": round(afs, 3),
             "home_record_score": round(hrs, 3),
             "away_record_score": round(ars, 3),
+            # Market movement（9-11）
             "spread_movement": round(sm, 3),
+            "home_ml_implied": round(hmi, 3) if hmi is not None else None,   # R13 #4
+            "draw_implied": round(di, 3) if di is not None else None,        # R13 #4
+            # Signal（12-15）
             "home_onside_score": round(home_onside, 3),
             "away_onside_score": round(away_onside, 3),
+            "home_fifa_score": round(home_fifa_score, 3) if home_fifa_score is not None else None,   # R13 #4
+            "away_fifa_score": round(away_fifa_score, 3) if away_fifa_score is not None else None,   # R13 #4
+            # ELO（16-19）
+            "elo_home_expected": round(elo_home_expected, 3) if elo_home_expected is not None else None,
+            "home_elo_rating": round(home_elo, 3),    # R13 #4
+            "away_elo_rating": round(away_elo, 3),    # R13 #4
+            "elo_diff": round(elo_diff, 3),            # R13 #4
+            # Engineering（20-25）
+            "home_form_vs_away_form": round(home_form_vs_away_form, 3),     # R13 #4
+            "home_record_vs_away_record": round(home_record_vs_away_record, 3),  # R13 #4
+            "form_x_record_home": round(form_x_record_home, 3),             # R13 #4
+            "form_x_record_away": round(form_x_record_away, 3),             # R13 #4
+            "odds_vs_elo_diff": round(odds_vs_elo_diff, 3),                 # R13 #4
+            "onside_vs_elo_diff": round(onside_vs_elo_diff, 3),             # R13 #4
+            # Host（26）
+            "is_host_country": is_host_country,                            # R13 #4
+
+            # ── 旧字段保留向后兼容（events 历史数据 join） ──
+            "home_ml_true_prob": round(hp, 3),    # 别名，events 历史用此 key
+            "away_ml_true_prob": round(ap, 3),    # 别名
             "home_prob_weighted": round(home_prob, 3),
             "draw_prob_weighted": round(draw_prob_calc, 3),
             "away_prob_weighted": round(away_prob, 3),
-            "elo_home_expected": round(elo_home_expected, 3) if elo_ratings and elo_home_expected is not None else None,
-            "raw_lambda_home": round(raw_home, 4),   # P0-2: 暴露原始 λ 输入便于调试
-            "raw_lambda_away": round(raw_away, 4),   # P0-2: 暴露原始 λ 输入便于调试
+            "raw_lambda_home": round(raw_home, 4),   # P0-2
+            "raw_lambda_away": round(raw_away, 4),   # P0-2
         },
     }
 
@@ -546,4 +623,6 @@ def calculate_prediction(
         lambda_home, lambda_away, raw_home, raw_away, btts_prob, over_25_prob,
         ml_proba, home_prob, draw_prob_calc, away_prob, hfs, hrs, afs, ars, sm,
         home_onside, away_onside, elo_home_expected, elo_ratings,
-        use_dixon_coles, dc_rho, league_key, onside, confidence_note, hp, dp, ap)
+        use_dixon_coles, dc_rho, league_key, onside, confidence_note, hp, dp, ap,
+        # R13 #4：透传 home_en/away_en/host_country 让 _debug_fields 落 26 维
+        home_en, away_en, host_country)

@@ -341,11 +341,11 @@ def _events_model_path(league: str, base_dir) -> Path:
     **与生产主模型 ml_model_<league>.json 隔离**：
     - 主模型 n_features=26 来自 ``extract_features()``，需要完整 match dict
       (home/away/elo/odds/onside_signals/...)；
-    - 从 events 训练只能消费 ``features_snapshot``（predictor 的
-      ``reasoning_factors`` dump，当前 ~9 维），n_features 远小于 26；
+    - 从 events 训练消费 ``features_snapshot``（predictor 的 ``reasoning_factors``
+      dump，**R13 #4 后已能 26 维全集**）；
     - ``MatchMLModel.predict_proba`` 喂 26 维会与 from_events 训练产物的 n_features
       不一致，因此**两套模型并存、由 predictor 只加载主模型**，events 模型用于
-      离线评估 / 将来 reasoning_factors 扩到 26 维后再考虑并轨。
+      离线评估 / A/B 实验。
     """
     from core.config import FOOTBALL_DIR                     # noqa: PLC0415 — runtime
     base_root = base_dir or (FOOTBALL_DIR / "references")
@@ -503,7 +503,7 @@ def _kfold_metrics(
 def train_league_model_from_events(
     league: str, *,
     min_train_samples: int = 30,
-    min_feature_keys: int = 8,
+    min_feature_keys: int = 20,
     base_dir=None,
     events_path: Path | str | None = None,
 ) -> TrainResult:
@@ -520,16 +520,19 @@ def train_league_model_from_events(
     Args:
         league: 联赛 key（epl / laliga / ...）
         min_train_samples: 最少样本阈值，参考 ``ML_CONFIG["min_train_samples"]``
-        min_feature_keys: features_snapshot 公共覆盖 key 数下限。设得太低会让模型
-            只看 1-2 维而退化成均值预测；太高会拒绝任何当前 events 形态。
-            predictor.reasoning_factors 当前能填 9 个 key，所以默认 8 是临界。
+        min_feature_keys: features_snapshot 公共覆盖 key 数下限。
+            **R13 #4 后默认从 8 上调为 20** —— predictor.reasoning_factors 已扩到
+            26 维全集（home_true_prob/fifa_score/elo_rating/engineering 等），
+            min_feature_keys=8 让模型只用 9 维子集训（其他维度信息被浪费），
+            设为 20 能挡住"老 events 历史数据 9 维"那条路径，强制走 calibration fallback
+            直到累积足够新形态 events。新 events 形态 n_features=26 时直接通过。
         events_path: 详见 ``ml_feedback.join_predictions_outcomes``；缺省走
             ``observability.events_jsonl_path()``。
 
     Returns:
         ``TrainResult``（含 reason / n_samples / n_features / model / path /
-        train_accuracy / train_brier）。失败时 model 与 path 都为 None，调用方
-        据此判断是否走 calibration fallback（已有 ``run`` API）。
+        train_accuracy / train_brier / cv_accuracy / cv_brier）。失败时 model 与
+        path 都为 None，调用方据此判断是否走 calibration fallback（已有 ``run`` API）。
     """
     from core import ml_feedback                                # noqa: PLC0415
     from core.model.ml_model import MatchMLModel                # noqa: PLC0415
@@ -713,8 +716,8 @@ def _cli(argv: list[str] | None = None) -> int:
                              "与 --league/--reliability 互斥（重训模式独立）")
     parser.add_argument("--min-train-samples", type=int, default=30,
                         help="ML 重训最少有效样本数（默认 30，对齐 ML_CONFIG.min_train_samples）")
-    parser.add_argument("--min-feature-keys", type=int, default=8,
-                        help="features_snapshot 公共覆盖 key 数下限（默认 8，对齐当前 reasoning_factors 覆盖）")
+    parser.add_argument("--min-feature-keys", type=int, default=20,
+                        help="features_snapshot 公共覆盖 key 数下限（默认 20，对齐 R13 #4 后 26 维全集）")
     parser.add_argument("--base-dir", type=Path, default=None,
                         help="ML 模型落盘根目录（缺省走 FOOTBALL_DIR/references）")
     args = parser.parse_args(argv)

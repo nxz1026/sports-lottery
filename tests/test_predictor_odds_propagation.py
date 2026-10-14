@@ -55,6 +55,10 @@ def _minimal_assemble_args(match=None):
         onside={},
         confidence_note=None,
         hp=0.5, dp=0.28, ap=0.22,
+        # R13 #4：新增 3 个 _assemble_result 参数（home_en/away_en/host_country）——
+        # 这些 odds 透传测试只关心 result["market"] / ["home_ml_implied"] 等字段是否
+        # 透传，不动 reasoning_factors，给空值即可。
+        home_en="", away_en="", host_country=None,
     )
 
 

@@ -197,10 +197,19 @@ def _emit_match_events(league: str, n: int, *, with_features: bool = True,
     rng = random.Random(rng_seed)
 
     feature_keys = feature_keys or [
+        # R13 #4 后 reasoning_factors 26 维全集（FEATURE_COLUMNS）—— helper 默认
+        # 模拟真实 predictor 行为；测试显式传短 list 时用于 insufficient 路径。
+        "home_true_prob", "draw_true_prob", "away_true_prob", "odds_available",
         "home_form_score", "away_form_score",
         "home_record_score", "away_record_score",
-        "spread_movement", "home_onside_score", "away_onside_score",
-        "draw_true_prob", "elo_home_expected",
+        "spread_movement", "home_ml_implied", "draw_implied",
+        "home_onside_score", "away_onside_score",
+        "home_fifa_score", "away_fifa_score",
+        "elo_home_expected", "home_elo_rating", "away_elo_rating", "elo_diff",
+        "home_form_vs_away_form", "home_record_vs_away_record",
+        "form_x_record_home", "form_x_record_away",
+        "odds_vs_elo_diff", "onside_vs_elo_diff",
+        "is_host_country",
     ]
 
     for i in range(n):
