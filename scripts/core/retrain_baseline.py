@@ -1,34 +1,44 @@
-"""Retrain baseline — calibration over stored ``probs`` from ml_feedback events。
+"""Retrain baseline — calibration + ML 重训（基于 ml_feedback 已关联样本）。
 
 设计目标：
 - **不重跑整条训练流水线**。H1+H2 落地后 ``events.jsonl`` 落盘了每场的
   ``probs``（H/D/A 概率）与 ``outcome``（H/D/A 标 label + 比分）。
-- 本模块只做**概率校准评估**：对比 stored ``probs`` 与一致假设（1/3, 1/3, 1/3）
-  在 Brier score 上的差距，给"数据到底值多少"做一个 0 依赖的可验证基线。
-- 真正的 ML retrain（用 ``core.model.ml_model.MatchMLModel`` 重新训练）需要
-  把 26 维特征向量也落盘到 ``events.jsonl``（见 Round 8 H10）—— 那一档推
-  下一轮，本轮只把"评估闭环"打通。
+- 本模块做两档产出：
+  1. **概率校准评估** (Round 8 H1+H2)：对比 stored ``probs`` 与均匀假设在
+     Brier / accuracy 上的差距，给"数据到底值多少"做一个 0 依赖可验证基线。
+  2. **ML 重训** (Round 12)：用 events.jsonl 中的 features_snapshot 子集训练一个
+     ``MatchMLModel``，写到 ``ml_model_<league>_from_events.json``（与生产主模型
+     ``ml_model_<league>.json`` 隔离——主模型走 26 维 extract_features，从 events
+     训练的产物只用于离线评估与未来上线前的 A/B）。
 
 核心 API：
 - ``load_joined_samples(events_jsonl_path, league=, since_ts=)`` —— 已 join
   prediction <-> outcome 的训练样本列表（来自 ``ml_feedback.join_predictions_outcomes``）
 - ``evaluate_baseline(samples)`` —— 返回 ``n / brier / naive_brier / accuracy /
   improvement_pct / per_outcome_accuracy``
+- ``reliability_diagram(samples, n_bins=10)`` —— Wilson 95% CI + ECE (Round 11 F1)
 - ``format_report(metrics)`` —— 格式化人类可读摘要
 - ``run(events_jsonl_path, league=, since_ts=)`` —— 一键装载+评估+打印
+- ``train_league_model_from_events(league, ...)`` —— 基于 features_snapshot
+  训练 ``MatchMLModel``，返回 ``TrainResult`` 摘要 (Round 12 M-3)
 
 CLI 入口：
     python -m core.retrain_baseline [--events PATH] [--league LEAGUE] [--since ISO]
+                                    [--reliability N] [--train-league LEAGUE]
 """
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
+
+
+logger = logging.getLogger("predict")
 
 
 # 与 ml_feedback.record_prediction probs 字段对齐（h/d/a 三键浮点）
@@ -293,6 +303,282 @@ def format_report(metrics: BaselineMetrics) -> str:
         lines.append("  models: " + ", ".join(
             f"{k}={v}" for k, v in sorted(metrics.model_versions.items())
         ))
+    return "\n".join(lines)
+
+
+# ── ML 重训（Round 12）────────────────────────────────────
+@dataclass
+class TrainResult:
+    """train_league_model_from_events 的返回摘要。
+
+    设计要点：
+    - ``reason`` 用短语标签 ("ok" / "no joined samples" / "insufficient features" /
+      "insufficient samples" / "training failed")，CLI/测试可直接 ``assertEqual``。
+    - 训练后的 in-sample metrics（accuracy / brier）只是参考，真正的好坏留给
+      ``evaluate_baseline`` 在 held-out 上评估（Round 12 暂不引入 split，标注用）。
+    - ``path`` 与 ``model`` 互斥：失败时 path=None；model 内存对象若用户后续想
+      load_league_model 验证，给的是同 league_key 但 ``_from_events`` 后缀路径。
+    """
+    reason: str = "ok"
+    n_samples: int = 0
+    n_features: int = 0
+    feature_columns: list[str] = field(default_factory=list)
+    model: object | None = None  # core.model.ml_model.MatchMLModel（运行时导入）
+    path: Path | None = None
+    train_accuracy: float | None = None
+    train_brier: float | None = None
+    detail: str = ""
+
+
+def _events_model_path(league: str, base_dir) -> Path:
+    """ML 重训产物的落盘路径：``ml_model_<league>_from_events.json``。
+
+    **与生产主模型 ml_model_<league>.json 隔离**：
+    - 主模型 n_features=26 来自 ``extract_features()``，需要完整 match dict
+      (home/away/elo/odds/onside_signals/...)；
+    - 从 events 训练只能消费 ``features_snapshot``（predictor 的
+      ``reasoning_factors`` dump，当前 ~9 维），n_features 远小于 26；
+    - ``MatchMLModel.predict_proba`` 喂 26 维会与 from_events 训练产物的 n_features
+      不一致，因此**两套模型并存、由 predictor 只加载主模型**，events 模型用于
+      离线评估 / 将来 reasoning_factors 扩到 26 维后再考虑并轨。
+    """
+    from core.config import FOOTBALL_DIR                     # noqa: PLC0415 — runtime
+    base_root = base_dir or (FOOTBALL_DIR / "references")
+    return Path(base_root) / f"ml_model_{league}_from_events.json"
+
+
+def _common_feature_keys(samples: list[dict]) -> list[str]:
+    """所有含 features_snapshot 样本里**公共覆盖**的数值 key（用作训练子集列）。
+
+    判定：
+    - features_snapshot 必须是 dict 且每个 key 的 value 是数字（int/float/非 NaN）；
+    - 一个 key 必须出现在**所有**样本中才被采纳，保证 ``(X, y)`` 能构造规整矩阵；
+    - 顺序按 key 字符串首次出现顺序（保持训练/推理对齐的可复现性）。
+    """
+    seen: list[str] = []
+    must_have: set[str] | None = None
+    for s in samples:
+        snap = s.get("features_snapshot")
+        if not isinstance(snap, dict):
+            continue
+        keys_here = []
+        for k, v in snap.items():
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                continue
+            keys_here.append(k)
+        if not keys_here:
+            continue
+        if must_have is None:
+            must_have = set(keys_here)
+            seen = list(keys_here)
+        else:
+            must_have &= set(keys_here)
+    if not must_have:
+        return []
+    # 顺序取 ``seen`` 中属于 must_have 的（保首次出现顺序）
+    return [k for k in seen if k in must_have]
+
+
+def _build_xy_from_samples(
+    samples: list[dict], feature_cols: list[str]
+) -> tuple[list[list[float]], list[int]]:
+    """按 ``feature_cols`` 把 samples 投影成 (X, y)。
+
+    - X[r][c] = samples[r]["features_snapshot"][feature_cols[c]]
+    - y[r] = _RESULT_TO_INDEX[_normalize_result_label(samples[r]["result"])]
+    - 跳过 result 不可识别 / features_snapshot 缺列的样本（已被前置筛过，正常空跑）
+    """
+    X: list[list[float]] = []
+    y: list[int] = []
+    for s in samples:
+        outcome = _normalize_result_label(s.get("result", ""))
+        if outcome is None or outcome not in _RESULT_TO_INDEX:
+            continue
+        snap = s.get("features_snapshot")
+        if not isinstance(snap, dict):
+            continue
+        try:
+            row = [float(snap[c]) for c in feature_cols]
+        except (KeyError, TypeError, ValueError):
+            continue
+        X.append(row)
+        y.append(_RESULT_TO_INDEX[outcome])
+    return X, y
+
+
+def _train_metrics(X: list[list[float]], y: list[int], model) -> tuple[float, float]:
+    """在训练集上算 accuracy + Brier（in-sample 参考指标，held-out 评估留 R12+）。
+
+    用 predict_proba 逐样本推一遍（已被 model 拟合过，相当于"训练集自学习指标"）。
+    """
+    if not X:
+        return 0.0, 0.0
+    correct = 0
+    brier_sum = 0.0
+    for row, label_idx in zip(X, y):
+        probs = model.predict_proba(row)
+        # accuracy
+        pred_idx = max(range(3), key=lambda i: probs[i])
+        if pred_idx == label_idx:
+            correct += 1
+        # Brier sum (multi-class)
+        for i, k in enumerate(_PROB_KEYS):
+            actual = 1.0 if i == label_idx else 0.0
+            brier_sum += (probs[i] - actual) ** 2
+    n = len(X)
+    return correct / n, brier_sum / n
+
+
+def train_league_model_from_events(
+    league: str, *,
+    min_train_samples: int = 30,
+    min_feature_keys: int = 8,
+    base_dir=None,
+    events_path: Path | str | None = None,
+) -> TrainResult:
+    """从 ``ml_feedback.join_predictions_outcomes`` 拉 league 样本，
+    用 ``features_snapshot`` 公共子集训练 ``MatchMLModel``，写到
+    ``ml_model_<league>_from_events.json``。
+
+    失败模式（无 `reason != "ok"` 时 ``model/path`` 都为 None）：
+    - ``"no joined samples"`` —— 该 league 在 events.jsonl 中无配对样本
+    - ``"insufficient features"`` —— 所有样本 features_snapshot 公共 key < ``min_feature_keys``
+    - ``"insufficient samples"`` —— 有效样本数 < ``min_train_samples``
+    - ``"training failed"`` —— ``MatchMLModel.fit`` 抛 ValueError（理论上不应触发）
+
+    Args:
+        league: 联赛 key（epl / laliga / ...）
+        min_train_samples: 最少样本阈值，参考 ``ML_CONFIG["min_train_samples"]``
+        min_feature_keys: features_snapshot 公共覆盖 key 数下限。设得太低会让模型
+            只看 1-2 维而退化成均值预测；太高会拒绝任何当前 events 形态。
+            predictor.reasoning_factors 当前能填 9 个 key，所以默认 8 是临界。
+        events_path: 详见 ``ml_feedback.join_predictions_outcomes``；缺省走
+            ``observability.events_jsonl_path()``。
+
+    Returns:
+        ``TrainResult``（含 reason / n_samples / n_features / model / path /
+        train_accuracy / train_brier）。失败时 model 与 path 都为 None，调用方
+        据此判断是否走 calibration fallback（已有 ``run`` API）。
+    """
+    from core import ml_feedback                                # noqa: PLC0415
+    from core.model.ml_model import MatchMLModel                # noqa: PLC0415
+
+    try:
+        samples = ml_feedback.join_predictions_outcomes(
+            league=league,
+            events_path=Path(events_path) if events_path is not None else None,
+        )
+    except FileNotFoundError as e:
+        logger.warning("train_league %s: events.jsonl 未找到 -- %s", league, e)
+        return TrainResult(reason="no joined samples", detail=f"events.jsonl 未找到: {e}")
+
+    if not samples:
+        logger.warning("train_league %s: events.jsonl 中无 prediction/outcome 配对", league)
+        return TrainResult(reason="no joined samples", detail=f"league={league} 无配对 prediction/outcome")
+
+    feature_cols = _common_feature_keys(samples)
+    if len(feature_cols) < min_feature_keys:
+        logger.warning(
+            "train_league %s: features_snapshot 公共 key 仅 %d < min_feature_keys=%d，"
+            "需先在 predictor._debug_fields 中扩展 reasoning_factors 覆盖",
+            league, len(feature_cols), min_feature_keys,
+        )
+        return TrainResult(
+            reason="insufficient features",
+            n_samples=len(samples),
+            feature_columns=feature_cols,
+            detail=(f"features_snapshot 公共 key 仅 {len(feature_cols)} < "
+                    f"min_feature_keys={min_feature_keys}；需先在 "
+                    f"predictor._debug_fields 中扩展 reasoning_factors 覆盖"),
+        )
+
+    X, y = _build_xy_from_samples(samples, feature_cols)
+    if len(X) < min_train_samples:
+        logger.warning(
+            "train_league %s: 有效训练样本 %d < min_train_samples=%d",
+            league, len(X), min_train_samples,
+        )
+        return TrainResult(
+            reason="insufficient samples",
+            n_samples=len(X),
+            n_features=len(feature_cols),
+            feature_columns=feature_cols,
+            detail=(f"有效训练样本 {len(X)} < min_train_samples={min_train_samples}"),
+        )
+
+    try:
+        model = MatchMLModel(n_features=len(feature_cols)).fit(X, y)
+    except ValueError as e:
+        logger.warning("train_league %s: MatchMLModel.fit 抛 ValueError -- %s", league, e)
+        return TrainResult(
+            reason="training failed",
+            n_samples=len(X),
+            n_features=len(feature_cols),
+            feature_columns=feature_cols,
+            detail=f"MatchMLModel.fit 抛 ValueError: {e}",
+        )
+
+    train_acc, train_brier = _train_metrics(X, y, model)
+    path = _events_model_path(league, base_dir)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(model.to_dict(), f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        logger.warning("train_league %s: 落盘 %s 失败 -- %s", league, path, e)
+        return TrainResult(
+            reason="training failed",
+            n_samples=len(X),
+            n_features=len(feature_cols),
+            feature_columns=feature_cols,
+            model=model,
+            train_accuracy=train_acc,
+            train_brier=train_brier,
+            detail=f"落盘 {path} 失败: {e}",
+        )
+
+    logger.info(
+        "train_league %s: 训练完成 n_samples=%d n_features=%d train_acc=%.4f train_brier=%.4f -> %s",
+        league, len(X), len(feature_cols), train_acc, train_brier, path,
+    )
+    return TrainResult(
+        reason="ok",
+        n_samples=len(X),
+        n_features=len(feature_cols),
+        feature_columns=feature_cols,
+        model=model,
+        path=path,
+        train_accuracy=train_acc,
+        train_brier=train_brier,
+        detail=f"trained on {len(X)} samples × {len(feature_cols)} features",
+    )
+
+
+def format_train_report(result: TrainResult) -> str:
+    """人类可读 ML 重训摘要（10 行内）。"""
+    if result.reason != "ok":
+        lines = [f"[train-league] reason={result.reason}"]
+        if result.detail:
+            lines.append(f"  detail: {result.detail}")
+        if result.n_samples:
+            lines.append(f"  n_samples={result.n_samples}")
+        if result.feature_columns:
+            lines.append(
+                f"  feature_columns (n={len(result.feature_columns)}): "
+                + ", ".join(result.feature_columns)
+            )
+        return "\n".join(lines)
+
+    lines = [
+        f"[train-league] reason={result.reason}  n_samples={result.n_samples}  "
+        f"n_features={result.n_features}",
+        f"  feature_columns: {', '.join(result.feature_columns)}",
+    ]
+    if result.train_accuracy is not None:
+        lines.append(f"  train accuracy:   {result.train_accuracy:.4f}")
+    if result.train_brier is not None:
+        lines.append(f"  train brier:      {result.train_brier:.4f}")
+    lines.append(f"  saved to: {result.path}")
     return "\n".join(lines)
 
 
