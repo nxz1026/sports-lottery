@@ -1,0 +1,87 @@
+#!/usr/bin/env pwsh
+# sports-lottery pre-push hook
+# 在 git push 前自动跑 5x pytest 压测，任何一次 fail 阻断 push。
+# 设计参考：stress_runs/run5x.ps1（手动版）；R14 commit 1 提供自动化版。
+#
+# 启用方法（任一）：
+#   1) 自动安装：pwsh stress_runs/install-pre-push.ps1（推荐）
+#   2) 手动：git config core.hooksPath stress_runs/hooks
+#
+# 跳过（CI 服务器上）：
+#   $env:SPORTS_LOTTERY_SKIP_PUSH_HOOK = "1"
+#   git push ...
+#
+# 退出码：
+#   0 = 5x 全过，放行 push
+#   1 = 任一次 fail，阻断 push
+
+$ErrorActionPreference = 'Stop'
+
+# ── 跳过环境 ───────────────────────────────────────────────
+if ($env:SPORTS_LOTTERY_SKIP_PUSH_HOOK -eq "1") {
+    Write-Host "[pre-push] SPORTS_LOTTERY_SKIP_PUSH_HOOK=1, skipped" -ForegroundColor Yellow
+    exit 0
+}
+
+# ── 仓库根定位 ────────────────────────────────────────────
+$repoRoot = & git rev-parse --show-toplevel
+if (-not $repoRoot) {
+    Write-Host "[pre-push] git rev-parse failed, skipped" -ForegroundColor Yellow
+    exit 0
+}
+Set-Location $repoRoot
+$env:PYTHONPATH = "scripts"
+
+# ── 测试范围（与 stress_runs/run5x.ps1 不同：用 retrain+ml_feedback 链路 + observability
+# 关键测试，避免 5x 全量 30+s 的体感）。PRIMARY:风险最高的改动面。
+# 注意：PowerShell 数组末尾不能有逗号；odds_propagation 因 R13 #4 改动后偶发断言漂移，
+# 不进 5x 强保证快路径，留 stress_runs/run5x.ps1 全量覆盖。
+$relTests = @(
+    "tests/test_retrain_train_league.py",
+    "tests/test_retrain_baseline.py",
+    "tests/test_retrain_reliability.py",
+    "tests/test_ml_feedback.py",
+    "tests/test_ml_feedback_features_snapshot.py",
+    "tests/test_predict_log_error_wrappers.py",
+    "tests/test_observability.py",
+    "tests/test_observability_process_name.py",
+    "tests/test_observability_round10.py",
+    "tests/test_observability_events_rotation.py",
+    "tests/test_observability_unwritable_warn.py"
+)
+
+# ── 5x 跑测 ────────────────────────────────────────────────
+$passes = @()
+$failures = @()
+for ($i = 1; $i -le 5; $i++) {
+    $start = Get-Date
+    Write-Host "[pre-push] run $i/5: pytest -q" -ForegroundColor Cyan
+    # 拼好 pytest 参数数组（避免 -ArgumentList 接收"@"表达式当多参数位）
+    $pytestArgs = @("-m", "pytest", "-q", "--tb=line", "--no-header") + $relTests
+    # Windows 下 stdout/stderr 必须用不同文件路径（不能用同一个 "nul"），
+    # 用 $env:TEMP 下两个临时文件作为输出汇。Start-Process 等价 /dev/null。
+    $tmpStdout = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "pre_push_out_$i.txt")
+    $tmpStderr = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "pre_push_err_$i.txt")
+    $proc = Start-Process -FilePath "python" -ArgumentList $pytestArgs -NoNewWindow -Wait -RedirectStandardOutput $tmpStdout -RedirectStandardError $tmpStderr -PassThru
+    $end = Get-Date
+    $duration = ($end - $start).TotalSeconds
+    $durationStr = ("{0:N1}" -f $duration) + "s"
+    if ($proc.ExitCode -eq 0) {
+        $passes += $i
+        Write-Host ("[pre-push] run {0}: PASS ({1})" -f $i, $durationStr) -ForegroundColor Green
+    } else {
+        $failures += $i
+        Write-Host ("[pre-push] run {0}: FAIL ({1}, exit={2})" -f $i, $durationStr, $proc.ExitCode) -ForegroundColor Red
+    }
+}
+
+if ($failures.Count -gt 0) {
+    Write-Host ""
+    Write-Host ("[pre-push] BLOCKED: {0}/5 runs failed: {1}" -f $failures.Count, ($failures -join ", ")) -ForegroundColor Red
+    Write-Host "[pre-push] Fix failing tests or set SPORTS_LOTTERY_SKIP_PUSH_HOOK=1 to skip." -ForegroundColor Yellow
+    exit 1
+}
+
+Write-Host ""
+Write-Host ("[pre-push] PASSED 5/5 runs ( {0}/5 OK)" -f $passes.Count) -ForegroundColor Green
+exit 0
