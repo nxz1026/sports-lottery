@@ -42,7 +42,11 @@ def client(monkeypatch):
                                       "draw_true_prob": 0.3,
                                       "away_ml_true_prob": 0.1 if i % 2 == 0 else 0.5}}
                for i in range(14)]
-    monkeypatch.setattr(ticket_router, "_all_pred_entries", lambda: entries)
+    # R20 #t：ticket 改走 store.pred_index_by_pair 反查字典；mock 入口切换
+    from web.services import store as ws
+    monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {
+        (f"主{i}", f"客{i}"): entries[i] for i in range(14)
+    })
 
     from web.api import create_app
     from fastapi.testclient import TestClient
@@ -111,7 +115,8 @@ def test_no_matches_empty_degraded(monkeypatch):
     importlib.reload(web.session_store)
     importlib.reload(web.auth)
     monkeypatch.setattr("store.jc_view.issue_matches", lambda g, i: [])
-    monkeypatch.setattr(ticket_router, "_all_pred_entries", lambda: [])
+    from web.services import store as ws
+    monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {})
     from web.api import create_app
     from fastapi.testclient import TestClient
     c = TestClient(create_app())

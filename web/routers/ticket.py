@@ -5,7 +5,7 @@ ml_proba）逐场推荐，输出 14场 逐场票面 + 任九(top9) 组合命中�
 
 数据来源：
   · 对阵：store.jc_view.issue_matches(game_num=90, issue_no?=最新一期)
-  · 模型概率：web.services.store.load_prediction_docs 里命中的预测 entry
+  · 模型概率：web.services.store.pred_index_by_pair 里命中 (home,away) 的预测 entry
     的 reasoning_factors.{home_ml_true_prob,draw_true_prob,away_ml_true_prob}（校准三向）
     或 ml_proba=[home,draw,away]；都不齐 → 该场标 no_probs，不编数。
 口径与重现性：
@@ -39,29 +39,37 @@ def _model_three(e: dict) -> dict | None:
     return None
 
 
-def _match_probs(home: str, away: str, pred_entries: list) -> dict | None:
-    """按 (home,away) 逐预测 entry 找命中，取其模型三向概率。"""
-    from web.services.team_match import teams_match
-    for e in pred_entries:
-        if teams_match(home, away, e.get("home") or "", e.get("away") or ""):
-            p = _model_three(e)
-            if p:
-                return p
-    return None
+def _match_probs(home: str, away: str, pred_by_pair: dict) -> dict | None:
+    """按 (home,away) 反查字典（命中 + miss fuzzy 兜底）取模型三向概率。
+
+    R20 #t：原实现 14 场 × all entries fuzzy 遍历；现与 haf / combo /
+    build_rows 同源复用 store.pred_index_by_pair()（mtime LRU 失效缓存）
+    单一入口，命中 O(1)，miss 调 teams_match_safe 兜底。
+    """
+    if not pred_by_pair:
+        return None
+    h = (home or "").strip()
+    a = (away or "").strip()
+    e = pred_by_pair.get((h, a))
+    if e is None:
+        from web.services.team_match import teams_match_safe
+        for cand in pred_by_pair.values():
+            if teams_match_safe(home, away, cand.get("home") or "", cand.get("away") or ""):
+                e = cand
+                break
+    if e is None:
+        return None
+    return _model_three(e)
 
 
-def _all_pred_entries() -> list:
-    """全部最新/历史预测文档里的 entry 列表（尽力；异常 → []）。"""
+def _pred_by_pair() -> dict:
+    """ticket 端反查字典；异常 → {}，与 haf / combo 等同源"""
     from web.services import store as web_store
     try:
-        docs = web_store.load_prediction_docs()
-    except Exception as exc:  # noqa: BLE001 - store 损坏时返回空 hist
-        logger.warning("ticket: load_prediction_docs failed: %s", exc)
-        return []
-    out: list = []
-    for doc in (docs or []):
-        out.extend((doc.get("data") or {}).get("predictions", []) or [])
-    return out or []
+        return web_store.pred_index_by_pair()
+    except Exception as exc:  # noqa: BLE001 - store 损坏时返回空 dict
+        logger.warning("ticket: pred_index_by_pair failed: %s", exc)
+        return {}
 
 
 @router.get("/ticket/sfc")
@@ -95,12 +103,12 @@ def ticket_sfc(body: dict | None = Body(default=None),
                 "note": f"传统足彩 {game_num} 期 {issue_no or '最新'} 无对阵数据（fact.jc_issue_match 为空）"}
 
     actual_issue = matches[0].get("issue_no")
-    entries = _all_pred_entries()
+    pred_by_pair = _pred_by_pair()
 
     built = []
     for m in matches:
         probs = _match_probs(m.get("home_cn") or m.get("home") or "",
-                             m.get("away_cn") or m.get("away") or "", entries)
+                             m.get("away_cn") or m.get("away") or "", pred_by_pair)
         built.append({
             "seq": m.get("seq"),
             "home": m.get("home_cn"),
