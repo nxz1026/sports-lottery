@@ -66,7 +66,10 @@ def ai_analyze_get(date_str: str | None = Query(None, alias="date"),
 
 def _parse_day(value: str | None) -> date:
     if value is None:
-        return ai.store.bjt_today()
+        # R17 #11: 直接 import bjt_today，避免绕一层 ai.store（与 web.routers.ai
+        # 模块路径里 import 用 bjt_today 命名一致）。
+        from web.services.store import bjt_today
+        return bjt_today()
     return date.fromisoformat(value)
 
 

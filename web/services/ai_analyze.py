@@ -54,12 +54,23 @@ def _ensure_output_dir() -> Path:
     return OUTPUT_DIR
 
 
-def _today_bjt() -> date:
+# R17 #4: ai_analyze public API 化。``_today_bjt`` / ``_output_path`` 是 ai_analyze
+# 模块的 IO 路径常量，外部 web/routers/ai.py 已经在用（前导下划线违反"私有"
+# 约定）。改为 public（去前导下划线）；保留 _today_bjt / _output_path 别名
+# 以兼容其它已存在的 import（grep 全仓 0 个 —— 但留个 deprecation 期是稳的）。
+def today_bjt() -> date:
+    """今天日期（BJT 时区，+8h offset）。"""
     return datetime.now(timezone(timedelta(hours=8))).date()
 
 
-def _output_path(date_str: str) -> Path:
+def output_path(date_str: str) -> Path:
+    """某日 AI 分析结果 JSON 路径：``OUTPUT_DIR / {date_str}.json``。"""
     return OUTPUT_DIR / f"{date_str}.json"
+
+
+# 旧名字（deprecation 期）—— 后续 commit 可继续清理。
+_today_bjt = today_bjt
+_output_path = output_path
 
 
 def _read_predictions() -> dict:
