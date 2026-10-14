@@ -47,6 +47,10 @@ _EVENTS_JSONL: Path | None = None
 _EVENTS_MAX_BYTES: int | None = None
 _EVENTS_BACKUP_COUNT: int = 5
 _INSTALLED = False
+# R20-3（G3）：记住首次 setup 时用的 process_name，用于重入 fail-fast。
+# 同一进程内重入 setup() 时，若 process_name/dir 不一致会让 events.jsonl
+# 命名漂移（H9 多进程隔离失效），应在源头拦住而不是 early-return 静默吞。
+_PROCESS_NAME_USED: str | None = None
 _INSTALL_LOCK = threading.Lock()
 # A.1 (Round 10): log_event 写锁 —— 多线程并发写入 events.jsonl 时
 # stat-rename-write 中间不被另一线程插队，保证 rotation + 写追加原子
@@ -78,14 +82,34 @@ def setup(*, dir: Path | None = None, level: str | int | None = None,
           events_backup_count: int | None = None) -> Path:
     """安装文件 handler + JSONL handler + excepthook。返回 logs 目录。
 
-    重复调用幂等：第一次安装后跳过。``dir`` 显式指定覆盖默认 ``FOOTBALL_DIR/logs``；
+    重复调用**幂等**：第一次安装后跳过。
+    ``dir`` 显式指定覆盖默认 ``FOOTBALL_DIR/logs``；
     ``level`` 默认读 ``LEAGUE_PREDICT_LOG_LEVEL`` env，缺省 ``INFO``。
     ``process_name`` 给文件加后缀（``events.{name}.jsonl`` / ``runtime.{name}.log``）
     让多进程（web uvicorn vs predict subprocess）不竞同一文件 —— 见 H9。
+
+    R20-3（G3 重入守门）：重入 setup() 时，若 ``process_name`` / ``dir`` 与
+    首次不同 → raise RuntimeError（fail-fast，防止 events.jsonl 命名漂移
+    与 H9 跨进程隔离失效）。测试可用 ``reset_for_test()`` 先重置再装。
     """
     global _LOGS_DIR, _RUNTIME_LOG, _EVENTS_JSONL, _EVENTS_MAX_BYTES, _EVENTS_BACKUP_COUNT, _INSTALLED
+    global _PROCESS_NAME_USED
     with _INSTALL_LOCK:
         if _INSTALLED:
+            # 相同 process_name + 同 dir → 静默幂等返回（与既有行为一致）。
+            # 不同 process_name 或 dir → fail-fast，让上游尽早看到错。
+            if (process_name != _PROCESS_NAME_USED
+                    or (dir is not None and Path(dir) != _LOGS_DIR)
+                    or (events_max_bytes is not None
+                        and events_max_bytes != _EVENTS_MAX_BYTES)):
+                raise RuntimeError(
+                    f"observability.setup() 已在 process={_PROCESS_NAME_USED!r}, "
+                    f"dir={_LOGS_DIR!r} 完成安装；本次调用参数不一致 "
+                    f"(process_name={process_name!r}, dir={dir!r}, "
+                    f"events_max_bytes={events_max_bytes!r}) 会导致 events.jsonl "
+                    f"命名漂移与 H9 跨进程隔离失效。请先 reset_for_test() 或"
+                    "确认进程入口唯一。"
+                )
             return logs_dir()
         if dir is None:
             from core.constants import FOOTBALL_DIR
@@ -176,6 +200,7 @@ def setup(*, dir: Path | None = None, level: str | int | None = None,
         globals()["threading_excepthook"] = _threading_excepthook  # noqa: F841 — 测试用
 
         _INSTALLED = True
+        _PROCESS_NAME_USED = process_name
         logger.info("observability installed (logs_dir=%s, level=%s, process=%s)",
                     _LOGS_DIR, logging.getLevelName(level),
                     process_name or "default")
@@ -188,6 +213,7 @@ def reset_for_test() -> None:
     pytest fixture 调用以隔离测试间副作用。
     """
     global _LOGS_DIR, _RUNTIME_LOG, _EVENTS_JSONL, _EVENTS_MAX_BYTES, _INSTALLED
+    global _PROCESS_NAME_USED
     global _UNWRITABLE_EVENTS_WARNED
     with _INSTALL_LOCK:
         if not _INSTALLED:
@@ -202,6 +228,7 @@ def reset_for_test() -> None:
         _LOGS_DIR = _RUNTIME_LOG = _EVENTS_JSONL = None
         _EVENTS_MAX_BYTES = None
         _INSTALLED = False
+        _PROCESS_NAME_USED = None
         # D.1: 重置哨兵，让下一个测试能再触发一次
         _UNWRITABLE_EVENTS_WARNED = False
 

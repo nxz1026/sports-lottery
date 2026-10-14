@@ -251,3 +251,59 @@ def test_setup_dir_argument_overrides_default(tmp_path):
     assert obs.logs_dir() == custom
     assert obs.runtime_log_path() == custom / "runtime.log"
     assert obs.events_jsonl_path() == custom / "events.jsonl"
+
+
+# ────────────────────────── R20-3 G3 重入守门 ──────────────────────────
+
+
+def test_setup_reentry_same_args_is_silent_idempotent(tmp_path):
+    """相同 process_name + 同 dir 重入 → 静默幂等返回（不抛错）。"""
+    obs.reset_for_test()
+    custom = tmp_path / "reentry"
+    obs.setup(dir=custom, process_name="web")
+    # 同参数再调一次：不抛错，返回 logs_dir()
+    out = obs.setup(dir=custom, process_name="web")
+    assert out == custom
+    # 状态一致
+    assert obs._PROCESS_NAME_USED == "web"
+
+
+def test_setup_reentry_different_process_name_raises(tmp_path):
+    """R20-3（G3）：重入时 process_name 漂移 → fail-fast RuntimeError。"""
+    obs.reset_for_test()
+    obs.setup(dir=tmp_path / "x1", process_name="web")
+    with pytest.raises(RuntimeError, match="process"):
+        obs.setup(dir=tmp_path / "x1", process_name="ai_analyze")
+
+
+def test_setup_reentry_different_dir_raises(tmp_path):
+    """R20-3：重入时 dir 不一致 → fail-fast（防止 events.jsonl 漂移到两个路径）。"""
+    obs.reset_for_test()
+    obs.setup(dir=tmp_path / "first")
+    with pytest.raises(RuntimeError, match="dir"):
+        obs.setup(dir=tmp_path / "second")
+
+
+def test_setup_reentry_different_events_max_bytes_raises(tmp_path):
+    """R20-3：重入时 events_max_bytes 漂移 → fail-fast（防止 H8 轮转配置被打脸）。"""
+    obs.reset_for_test()
+    obs.setup(dir=tmp_path / "mx1", events_max_bytes=10 * 1024 * 1024)
+    with pytest.raises(RuntimeError, match="events_max_bytes"):
+        obs.setup(dir=tmp_path / "mx1", events_max_bytes=20 * 1024 * 1024)
+
+
+def test_reset_for_test_clears_process_name(tmp_path):
+    """reset_for_test 应同步清 _PROCESS_NAME_USED，否则同一进程内"二次 setup" 仍触发守门。"""
+    obs.reset_for_test()  # 避免被上轮测试残留（默认 FOOTBALL_DIR/logs）触发误报
+    obs.setup(dir=tmp_path / "prt1", process_name="web")
+    assert obs._PROCESS_NAME_USED == "web"
+    obs.reset_for_test()
+    assert obs._PROCESS_NAME_USED is None
+    # 现在可以再次 setup 任意 process_name
+    obs.setup(dir=tmp_path / "prt2", process_name="ai_analyze")
+    assert obs._PROCESS_NAME_USED == "ai_analyze"
+
+
+# 收尾 fixture：避免最后一个测试把状态留给后续测试
+def test_setup_reentry_idempotent_after_reset():
+    obs.reset_for_test()
