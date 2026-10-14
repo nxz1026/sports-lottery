@@ -905,6 +905,10 @@ def main() -> None:
         dates_str = f"{d0}-{d2}"
 
     if args.all:
+        # R15a #8: --all 模式批量边界事件锚点 —— 5 联赛 × N matches 跑测后
+        # grep 时间窗口定位 "这次跑覆盖了哪些 league / 几个 succeeded" 更直观。
+        from core.observability import log_event as _log_event_batch
+        _log_event_batch("batch_start", mode="all", n_leagues=len(LEAGUE_CONFIG))
         all_outputs = []
         for league_key in LEAGUE_CONFIG:
             print(f"\n{'#'*60}", file=sys.stderr)
@@ -933,13 +937,32 @@ def main() -> None:
                 log_error(e, context="predict.main.per_league",
                           league=league_key, args=str(args)[:200])
                 logger.error(f"Prediction failed for {league_key}: {e}")
+        # R15a #8: 批量边界事件锚点 —— n_succeeded 标本次成功 run 一场数（不论 0/1/N）。
+        _log_event_batch("batch_done", mode="all", n_succeeded=sum(
+            1 for o in all_outputs if o is not None
+        ))
         # Print combined JSON array for --all mode
         print(json.dumps(all_outputs, indent=2, ensure_ascii=False))
     else:
-        run_league(args.league, args, now_bjt, dates_str)
+        # R15a #1: 单联赛分支包 try/except + log_error —— 对齐 --all 分支 B.2 模板
+        # （line 929-935），生产 cron 单跑 predict.py --league epl 时若 run_league
+        # 内部抛 SystemExit 之外的错（ESM / API_TIMEOUT 等），events.predict.jsonl
+        # 完全无观测问题修。
+        try:
+            run_league(args.league, args, now_bjt, dates_str)
+        except Exception as e:
+            from core.observability import log_error
+            log_error(e, context="predict.main.run_league",
+                      league=args.league, args=str(args)[:200])
+            logger.error(f"Prediction failed for {args.league}: {e}")
         try:
             _refresh_ml_models(args.league)
         except Exception as _e:
+            # R15a #1: _refresh_ml_models 失败也升级到 log_error（仅 logger.warning
+            # 排错断链），与 R10 核心 B.2 模板对齐。
+            from core.observability import log_error
+            log_error(_e, context="predict.main.refresh_ml_models",
+                      league=args.league)
             logger.warning(f"ML refresh failed for {args.league}: {_e}")
 
     # 运行期中间件清理（方案甲）：保留训练所需数据；--backtest 跳过（不删回测基线输入）。

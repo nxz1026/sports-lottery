@@ -536,6 +536,16 @@ def train_league_model_from_events(
     """
     from core import ml_feedback                                # noqa: PLC0415
     from core.model.ml_model import MatchMLModel                # noqa: PLC0415
+    import core.observability as _obs                            # noqa: PLC0415 — R15a #2 events 锚点
+
+    # R15a #2: 重训入口事件 —— grep 时间窗口定位"哪次 retrain 跑过哪些 league / 多少
+    # 样本 / 用什么 model 名 / 超时数"。与 B.1 (predict.py 7 处 log_error) 同模板。
+    try:
+        _obs.log_event("retrain_start", league=league,
+                       min_train_samples=min_train_samples,
+                       min_feature_keys=min_feature_keys)
+    except OSError:
+        pass
 
     try:
         samples = ml_feedback.join_predictions_outcomes(
@@ -544,10 +554,20 @@ def train_league_model_from_events(
         )
     except FileNotFoundError as e:
         logger.warning("train_league %s: events.jsonl 未找到 -- %s", league, e)
+        try:
+            _obs.log_event("retrain_fail", league=league, reason="no_joined_samples",
+                           detail=f"events.jsonl 未找到: {e}")
+        except OSError:
+            pass
         return TrainResult(reason="no joined samples", detail=f"events.jsonl 未找到: {e}")
 
     if not samples:
         logger.warning("train_league %s: events.jsonl 中无 prediction/outcome 配对", league)
+        try:
+            _obs.log_event("retrain_fail", league=league, reason="no_joined_samples",
+                           detail=f"league={league} 无配对 prediction/outcome")
+        except OSError:
+            pass
         return TrainResult(reason="no joined samples", detail=f"league={league} 无配对 prediction/outcome")
 
     feature_cols = _common_feature_keys(samples)
@@ -557,6 +577,12 @@ def train_league_model_from_events(
             "需先在 predictor._debug_fields 中扩展 reasoning_factors 覆盖",
             league, len(feature_cols), min_feature_keys,
         )
+        try:
+            _obs.log_event("retrain_fail", league=league, reason="insufficient_features",
+                           n_samples=len(samples), feature_cols=len(feature_cols),
+                           min_feature_keys=min_feature_keys)
+        except OSError:
+            pass
         return TrainResult(
             reason="insufficient features",
             n_samples=len(samples),
@@ -572,6 +598,12 @@ def train_league_model_from_events(
             "train_league %s: 有效训练样本 %d < min_train_samples=%d",
             league, len(X), min_train_samples,
         )
+        try:
+            _obs.log_event("retrain_fail", league=league, reason="insufficient_samples",
+                           n_samples=len(X), n_features=len(feature_cols),
+                           min_train_samples=min_train_samples)
+        except OSError:
+            pass
         return TrainResult(
             reason="insufficient samples",
             n_samples=len(X),
@@ -584,6 +616,12 @@ def train_league_model_from_events(
         model = MatchMLModel(n_features=len(feature_cols)).fit(X, y)
     except ValueError as e:
         logger.warning("train_league %s: MatchMLModel.fit 抛 ValueError -- %s", league, e)
+        try:
+            _obs.log_event("retrain_fail", league=league, reason="training_failed",
+                           n_samples=len(X), n_features=len(feature_cols),
+                           detail=f"MatchMLModel.fit 抛 ValueError: {e}")
+        except OSError:
+            pass
         return TrainResult(
             reason="training failed",
             n_samples=len(X),
@@ -602,6 +640,12 @@ def train_league_model_from_events(
             json.dump(model.to_dict(), f, ensure_ascii=False, indent=2)
     except OSError as e:
         logger.warning("train_league %s: 落盘 %s 失败 -- %s", league, path, e)
+        try:
+            _obs.log_event("retrain_fail", league=league, reason="training_failed",
+                           n_samples=len(X), n_features=len(feature_cols),
+                           detail=f"落盘 {path} 失败: {e}")
+        except OSError:
+            pass
         return TrainResult(
             reason="training failed",
             n_samples=len(X),
@@ -625,6 +669,20 @@ def train_league_model_from_events(
         "%s -> %s",
         league, len(X), len(feature_cols), train_acc, train_brier, cv_summary, path,
     )
+    # R15a #2: 重训完成事件锚点 —— 与 retrain_start/retrain_fail 在 events.jsonl
+    # 形成完整生命周期三连。cv_* 字段保留 None 时落 "n<50" 字符串给运维 grep。
+    try:
+        _obs.log_event(
+            "retrain_done", league=league, reason="ok",
+            n_samples=len(X), n_features=len(feature_cols),
+            train_acc=round(train_acc, 4) if train_acc is not None else None,
+            train_brier=round(train_brier, 4) if train_brier is not None else None,
+            cv_acc=round(cv_acc, 4) if cv_acc is not None else None,
+            cv_brier=round(cv_brier, 4) if cv_brier is not None else None,
+            path=str(path),
+        )
+    except OSError:
+        pass
     return TrainResult(
         reason="ok",
         n_samples=len(X),
