@@ -614,9 +614,33 @@ def _cli(argv: list[str] | None = None) -> int:
     # 额外打印每 1/N 桶的实际胜率 + Wilson 95% CI + ECE。
     parser.add_argument("--reliability", type=int, default=None,
                         help="额外输出 reliability diagram（每 1%% 桶实际胜率 + Wilson 95%% CI）")
+    # M-3 (Round 12): ML 重训开关 —— 给出 league 时跳过 calibration 评估，直接
+    # 训练并落盘 ``ml_model_<league>_from_events.json``。两档互斥。
+    parser.add_argument("--train-league", type=str, default=None,
+                        help="ML 重训某联赛（写 ml_model_<league>_from_events.json）；"
+                             "与 --league/--reliability 互斥（重训模式独立）")
+    parser.add_argument("--min-train-samples", type=int, default=30,
+                        help="ML 重训最少有效样本数（默认 30，对齐 ML_CONFIG.min_train_samples）")
+    parser.add_argument("--min-feature-keys", type=int, default=8,
+                        help="features_snapshot 公共覆盖 key 数下限（默认 8，对齐当前 reasoning_factors 覆盖）")
+    parser.add_argument("--base-dir", type=Path, default=None,
+                        help="ML 模型落盘根目录（缺省走 FOOTBALL_DIR/references）")
     args = parser.parse_args(argv)
 
     try:
+        if args.train_league:
+            # M-3 (Round 12): 重训模式独立 —— 不走 calibration run()。
+            result = train_league_model_from_events(
+                args.train_league,
+                min_train_samples=args.min_train_samples,
+                min_feature_keys=args.min_feature_keys,
+                base_dir=args.base_dir,
+                events_path=args.events,
+            )
+            print(format_train_report(result))
+            # reason != "ok" 时返回 3，让运维能 script 化捕获失败
+            return 0 if result.reason == "ok" else 3
+
         run(events_jsonl_path=args.events, league=args.league, since_ts=args.since,
             reliability_bins=args.reliability)
     except FileNotFoundError as exc:
