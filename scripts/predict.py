@@ -257,7 +257,8 @@ def _generate_predictions(
     return predictions
 
 
-def _save_output(output: dict, calibration_offset: dict | None, now_utc) -> Path:
+def _save_output(output: dict, calibration_offset: dict | None, now_utc,
+                 *, emit_ml_events: bool = True) -> Path:
     """保存预测结果到文件，返回文件路径。
 
     文件名必须带联赛后缀：时间戳只有小时精度（%Y-%m-%d_%H），而 --all 模式会在同
@@ -266,23 +267,51 @@ def _save_output(output: dict, calibration_offset: dict | None, now_utc) -> Path
     ligue1 的 6 场）。
     归并侧 store.latest_by_league() 读的是 JSON 里的 league 字段、不解析文件名，
     故加后缀不影响归并。
+
+    R13 #2 ``emit_ml_events=False``：跳过 ``_emit_ml_predictions`` —— 给 backtest
+    路径用：第一次调拿到 ``pred_file`` 给 ``backtest_with_live_results`` 读，emit
+    留给 line 670 ``_finalize_league_output`` 统一处理，避免同 prediction 在
+    events.jsonl 双写（join 后按 ts 选 latest 但旧行不清 → ML 训练样本翻倍）。
+
+    R13 #3 文件 I/O 兜底：磁盘满 / 权限变更 / RO fs 不让 OSError 抛出去断主流程；
+    对齐 H6 (line 152-160) ``save_results`` 模板：log_error 上 events.jsonl +
+    logger.warning 回到调用栈上层走完收尾。
     """
+    from core.observability import log_error  # R13 #3 兜底（与 H6 同模板）
+
     ts = now_utc.strftime("%Y-%m-%d_%H")
     league = output.get("league") if isinstance(output.get("league"), str) else ""
     suffix = f"_{league}" if league else ""
     pred_file = PREDICTIONS_DIR / f"prediction_{ts}{suffix}.json"
     PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
-    with open(pred_file, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
-    logger.info(f"Saved: {pred_file}")
+    try:
+        with open(pred_file, "w", encoding="utf-8") as f:
+            json.dump(output, f, indent=2, ensure_ascii=False)
+        logger.info(f"Saved: {pred_file}")
+    except OSError as e:
+        # R13 #3：磁盘满 / 权限变更 / RO fs 时不让 _save_output 抛出去断主流程；
+        # 对齐 H6 (line 152-160) save_results 的兜底模板 —— log_error 上 events.jsonl
+        # + logger.warning 回到调用栈上层走完收尾。
+        log_error(e, context="_save_output.write_predictions",
+                  league=league, pred_file=str(pred_file))
+        logger.warning(f"_save_output 写预测文件失败（已落 events.jsonl）: {e}")
 
-    # P-6 ML 反馈：每场预测写 events.jsonl 留作训练数据
-    _emit_ml_predictions(output, league=league)
+    # P-6 ML 反馈：每场预测写 events.jsonl 留作训练数据。
+    # R13 #2：emit_ml_events=False 时跳过 —— backtest 路径要 _save_output 只写文件
+    # 给 backtest_with_live_results 用；emit 让 line 670 的 _finalize_league_output
+    # 那次统一处理，避免同一 prediction 在 events.jsonl 双写。
+    if emit_ml_events:
+        _emit_ml_predictions(output, league=league)
 
     if calibration_offset:
         cal_file = PREDICTIONS_DIR / "pred_calibration.json"
-        with open(cal_file, "w", encoding="utf-8") as f:
-            json.dump(calibration_offset, f, indent=2)
+        try:
+            with open(cal_file, "w", encoding="utf-8") as f:
+                json.dump(calibration_offset, f, indent=2)
+        except OSError as e:
+            log_error(e, context="_save_output.write_calibration",
+                      league=league, cal_file=str(cal_file))
+            logger.warning(f"_save_output 写校准文件失败（已落 events.jsonl）: {e}")
 
     return pred_file
 
@@ -717,7 +746,10 @@ def run_league(league_key: str, args, now_utc, dates_str, silent: bool = False) 
 
     # 8. 回测（可选）
     if run_backtest:
-        pred_file = _save_output(output, calibration_offset, now_utc)
+        # R13 #2：backtest 路径只写文件不 emit events —— 让 line 670 _finalize_league_output
+        # 那次统一处理。否则同 prediction 在 events.jsonl 双写 → ml_feedback.join
+        # 按 ts 选 latest 但旧行不清 → ML 训练样本翻倍（train_accuracy/brier 偏乐观）。
+        pred_file = _save_output(output, calibration_offset, now_utc, emit_ml_events=False)
         bt = backtest_with_live_results(str(pred_file))
         output["backtest"] = bt
         logger.info(f"Backtest: {bt.get('status')} matched={bt.get('matched_matches')} acc={bt.get('accuracy')}")
