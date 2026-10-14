@@ -879,7 +879,17 @@ def _cleanup_intermediate(days: int = 7) -> dict:
     return removed
 
 
-def main() -> None:
+def main() -> int:
+    """主入口。返回退出码（0=全部成功，1=有联赛失败 / 致命错）。
+
+    R18 #1: 生产 cron / systemd timer / k8s CronJob 调度 ``predict.py`` 时——
+    之前 main() 全程无 ``sys.exit``，5 联赛全失败（如 Postgres 挂 / 网络断）也以 0 退出，
+    cron 视为"成功"，运维侧无可见报错（events.jsonl 落 logs 但需专门监控拉取）。
+    现在改成：
+      - 单联赛分支：run_league 失败 → return 1
+      - --all 分支：失败联赛数 > 0 → return 1（fail-fast 语义）
+      - 清理失败 / ML refresh 失败 不影响退出码（次要步骤）
+    """
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except AttributeError:
@@ -888,7 +898,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if _apply_ml_args(args):
-        return
+        return 0  # ML 训练/清理快捷路径
 
     # 使用北京时间（BJT）计算日期范围，而非UTC
     now_bjt = datetime.now(timezone(timedelta(hours=8)))
@@ -910,6 +920,7 @@ def main() -> None:
         from core.observability import log_event as _log_event_batch
         _log_event_batch("batch_start", mode="all", n_leagues=len(LEAGUE_CONFIG))
         all_outputs = []
+        failed_leagues = 0
         for league_key in LEAGUE_CONFIG:
             print(f"\n{'#'*60}", file=sys.stderr)
             print(f"# LEAGUE: {league_key}", file=sys.stderr)
@@ -933,37 +944,41 @@ def main() -> None:
             except Exception as e:
                 # B.2 (Round 10): --all 模式整联赛预测失败落 events.jsonl
                 # （如 data_source 网络故障 / DC ρ 拟合严重错等）。
-                from core.observability import log_error
-                log_error(e, context="predict.main.per_league",
-                          league=league_key, args=str(args)[:200])
+                failed_leagues += 1
+                try:
+                    from core.observability import log_error
+                    log_error(e, context="predict.main.per_league",
+                              league=league_key, args=str(args)[:200])
+                except Exception:
+                    pass
                 logger.error(f"Prediction failed for {league_key}: {e}")
         # R15a #8: 批量边界事件锚点 —— n_succeeded 标本次成功 run 一场数（不论 0/1/N）。
-        _log_event_batch("batch_done", mode="all", n_succeeded=sum(
-            1 for o in all_outputs if o is not None
-        ))
+        n_succeeded = sum(1 for o in all_outputs if o is not None)
+        _log_event_batch("batch_done", mode="all", n_succeeded=n_succeeded)
         # Print combined JSON array for --all mode
         print(json.dumps(all_outputs, indent=2, ensure_ascii=False))
-    else:
-        # R15a #1: 单联赛分支包 try/except + log_error —— 对齐 --all 分支 B.2 模板
-        # （line 929-935），生产 cron 单跑 predict.py --league epl 时若 run_league
-        # 内部抛 SystemExit 之外的错（ESM / API_TIMEOUT 等），events.predict.jsonl
-        # 完全无观测问题修。
-        try:
-            run_league(args.league, args, now_bjt, dates_str)
-        except Exception as e:
-            from core.observability import log_error
-            log_error(e, context="predict.main.run_league",
-                      league=args.league, args=str(args)[:200])
-            logger.error(f"Prediction failed for {args.league}: {e}")
-        try:
-            _refresh_ml_models(args.league)
-        except Exception as _e:
-            # R15a #1: _refresh_ml_models 失败也升级到 log_error（仅 logger.warning
-            # 排错断链），与 R10 核心 B.2 模板对齐。
-            from core.observability import log_error
-            log_error(_e, context="predict.main.refresh_ml_models",
-                      league=args.league)
-            logger.warning(f"ML refresh failed for {args.league}: {_e}")
+        # R18 #1: 任一联赛失败 → 退出码 1（fail-fast：cron 可见失败）
+        return 1 if failed_leagues > 0 else 0
+
+    # 单联赛分支
+    failed = False
+    try:
+        run_league(args.league, args, now_bjt, dates_str)
+    except Exception as e:
+        # R15a #1: 单联赛 run_league 失败落 log_error（已对齐 --all B.2 模板）
+        from core.observability import log_error
+        log_error(e, context="predict.main.run_league",
+                  league=args.league, args=str(args)[:200])
+        logger.error(f"Prediction failed for {args.league}: {e}")
+        failed = True
+    try:
+        _refresh_ml_models(args.league)
+    except Exception as _e:
+        # R15a #1: ML refresh 失败落 log_error，但**不影响退出码**（次要步骤）
+        from core.observability import log_error
+        log_error(_e, context="predict.main.refresh_ml_models",
+                  league=args.league)
+        logger.warning(f"ML refresh failed for {args.league}: {_e}")
 
     # 运行期中间件清理（方案甲）：保留训练所需数据；--backtest 跳过（不删回测基线输入）。
     if not getattr(args, "backtest", False):
@@ -971,7 +986,12 @@ def main() -> None:
             _cleanup_intermediate(days=7)
         except Exception as _e:
             logger.warning(f"中间件清理失败: {_e}")
+            # 清理失败不影响退出码（次要步骤）
+
+    # R18 #1: 单联赛 run_league 失败 → 退出码 1；ML refresh 失败不影响
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    # R18 #1: 把 main() 返回的 int 透传给进程退出码 —— 之前直接 main() 让所有失败都 0 退。
+    raise SystemExit(main())

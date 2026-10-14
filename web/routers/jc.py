@@ -231,9 +231,8 @@ def movement(day: str | None = None, _: None = Depends(require_auth)) -> dict:
 
 
 # _nba_available 已迁到 web.app.jc（router 只透传 daily_image，不持有 VM 私有工具）。
-
-
-_NEWS_CACHE: dict = {}
+# R18 #2: 移除本模块 _NEWS_CACHE 声明（dict 死写入已删）—— 真缓存统一在
+# web.services.news 模块。
 
 
 @router.get("/daily-news")
@@ -241,6 +240,9 @@ def daily_news(sport: str = "football", _: None = Depends(require_auth)) -> dict
     """每日一图今日资讯（LLM 生成 + 按 (日期,sport) 缓存）。
 
     返回两条 LLM 生成文本（前端 Promise.race 300s 等，超时走占位）：
+    R18 #2 移除本模块 _NEWS_CACHE 写入（声明在下面已删）—— 真正的缓存统一在
+    ``web/services/news.py::_NEWS_CACHE``（已按 (today, sport) 缓存 + 命中率高）。
+    本端点重复写一份空 dict 永驻内存（无 TTL 无失效），契约混乱。
       news        实时要闻（≤78 字 / 3 行，每行 ≤26 字，\\n 分隔）
       pick_reason 今日精选推荐理由（≤60 字；精选为 0 条时为空字符串）
     LLM 调用统一由 ``web.services.news.generate_daily_news`` 承载（契约 §5
@@ -263,7 +265,7 @@ def daily_news(sport: str = "football", _: None = Depends(require_auth)) -> dict
     out = {"sport": sport, "date": today,
            "news": (out.get("news") or "")[:78],
            "pick_reason": (out.get("pick_reason") or "")[:60]}
-    _NEWS_CACHE[(today, sport)] = out
+    # R18 #2: 缓存由 web.services.news 统一维护（_NEWS_CACHE 在那边）
     return out
 
 

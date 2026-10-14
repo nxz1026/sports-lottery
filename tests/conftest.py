@@ -39,6 +39,19 @@ def fake_pg():
                 def execute(self_inner, sql, params=None):
                     self_inner._next = queue.pop(0) if queue else []
 
+                def fetchone(self_inner):
+                    """R18 #3: 单列查询走 fetchone() 而非 fetchall()。
+
+                    queue 元素 = list[dict]（fetchall）/ list[tuple]（fetchone）
+                    / Exception（raise）。list[tuple] 时取 [0]；空 → None。
+                    """
+                    nxt = getattr(self_inner, "_next", [])
+                    if isinstance(nxt, Exception):
+                        raise nxt
+                    if isinstance(nxt, list) and nxt:
+                        return nxt[0]
+                    return None
+
                 def fetchall(self_inner):
                     nxt = getattr(self_inner, "_next", [])
                     if isinstance(nxt, Exception):
