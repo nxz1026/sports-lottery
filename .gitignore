@@ -79,6 +79,11 @@ references/.elo_ratings.json
 scripts/references/ml_model_*.json
 scripts/references/historical_past_matches.json
 
+# R20-4 docs/web/logs 运行期残留（心跳日志 + push 通知 marker + 工单报告）
+docs/web/logs/*.notified
+docs/web/logs/STATUS.md
+docs/web/logs/WO-*.report.txt
+
 # 测试产物（pytest 缓存 + coverage 数据；不属业务产物）
 .pytest_cache/
 .coverage
