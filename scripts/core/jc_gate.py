@@ -1,6 +1,15 @@
 """P0-JCGATE1 封闭清单闸门：只决定"进不进模型"，不决定"进不进库"。
 
 清单外联赛照旧入库当走势资料；模型侧一律拒绝（红线：宁可不插，不可插错）。
+
+⚠️ DEPRECATED / 未接线 (R15c)：本模块保留作为合规策略档案，但**生产预测主流程
+（predict.py / predictor.py）当前未引入** —— R14 explore 已 grep 全仓 0 caller。
+保留原因：(1) 历史工单 P0-JCGATE1 走查存档；(2) 未来接入时直接复用 ALLOW_ABBR / ALLOW_IDS。
+不删是因为 ALLOW_ABBR 的"用户 09-16 06:55 定死"是合规团队签字线，未来重新启用要
+回归这个清单而不是重新走查。
+
+若要重新启用：在 predictor.calculate_prediction / save_results 入口处加
+``jc_gate.is_predictable(league_abbr, league_id)`` 判定。
 """
 
 # 用户 09-16 06:55 定死：足球 六大联赛 + 篮彩 NBA/CBA，共 8 个缩写
