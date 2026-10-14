@@ -75,6 +75,10 @@ scripts/results/.bak-*/
 # 运行期 ELO 状态（服务每轮重写；缺失时 load_elo_ratings() 回退 FIFA 冷启动）
 references/.elo_ratings.json
 
+# R20-1 运行期 retrain 产物（每日被训练覆盖 → 不进 commit，但 retrain 会重新生成）
+scripts/references/ml_model_*.json
+scripts/references/historical_past_matches.json
+
 # 测试产物（pytest 缓存 + coverage 数据；不属业务产物）
 .pytest_cache/
 .coverage
