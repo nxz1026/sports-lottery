@@ -195,3 +195,87 @@ def test_build_prompt_label_substitution():
     p = news_svc._build_prompt(context="c", picks_ctx="pc", label="竞彩篮球")
     assert "竞彩篮球" in p
     assert "竞彩足球" not in p
+
+
+# ────────────────────────── R21 #1 cache TTL + 大小上限 ──────────────────────────
+
+
+def test_evict_after_ttl_triggers_recall(monkeypatch):
+    """R21 #1：缓存条目超过 TTL 后被清除，再调用同 key 触发 LLM。"""
+    _reset_cache()
+    calls = {"n": 0}
+
+    def gen(prompt, **kw):
+        calls["n"] += 1
+        return {"news": "n1", "pick_reason": "p1"}
+    monkeypatch.setattr(llm, "generate", gen)
+
+    base = 1_000_000.0
+    monkeypatch.setattr(news_svc, "_NEWS_TTL_S", 1.0)
+    monkeypatch.setattr(news_svc.time, "time", lambda: base)
+    news_svc.generate_daily_news(date_iso="2026-01-01", sport="football",
+                                 context="c", picks_ctx="p", label="L")
+    assert calls["n"] == 1
+    # 推进时间超过 TTL（base + 2s），再调 → 应触发 LLM 第二次
+    monkeypatch.setattr(news_svc.time, "time", lambda: base + 2.0)
+    out = news_svc.generate_daily_news(date_iso="2026-01-01", sport="football",
+                                       context="c", picks_ctx="p", label="L")
+    assert calls["n"] == 2, "TTL 过期后应重新调 LLM"
+    assert out == {"news": "n1", "pick_reason": "p1"}
+
+
+def test_max_size_lru_evicts_oldest(monkeypatch):
+    """R21 #1：超过 _NEWS_MAX_SIZE 后最早条目被剔除（LRU）。"""
+    _reset_cache()
+    monkeypatch.setattr(news_svc, "_NEWS_MAX_SIZE", 3)
+
+    # 用 list 索引手动塞 ts（确定性递增，避免 fake_time 闭包陷阱）
+    timestamps = iter([1_000_000.0 + i for i in range(5)])
+
+    def fake_time():
+        return next(timestamps)
+    monkeypatch.setattr(news_svc.time, "time", fake_time)
+
+    monkeypatch.setattr(llm, "generate",
+                        lambda *a, **kw: {"news": "x", "pick_reason": "y"})
+
+    # 灌入 5 个不同 key（fake_time 顺次返回 5 个递增 ts）
+    for i in range(5):
+        news_svc.generate_daily_news(date_iso=f"2026-01-{i:02d}",
+                                     sport="football",
+                                     context="c", picks_ctx="p", label="L")
+    assert len(news_svc._NEWS_CACHE) == 3, f"超 max 后应裁剪到 3，实际 {len(news_svc._NEWS_CACHE)}"
+    kept = set(news_svc._NEWS_CACHE.keys())
+    # 5 → 删最早 2 个 → 剩 i=2,3,4
+    assert ("2026-01-00", "football") not in kept
+    assert ("2026-01-01", "football") not in kept
+    assert ("2026-01-02", "football") in kept
+    assert ("2026-01-03", "football") in kept
+    assert ("2026-01-04", "football") in kept
+
+
+def test_ttl_size_env_override(monkeypatch):
+    """R21 #1：env 覆盖 TTL/MAX_SIZE 模块常量。"""
+    monkeypatch.setenv("LEAGUE_PREDICT_NEWS_TTL_S", "120")
+    monkeypatch.setenv("LEAGUE_PREDICT_NEWS_MAX_SIZE", "8")
+    import importlib
+    import web.services.news as news_mod
+    importlib.reload(news_mod)
+    assert news_mod._NEWS_TTL_S == 120.0
+    assert news_mod._NEWS_MAX_SIZE == 8
+    # 还原防止污染后续测试
+    monkeypatch.delenv("LEAGUE_PREDICT_NEWS_TTL_S", raising=False)
+    monkeypatch.delenv("LEAGUE_PREDICT_NEWS_MAX_SIZE", raising=False)
+    importlib.reload(news_mod)
+
+
+def test_cache_value_shared_is_preserved(monkeypatch):
+    """R21 #1：命中直接 return hit["value"] → 'a is b' 同一对象引用（web_news 守门）。"""
+    _reset_cache()
+    monkeypatch.setattr(llm, "generate",
+                        lambda *a, **kw: {"news": "n1", "pick_reason": "p1"})
+    a = news_svc.generate_daily_news(date_iso="2026-01-01", sport="football",
+                                     context="c", picks_ctx="p", label="L")
+    b = news_svc.generate_daily_news(date_iso="2026-01-01", sport="football",
+                                     context="c", picks_ctx="p", label="L")
+    assert a is b, "R21 缓存命中应保持同一对象引用（区别于包装 dict）"

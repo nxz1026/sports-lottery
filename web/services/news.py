@@ -14,10 +14,42 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 
 _LOGGER = logging.getLogger("web.services.news")
 
-_NEWS_CACHE: dict = {}  # key = (date_iso, sport) → {"news": str, "pick_reason": str}
+# R21 #1：news LLM 资讯缓存加 TTL + 大小上限，防止长期 web 进程累积 OOM
+# 同时 LLM 配额保护（重进程不应每请求都打到 LLM）。
+# 默认 TTL 24h（每 (date, sport) 一天 1 次）；默认 max 64（远超现实覆盖）。
+# 配置：env 覆盖
+#   LEAGUE_PREDICT_NEWS_TTL_S=86400       — TTL 秒数
+#   LEAGUE_PREDICT_NEWS_MAX_SIZE=64       — LRU 容量
+# 缓存条目形如 {"value": {"news": str, "pick_reason": str}, "ts": float}
+# —— value 用 dict 包装保留"同一对象引用"语义（web_news test 守门 ``a is b``）。
+_NEWS_CACHE: dict = {}
+_NEWS_TTL_S: float = float(os.environ.get("LEAGUE_PREDICT_NEWS_TTL_S", "86400"))
+_NEWS_MAX_SIZE: int = int(os.environ.get("LEAGUE_PREDICT_NEWS_MAX_SIZE", "64"))
+
+
+def _evict_expired_news(now: float) -> None:
+    """剔除过期（ts + TTL < now）+ 超出容量上限（最早优先）。
+
+    R21 #1：每次 ``generate_daily_news`` 入口调用一次；成本 O(n) 但 n 实际
+    永远 ≤ _NEWS_MAX_SIZE（典型 64）。**保留 ≤ MAX-1 位**给即将写入的
+    新 entry，保证写入后 cache 仍 ≤ MAX。
+    """
+    expired = [k for k, v in _NEWS_CACHE.items()
+               if (now - v["ts"]) > _NEWS_TTL_S]
+    for k in expired:
+        _NEWS_CACHE.pop(k, None)
+    # 容量裁剪：留 1 位给新写入，循环结束后 ≤ MAX
+    if len(_NEWS_CACHE) >= _NEWS_MAX_SIZE:
+        sorted_keys = sorted(_NEWS_CACHE.keys(),
+                             key=lambda k: _NEWS_CACHE[k]["ts"])
+        excess = len(_NEWS_CACHE) - (_NEWS_MAX_SIZE - 1)
+        for k in sorted_keys[:excess]:
+            _NEWS_CACHE.pop(k, None)
 
 
 def _build_prompt(context: str, picks_ctx: str, label: str) -> str:
@@ -69,11 +101,16 @@ def generate_daily_news(*, date_iso: str, sport: str, context: str, picks_ctx: s
 
     返回 ``{"news": str, "pick_reason": str}``；news 限 ≤78，pick_reason 限 ≤60。
     调用方负责补占位文案（参考 web.routers.jc.daily_news）。
+
+    R21 #1：缓存加 TTL（默认 24h）+ LRU 大小上限（默认 64）。命中同一对象
+    引用（``a is b``，符合 tests/test_web_news.py 守门）。
     """
+    now = time.time()
+    _evict_expired_news(now)
     key = (date_iso, sport)
     hit = _NEWS_CACHE.get(key)
-    if hit and (hit.get("news") or hit.get("pick_reason")):
-        return hit
+    if hit and (hit["value"].get("news") or hit["value"].get("pick_reason")):
+        return hit["value"]
 
     prompt = _build_prompt(context, picks_ctx, label)
     raw = _try_llm(prompt)
@@ -81,7 +118,9 @@ def generate_daily_news(*, date_iso: str, sport: str, context: str, picks_ctx: s
         "news": raw["news"][:78],
         "pick_reason": raw["pick_reason"][:60],
     }
-    _NEWS_CACHE[key] = out
+    # 仅在非空时缓存（与既有行为一致：双空不该占位）
+    if out["news"] or out["pick_reason"]:
+        _NEWS_CACHE[key] = {"value": out, "ts": now}
     return out
 
 
