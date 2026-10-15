@@ -119,6 +119,8 @@ def test_unauth_401_matrix(client):
         "/api/v1/predictions/today",
         "/api/v1/predictions/2026-07-26",
         "/api/v1/championship",
+        "/api/v1/prediction-metadata",
+        "/api/v1/calibration",
         "/api/v1/accuracy",
         "/api/v1/accuracy/breakdown",
         "/api/v1/history",
