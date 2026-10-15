@@ -351,3 +351,121 @@ class TestPredictMainLoopLogError:
         assert e["kind"] == "error"
         assert e["league"] == "epl"
         assert "simulated league failure" in e.get("exc_repr", "")
+
+
+# ──────────────────── R22 #2: _emit_ml_predictions / _emit_ml_outcomes 直接单测 ────────────────────
+
+
+class TestEmitMlPredictions:
+    """R22 #2：直接 unit test _emit_ml_predictions（per_match log_error + 跨 league）。"""
+
+    def test_emit_writes_event_per_match(self, tmp_path, monkeypatch):
+        """多场 + 跨 league → 每场 record_prediction 调用一次。"""
+        from predict import _emit_ml_predictions
+        output = {
+            "predictions": [
+                {"id": "m1", "home": "A", "away": "B", "league": "epl",
+                 "kickoff_utc": "2026-10-15T00:00:00Z",
+                 "probs": {"h": 0.5, "d": 0.3, "a": 0.2},
+                 "model_version": "v3", "reasoning_factors": {"form_home": 0.6}},
+                {"id": "m2", "home": "C", "away": "D", "league": "laliga",
+                 "kickoff_utc": "2026-10-15T01:00:00Z",
+                 "probs": {"h": 0.4, "d": 0.4, "a": 0.2}},
+            ]
+        }
+        calls = []
+        import core.ml_feedback
+        monkeypatch.setattr(core.ml_feedback, "record_prediction",
+                            lambda **kw: calls.append(kw))
+        _emit_ml_predictions(output, league="epl")
+        assert len(calls) == 2
+        assert calls[0]["home"] == "A" and calls[0]["away"] == "B"
+        # 顶层 league 参数优先（predict.py:346 ``league or m.get("league")``），
+        # 即便是 m2 自带 league="laliga"，也被顶层 league="epl" 覆盖（保持 run_league 单联赛调用一致）。
+        assert calls[0]["league"] == "epl"
+        assert calls[1]["league"] == "epl"
+        # 但 m1/m2 home/away 还是按各自 match 走
+        assert calls[1]["home"] == "C" and calls[1]["away"] == "D"
+        # features_snapshot 透传 reasoning_factors（R13 E1 迁移）
+        assert calls[0]["features_snapshot"] == {"form_home": 0.6}
+        assert calls[1]["features_snapshot"] is None
+
+    def test_emit_skips_non_dict_predictions(self, tmp_path, monkeypatch):
+        """predictions 含非 dict / None 条目 → 跳过不抛。"""
+        from predict import _emit_ml_predictions
+        output = {"predictions": [
+            "not a dict",
+            None,
+            {"id": "m1", "home": "A", "away": "B", "league": "epl",
+             "kickoff_utc": "x", "probs": {"h": 0.5, "d": 0.3, "a": 0.2}},
+        ]}
+        calls = []
+        import core.ml_feedback
+        monkeypatch.setattr(core.ml_feedback, "record_prediction",
+                            lambda **kw: calls.append(kw))
+        _emit_ml_predictions(output, league="epl")
+        assert len(calls) == 1
+        assert calls[0]["home"] == "A"
+
+    def test_emit_per_match_exception_logs_error_and_continues(self, tmp_path, monkeypatch):
+        """R13 #5（迁移 #B.1）：某场 record_prediction 抛错 → log_error 落 events，循环继续。"""
+        from predict import _emit_ml_predictions
+        output = {"predictions": [
+            {"id": "bad", "home": "A", "away": "B", "league": "epl",
+             "kickoff_utc": "x", "probs": {"h": None, "d": None, "a": None}},  # 第一场 fail
+            {"id": "good", "home": "C", "away": "D", "league": "epl",
+             "kickoff_utc": "y", "probs": {"h": 0.5, "d": 0.3, "a": 0.2}},  # 第二场 ok
+        ]}
+        seen = []
+
+        def record(**kw):
+            if kw["match_id"] == "bad":
+                raise ValueError("simulated per_match failure")
+            seen.append(kw["match_id"])
+        import core.ml_feedback
+        monkeypatch.setattr(core.ml_feedback, "record_prediction", record)
+
+        _emit_ml_predictions(output, league="epl")
+        assert seen == ["good"]
+        evs = _read_events()
+        ctx = [e for e in evs if e.get("context") == "_emit_ml_predictions.per_match"]
+        assert len(ctx) == 1
+        assert ctx[0]["league"] == "epl"
+        assert "ValueError" in ctx[0].get("exc_type", "")
+
+
+class TestEmitMlOutcomes:
+    """R22 #2：直接 unit test _emit_ml_outcomes（per-match log_error）。"""
+
+    def test_emit_outcomes_writes_event_per_match(self, tmp_path, monkeypatch):
+        """结果列表每条都写 outcome 事件，参数正确（含 home_score/away_score/status）。"""
+        from core.output import _emit_ml_outcomes
+        matches = [
+            {"id": "m1", "home": "A", "away": "B", "league": "epl",
+             "kickoff_utc": "2026-10-15T00:00:00Z",
+             "home_score": 2, "away_score": 1, "status": "FT"},
+        ]
+        calls = []
+        import core.ml_feedback
+        monkeypatch.setattr(core.ml_feedback, "record_outcome",
+                            lambda **kw: calls.append(kw))
+
+        _emit_ml_outcomes(matches)
+        assert len(calls) == 1
+        assert calls[0]["home"] == "A" and calls[0]["away"] == "B"
+        assert calls[0]["home_score"] == 2 and calls[0]["away_score"] == 1
+        assert calls[0]["status"] == "FT"
+
+    def test_emit_outcomes_per_match_exception_logs_error(self, tmp_path, monkeypatch):
+        """R13 #5：单场 outcome 失败 = 该场进不了训练集，比 prediction 失败更关键 → log_error。"""
+        from core.output import _emit_ml_outcomes
+        # home_score 非数字 → int() 抛 ValueError
+        matches = [
+            {"id": "bad", "home": "A", "away": "B", "league": "epl",
+             "kickoff_utc": "x", "home_score": "x", "away_score": 1},
+        ]
+        _emit_ml_outcomes(matches)
+        evs = _read_events()
+        ctx = [e for e in evs if e.get("context") == "_emit_ml_outcomes.per_match"]
+        assert len(ctx) == 1, f"应落 per_match 失败事件；实际 {evs}"
+        assert "ValueError" in ctx[0].get("exc_type", "")
