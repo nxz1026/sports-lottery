@@ -469,3 +469,55 @@ class TestEmitMlOutcomes:
         ctx = [e for e in evs if e.get("context") == "_emit_ml_outcomes.per_match"]
         assert len(ctx) == 1, f"应落 per_match 失败事件；实际 {evs}"
         assert "ValueError" in ctx[0].get("exc_type", "")
+
+
+class TestEmitMlImportFailure:
+    """R22 #5：``from core.ml_feedback import record_{prediction,outcome}`` 失败
+    → log_error 落 events.jsonl context=_emit_ml_*.import，函数体静默 return。
+    """
+
+    def test_emit_predictions_import_failure_logs_and_returns(
+            self, tmp_path, monkeypatch):
+        """``core.ml_feedback.record_prediction`` 不存在 → import 失败兜底。"""
+        from predict import _emit_ml_predictions
+        # 把 record_prediction 从 module 中删 → ``from core.ml_feedback import
+        # record_prediction`` 失败
+        import core.ml_feedback
+        monkeypatch.delattr(core.ml_feedback, "record_prediction", raising=False)
+
+        # 不能走到 for 循环 — 函数应 import 失败直接 return
+        _emit_ml_predictions(
+            {"predictions": [
+                {"home": "X", "away": "Y", "league": "epl", "kickoff_utc": "k",
+                 "probs": {"h": 0.5, "d": 0.3, "a": 0.2}},
+            ]},
+            league="epl",
+        )
+        evs = _read_events()
+        import_err = [
+            e for e in evs
+            if e.get("context") == "_emit_ml_predictions.import"
+        ]
+        assert len(import_err) == 1, f"应落 _emit_ml_predictions.import；实际 {evs}"
+        assert import_err[0]["league"] == "epl"
+        # ImportError 仍走 log_error
+        assert "ImportError" in import_err[0].get("exc_type", "")
+
+    def test_emit_outcomes_import_failure_logs_and_returns(
+            self, tmp_path, monkeypatch):
+        """``core.ml_feedback.record_outcome`` 不存在 → import 失败兜底。"""
+        from core.output import _emit_ml_outcomes
+        import core.ml_feedback
+        monkeypatch.delattr(core.ml_feedback, "record_outcome", raising=False)
+
+        _emit_ml_outcomes([
+            {"home": "X", "away": "Y", "league": "epl", "kickoff_utc": "k",
+             "home_score": 1, "away_score": 0},
+        ])
+        evs = _read_events()
+        import_err = [
+            e for e in evs
+            if e.get("context") == "_emit_ml_outcomes.import"
+        ]
+        assert len(import_err) == 1, f"应落 _emit_ml_outcomes.import；实际 {evs}"
+        assert "ImportError" in import_err[0].get("exc_type", "")
