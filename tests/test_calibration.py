@@ -182,6 +182,87 @@ class TestHistoricalPastMatches(unittest.TestCase):
             self.assertIn("2-1", [m["score"] for m in data])
             self.assertIn("3-1", [m["score"] for m in data])
 
+    def test_empty_past_matches_no_op(self):
+        """R23 #5：past_matches=[] → added=0，**不写文件**。"""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            n = append_historical_past_matches("epl", [], base_dir=base)
+            self.assertEqual(n, 0)
+            # historical_past_matches.json 不应被创建
+            self.assertFalse((base / "references" / "historical_past_matches.json").exists())
+
+    def test_multi_league_dedup_by_league_kickoff_pair(self):
+        """R23 #5：多 league 时 dedup key 含 league — 同一 (kickoff, home, away) 在
+        epl 和 laliga 算两条独立数据（real-world 罕见但应正确处理）。
+        """
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            # epl 写 1 场 + laliga 写同名对阵（不同 league）
+            append_historical_past_matches("epl", [
+                {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "A", "away": "B", "score": "2-1"},
+            ], base_dir=base)
+            n = append_historical_past_matches("laliga", [
+                {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "A", "away": "B", "score": "0-2"},
+            ], base_dir=base)
+            # laliga 写入 1 条（league 不同的独立 dedup key）
+            self.assertEqual(n, 1)
+            import json as _json
+            data = _json.loads((base / "references" / "historical_past_matches.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(data), 2)
+            # 各 league 仅 1 条
+            from collections import Counter
+            self.assertEqual(Counter(m["league"] for m in data), Counter(epl=1, laliga=1))
+
+    def test_corrupt_existing_file_falls_back_to_empty_list(self):
+        """R23 #5：historical_past_matches.json 已坏 → existing 走 [] 兜底，新数据正常合并。"""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            ref_dir = base / "references"
+            ref_dir.mkdir(parents=True)
+            (ref_dir / "historical_past_matches.json").write_text("{not valid json", encoding="utf-8")
+
+            n = append_historical_past_matches("epl", [
+                {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "A", "away": "B", "score": "2-1"},
+            ], base_dir=base)
+            self.assertEqual(n, 1)
+            import json as _json
+            data = _json.loads((ref_dir / "historical_past_matches.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["home"], "A")
+
+    def test_invalid_score_inputs_all_skipped(self):
+        """R23 #5：所有 score 字段非数字 / 缺 "-" / 空 → 全部跳过，added=0 不写文件。"""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            n = append_historical_past_matches("epl", [
+                {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "A", "away": "B"},  # 缺 score
+                {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "C", "away": "D", "score": "abc"},
+                {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "E", "away": "F", "score": "1"},  # 缺 "-"
+                {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "G", "away": "H", "score": "1-2-3"},  # 三段
+            ], base_dir=base)
+            self.assertEqual(n, 0)
+            self.assertFalse((base / "references" / "historical_past_matches.json").exists())
+
+    def test_existing_is_dict_falls_back_to_empty_list(self):
+        """R23 #5：historical_past_matches.json 顶层是 dict（异常状态）→ existing=[] 兜底。"""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            ref_dir = base / "references"
+            ref_dir.mkdir(parents=True)
+            # 顶层 dict（不是 list）—— 损坏或历史版本遗物
+            import json as _json
+            (ref_dir / "historical_past_matches.json").write_text(
+                _json.dumps({"unexpected": "dict_top_level"}), encoding="utf-8")
+
+            n = append_historical_past_matches("epl", [
+                {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "A", "away": "B", "score": "1-0"},
+            ], base_dir=base)
+            self.assertEqual(n, 1)
+            data = _json.loads((ref_dir / "historical_past_matches.json").read_text(encoding="utf-8"))
+            # 写入时是 list（覆盖原 dict）
+            self.assertIsInstance(data, list)
+            self.assertEqual(len(data), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
