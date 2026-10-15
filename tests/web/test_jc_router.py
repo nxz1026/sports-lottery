@@ -340,3 +340,78 @@ def test_qr_accepts_https_with_query_string(client):
     r = client.get(f"/api/jc/qr?url={encoded}", cookies=cookies)
     assert r.status_code == 200, r.text
     assert r.json()["url"] == "https://example.com/dashboard?tab=fixtures"
+
+
+# ────────────────────────── /api/jc/daily-news（R18 + R21） ──────────────────────────
+
+
+def _patch_llm(monkeypatch, *, news: str, pick_reason: str):
+    """mock ai.llm_client.generate 返回固定 news/pick_reason（web → ai 契约 §5 例外）。"""
+    import ai.llm_client as llm
+    monkeypatch.setattr(llm, "generate",
+                        lambda prompt, **kw: {"news": news, "pick_reason": pick_reason})
+
+
+def test_daily_news_unauthenticated_returns_401(client):
+    """/api/jc/daily-news 未登录 → 401（统一鉴权守门）。注：路由在 router(prefix=/api/jc) 下。"""
+    r = client.get("/api/jc/daily-news")
+    assert r.status_code in (401, 403), r.text
+
+
+def test_daily_news_default_sport_football(client, monkeypatch):
+    """默认 sport=football：news/pick_reason 经 web.news 缓存 + 长度截断后回传。"""
+    import web.services.news as news_svc
+    news_svc._NEWS_CACHE.clear()
+    _patch_llm(monkeypatch, news="今日多场五大联赛在售，详情见下表",
+               pick_reason="7001 A vs B")
+    cookies = _login(client)
+    r = client.get("/api/jc/daily-news", cookies=cookies)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["sport"] == "football"
+    assert isinstance(body["news"], str) and body["news"]
+    assert body["pick_reason"] == "7001 A vs B"
+    assert len(body["news"]) <= 78
+    assert len(body["pick_reason"]) <= 60
+
+
+def test_daily_news_sport_basketball(client):
+    """sport=basketball：直接走到占位文案（picks/context 空，LLM 调用可选）。"""
+    import web.services.news as news_svc
+    news_svc._NEWS_CACHE.clear()
+    cookies = _login(client)
+    r = client.get("/api/jc/daily-news?sport=basketball", cookies=cookies)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["sport"] == "basketball"
+
+
+def test_daily_news_falls_back_when_llm_returns_empty(client, monkeypatch):
+    """LLM 返回双空 → 占位文案「今日有多场五大联赛在售，详情见下表」。"""
+    import web.services.news as news_svc
+    news_svc._NEWS_CACHE.clear()
+    _patch_llm(monkeypatch, news="", pick_reason="")
+    cookies = _login(client)
+    r = client.get("/api/jc/daily-news", cookies=cookies)
+    assert r.status_code == 200
+    body = r.json()
+    assert "五大联赛" in body["news"], "football 双空应走 football 占位文案"
+
+
+def test_daily_news_cache_hit_avoids_second_llm_call(client, monkeypatch):
+    """R21 #1 验收：同一天同一 sport 第二次调 → 命中 web.news._NEWS_CACHE，LLM 不再被调。"""
+    import web.services.news as news_svc
+    news_svc._NEWS_CACHE.clear()
+    calls = {"n": 0}
+
+    def gen(prompt, **kw):
+        calls["n"] += 1
+        return {"news": "n1", "pick_reason": "p1"}
+    import ai.llm_client as llm
+    monkeypatch.setattr(llm, "generate", gen)
+
+    cookies = _login(client)
+    r1 = client.get("/api/jc/daily-news", cookies=cookies)
+    r2 = client.get("/api/jc/daily-news", cookies=cookies)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert calls["n"] == 1, f"同一天同 sport 第二次应命中缓存，LLM 只调 1 次；实际 {calls['n']}"
