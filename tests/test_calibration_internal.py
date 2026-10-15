@@ -231,3 +231,110 @@ def test_collect_calibration_samples_skips_invalid_scores(cal_mod):
     h, d, a = mod._collect_calibration_samples(samples)
     # 仅 1-0 进 home 胜
     assert (h, d, a) == (1, 0, 0)
+
+
+# ──────────────────────── load_historical_past_matches (R28 #2 补测) ─────
+
+
+def test_load_historical_past_matches_empty_dirs_returns_empty(cal_mod):
+    """R28 #2：PREDICTIONS_DIR 空 + 无 references → 返回 []。"""
+    mod, _ = cal_mod
+    # fixture 已创建空 dirs
+    assert mod.load_historical_past_matches(days=30, league="epl") == []
+
+
+def test_load_historical_past_matches_single_prediction_file(cal_mod):
+    """R28 #2：单一 prediction_*.json 含 2 场 past_matches → 返回 2 场，按顺序透传。"""
+    mod, root = cal_mod
+    pred = root / "predictions" / "prediction_2026-10-13_10_epl.json"
+    pred.write_text(json.dumps({
+        "league": "epl",
+        "past_matches": [
+            {"kickoff_utc": "2026-10-10T15:00:00+00:00", "home": "A", "away": "B", "score": "2-1"},
+            {"kickoff_utc": "2026-10-11T15:00:00+00:00", "home": "C", "away": "D", "score": "1-1"},
+        ],
+    }), encoding="utf-8")
+    out = mod.load_historical_past_matches(days=30, league="epl")
+    assert len(out) == 2
+    assert out[0]["home"] == "A"
+    assert out[1]["score"] == "1-1"
+
+
+def test_load_historical_past_matches_league_filter(cal_mod):
+    """R28 #2：league="epl" 仅入 league=epl 文件，league=laliga 文件被跳过。"""
+    mod, root = cal_mod
+    (root / "predictions" / "prediction_2026-10-10_epl.json").write_text(json.dumps({
+        "league": "epl",
+        "past_matches": [{"kickoff_utc": "2026-10-10", "home": "A", "away": "B", "score": "2-1"}],
+    }), encoding="utf-8")
+    (root / "predictions" / "prediction_2026-10-11_laliga.json").write_text(json.dumps({
+        "league": "laliga",
+        "past_matches": [{"kickoff_utc": "2026-10-11", "home": "X", "away": "Y", "score": "0-0"}],
+    }), encoding="utf-8")
+    out = mod.load_historical_past_matches(days=30, league="epl")
+    # 仅 epl 入
+    assert len(out) == 1
+    assert out[0]["home"] == "A"
+
+
+def test_load_historical_past_matches_cutoff_skips_old_files(cal_mod):
+    """R28 #2：mtime 早于 cutoff（days 天前）的 prediction 文件被跳过。"""
+    import os as _os
+    import time as _t
+    mod, root = cal_mod
+    # 写一份老 mtime 文件（glob 必须 prediction_*.json 才能匹配）
+    pred = root / "predictions" / "prediction_old.json"
+    pred.write_text(json.dumps({
+        "league": "epl",
+        "past_matches": [{"kickoff_utc": "2026-09-01", "home": "A", "away": "B", "score": "1-0"}],
+    }), encoding="utf-8")
+    target_mtime = _t.time() - 60 * 86400  # 60 天前 → 超过 days=30 cutoff
+    _os.utime(pred, (target_mtime, target_mtime))
+    # 写一份新 mtime 文件
+    pred_new = root / "predictions" / "prediction_new.json"
+    pred_new.write_text(json.dumps({
+        "league": "epl",
+        "past_matches": [{"kickoff_utc": "2026-10-10", "home": "X", "away": "Y", "score": "1-0"}],
+    }), encoding="utf-8")
+    out = mod.load_historical_past_matches(days=30, league="epl")
+    assert len(out) == 1
+    assert out[0]["home"] == "X"
+
+
+def test_load_historical_past_matches_dedup_by_key(cal_mod):
+    """R28 #2：predictions + references 文件含相同 (kickoff, home, away) → 结果只 1 条。"""
+    mod, root = cal_mod
+    # predictions 里一条（需 prediction_*.json 才能被 glob）
+    (root / "predictions" / "prediction_dup.json").write_text(json.dumps({
+        "league": "epl",
+        "past_matches": [{"kickoff_utc": "2026-10-10", "home": "A", "away": "B",
+                          "score": "2-1", "source": "pred"}],
+    }), encoding="utf-8")
+    # references/historical_past_matches.json 里同 key 一条
+    hist_file = root / "references" / "historical_past_matches.json"
+    hist_file.write_text(json.dumps([
+        {"kickoff_utc": "2026-10-10", "home": "A", "away": "B",
+         "score": "2-1", "league": "epl", "source": "ref"},
+    ], ensure_ascii=False), encoding="utf-8")
+    out = mod.load_historical_past_matches(days=30, league="epl")
+    # dedup 后只 1 条
+    assert len(out) == 1
+    # references 后入被 dedup（先入的 pred 胜出）
+    assert out[0]["source"] == "pred"
+
+
+def test_load_historical_past_matches_history_league_filter(cal_mod):
+    """R28 #2：references/historical_past_matches.json 多 league 混存 → league="epl" 仅入 epl 条目。"""
+    mod, root = cal_mod
+    hist_file = root / "references" / "historical_past_matches.json"
+    hist_file.write_text(json.dumps([
+        {"kickoff_utc": "2026-09-01", "home": "A1", "away": "B1", "score": "2-1", "league": "epl"},
+        {"kickoff_utc": "2026-09-02", "home": "X1", "away": "Y1", "score": "0-0", "league": "laliga"},
+        {"kickoff_utc": "2026-09-03", "home": "A2", "away": "B2", "score": "1-1", "league": "epl"},
+        {"kickoff_utc": "2026-09-04", "home": "Z1", "away": "W1", "score": "0-0"},  # 缺 league → 不入 epl
+    ], ensure_ascii=False), encoding="utf-8")
+    out = mod.load_historical_past_matches(days=30, league="epl")
+    # 仅 2 条 epl
+    assert len(out) == 2
+    homes = sorted(m["home"] for m in out)
+    assert homes == ["A1", "A2"]
