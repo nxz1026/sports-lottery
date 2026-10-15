@@ -91,3 +91,84 @@ def test_bball_and_football_do_not_clobber_each_other(tmp_path, monkeypatch):
                      "prediction_2026-09-18_06_nba.json"], files
     for p in tmp_path.glob("prediction_*.json"):
         assert json.loads(p.read_text(encoding="utf-8"))["league"] in p.name
+
+
+# ────────────────────────── R22 #1：R13 #3 OSError 兜底边角测 ──────────────────────────
+
+
+def test_save_output_swallows_oserror_on_predictions_write(tmp_path, monkeypatch):
+    """R13 #3（兜底验收）：预测文件写失败 OSError 不让 _save_output 抛穿主流程。
+
+    期望：
+      · 不抛错（调用者照常继续）
+      · log_error 落 events.jsonl 路径
+      · 仍执行 _emit_ml_predictions（即使文件没写）
+    """
+    mod = _load_predict_module()
+    monkeypatch.setattr(mod, "PREDICTIONS_DIR", tmp_path)
+
+    # mock 内置 open 让 json.dump 抛 OSError（prediction file 那次）
+    real_open = open
+
+    def patched_open(path, *a, **kw):
+        if "prediction_" in str(path):
+            raise OSError("simulated write failure on prediction file")
+        return real_open(path, *a, **kw)
+    monkeypatch.setattr("builtins.open", patched_open)
+
+    # mock log_error 验证被调
+    log_error_calls = []
+    from core import observability
+    monkeypatch.setattr(observability, "log_error",
+                        lambda exc, **kw: log_error_calls.append((exc, kw)))
+
+    # mock _emit_ml_predictions 验证不漏
+    emit_calls = []
+    monkeypatch.setattr(mod, "_emit_ml_predictions",
+                        lambda output, league=None: emit_calls.append(league))
+
+    now = datetime(2026, 9, 18, 6, 0, tzinfo=timezone.utc)
+    out_path = mod._save_output({"league": "epl", "predictions": [{"match": "a"}]},
+                                 None, now, emit_ml_events=True)
+    # 返回路径仍应给出（即使文件没写出），调用方拿到路径以便后续读
+    assert "prediction_" in str(out_path)
+    # OSError 已 log_error 上报
+    assert len(log_error_calls) == 1, f"预测 OSError 必须被 log_error 捕获；实际 {log_error_calls}"
+    assert "_save_output.write_predictions" in log_error_calls[0][1].get("context", "")
+    # _emit_ml_predictions 仍被调（数据已落 events.jsonl，预测文件失败不影响 ml feedback）
+    assert emit_calls == ["epl"], f"OSError 后 _emit_ml_predictions 必须照走；实际 {emit_calls}"
+
+
+def test_save_output_swallows_oserror_on_calibration_write(tmp_path, monkeypatch):
+    """R13 #3（兜底验收）：校准文件写失败 OSError 同样不抛穿。
+
+    验证：log_error 拿到的 context 区分预测 vs 校准 两个写入路径。
+    """
+    mod = _load_predict_module()
+    monkeypatch.setattr(mod, "PREDICTIONS_DIR", tmp_path)
+
+    real_open = open
+
+    def patched_open(path, *a, **kw):
+        s = str(path)
+        if "pred_calibration" in s:
+            raise OSError("simulated write failure on calibration file")
+        return real_open(path, *a, **kw)
+    monkeypatch.setattr("builtins.open", patched_open)
+
+    log_error_calls = []
+    from core import observability
+    monkeypatch.setattr(observability, "log_error",
+                        lambda exc, **kw: log_error_calls.append((exc, kw)))
+    monkeypatch.setattr(mod, "_emit_ml_predictions", lambda output, league=None: None)
+
+    now = datetime(2026, 9, 18, 6, 0, tzinfo=timezone.utc)
+    # calibration_offset 给非 None 触发校准写路径
+    cal = {"h": 0.02, "d": -0.01, "a": -0.01}
+    out_path = mod._save_output({"league": "epl", "predictions": [{"match": "a"}]},
+                                 cal, now, emit_ml_events=True)
+    # 预测文件应写出（only calibration 模拟失败）
+    assert out_path.exists(), "预测文件不被 calibration OSError 影响"
+    # calibration OSError 落 log_error
+    cal_log = [c for c in log_error_calls if "calibration" in c[1].get("context", "")]
+    assert len(cal_log) == 1, f"校准 OSError 必须被 log_error 捕获；实际 {log_error_calls}"
