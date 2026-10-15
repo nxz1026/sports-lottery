@@ -188,3 +188,128 @@ def test_output_path_formats_correctly(monkeypatch, tmp_path):
     monkeypatch.setattr(aa, "OUTPUT_DIR", tmp_path)
     p = aa.output_path("2026-10-15")
     assert p == (tmp_path / "2026-10-15.json").resolve() or p == tmp_path / "2026-10-15.json"
+
+
+# ──────────────────────── _class_banker 高信心筛选 + LLM fallback (R27 #2) ─
+
+
+def test_class_banker_empty_predictions_skips_llm(monkeypatch):
+    """R27 #2：无 ≥3★ 候选 → 返「今日无 ≥ 3★」文案，不调 LLM（性能保护）。"""
+    calls = []
+
+    def must_not_run(*args, **kwargs):
+        calls.append(args)
+
+    import ai.llm_client as llm
+    monkeypatch.setattr(llm, "generate", must_not_run)
+
+    # predictions={}
+    out = aa._class_banker({}, fixtures=[])
+    assert "今日无 ≥ 3★" in out
+    assert calls == []
+
+    # predictions 有但 stars 全 < 3
+    out2 = aa._class_banker({"epl": {"data": {"predictions": [
+        {"home": "A", "away": "B", "direction": "A 胜", "stars": "1-star"},
+        {"home": "C", "away": "D", "direction": "D 胜", "stars": "2-star"},
+    ]}}}, fixtures=[])
+    assert "今日无 ≥ 3★" in out2
+    assert calls == []
+
+
+def test_class_banker_filters_under_three_stars(monkeypatch):
+    """R27 #2：2★/3★/4-star 混存 → 仅 ≥3★ 入 candidates（4-star parse → 4）。"""
+    seen_prompts = []
+
+    def fake_generate(prompt):
+        seen_prompts.append(prompt)
+        return {"text": "高信心组合：A 胜 + D 胜"}
+
+    import ai.llm_client as llm
+    monkeypatch.setattr(llm, "generate", fake_generate)
+
+    predictions = {"epl": {"data": {"predictions": [
+        {"home": "A1", "away": "B1", "direction": "A1 胜", "stars": "1-star"},   # 跳过
+        {"home": "A2", "away": "B2", "direction": "A2 胜", "stars": "2-star"},   # 跳过
+        {"home": "Liverpool", "away": "Arsenal", "direction": "L 胜", "stars": "3-star"},  # 入
+        {"home": "Chelsea", "away": "Spurs", "direction": "Ch 胜", "stars": "4-star"},     # 入
+        {"home": "V", "away": "W"},  # stars=None → 0 → 跳过
+    ]}}}
+    out = aa._class_banker(predictions, fixtures=[])
+    assert "高信心组合" in out
+    # 确认 prompt 中只含 ≥3★
+    prompt = seen_prompts[0] if seen_prompts else ""
+    assert "A1" not in prompt or "1-star" not in prompt.split("A1")[0].split("A2")[0]
+    assert "Liverpool" in prompt
+    assert "Chelsea" in prompt
+
+
+def test_class_banker_llm_empty_falls_back(monkeypatch):
+    """R27 #2：候选 ≥3★ 但 LLM 返 {"text": ""} → 走 fallback 文案 + 列表前 5 条。"""
+    import ai.llm_client as llm
+    monkeypatch.setattr(llm, "generate", lambda prompt: {"text": ""})
+
+    predictions = {"epl": {"data": {"predictions": [
+        {"home": "A", "away": "B", "direction": "A 胜", "stars": "3-star"},
+        {"home": "C", "away": "D", "direction": "D 胜", "stars": "4-star"},
+    ]}}}
+    out = aa._class_banker(predictions, fixtures=[])
+    assert "LLM 解读暂不可用" in out
+    assert "A vs B" in out
+    assert "C vs D" in out
+    assert "3★" in out or "4★" in out
+
+
+def test_class_banker_llm_truncates_to_300(monkeypatch):
+    """R27 #2：LLM 返 500 字 → 截断到 text[:300]。"""
+    long_text = "一" * 500
+
+    import ai.llm_client as llm
+    monkeypatch.setattr(llm, "generate", lambda prompt: {"text": long_text})
+
+    predictions = {"epl": {"data": {"predictions": [
+        {"home": "A", "away": "B", "direction": "A 胜", "stars": "3-star"},
+    ]}}}
+    out = aa._class_banker(predictions, fixtures=[])
+    assert len(out) == 300
+
+
+def test_class_banker_llm_exception_falls_back(monkeypatch, caplog):
+    """R27 #2：LLM 抛 ConnectionError → fallback 文案 + logger.warning。"""
+    def fake_generate(prompt):
+        raise ConnectionError("LLM 接口 502")
+
+    import ai.llm_client as llm
+    monkeypatch.setattr(llm, "generate", fake_generate)
+
+    predictions = {"epl": {"data": {"predictions": [
+        {"home": "A", "away": "B", "direction": "A 胜", "stars": "3-star"},
+    ]}}}
+    with caplog.at_level("WARNING"):
+        out = aa._class_banker(predictions, fixtures=[])
+    assert "LLM 解读暂不可用" in out
+    assert "A vs B" in out
+    assert any("banker LLM failed" in r.message for r in caplog.records)
+
+
+# ──────────────────────── _class_lottery LLM fallback (R27 #2 bonus) ───
+
+
+def test_class_lottery_llm_failure_returns_fallback(monkeypatch, caplog):
+    """R27 #2：game_num 命中后 LLM 抛异常 → 出「LLM 复盘暂不可用」文案 + log_warning。"""
+    def fake_generate(prompt):
+        raise ConnectionError("LLM 接口 502")
+
+    import ai.llm_client as llm
+    monkeypatch.setattr(llm, "generate", fake_generate)
+
+    lottery = [
+        {"game_num": "85", "game_name": "超级大乐透", "issue_no": "24001",
+         "numbers_raw": "01 02 03 04 05 06 07"},
+    ]
+    with caplog.at_level("WARNING"):
+        out = aa._class_lottery(lottery)
+    assert len(out) == 1
+    assert out[0]["game_num"] == "85"
+    assert "LLM 复盘暂不可用" in out[0]["review"]
+    assert any("lottery LLM failed" in r.message for r in caplog.records)
