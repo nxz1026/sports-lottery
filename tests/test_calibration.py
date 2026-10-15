@@ -83,6 +83,71 @@ class TestBuildCalibration(unittest.TestCase):
         result = build_calibration(past)
         self.assertEqual(result["total_matches"], 3)
 
+    def test_missing_score_key_does_not_raise(self):
+        """R13 #7 (b)：m["score"] → m.get("score") 防止 KeyError 冒泡主流程。"""
+        past = [
+            {"score": "2-1", "home_true_prob": 0.6},
+            {"home_true_prob": 0.7},  # 缺 score → 不计 favored_wons，但 home_wins 仍统计
+        ]
+        result = build_calibration(past)
+        # total=1（只算 2-1 这一场），favored_by_odds=2（两场 hp>0.5），favored_won=1
+        assert result["total_matches"] == 1
+        assert result["favored_by_odds"] == 2
+        assert result["favored_won"] == 1, "有 score 的 2-1 应让 favored_won=1"
+
+    def test_unparseable_score_does_not_count_as_fav_win(self):
+        """score 解析失败（_parse_score 返回 None）→ favored_won 不计。"""
+        past = [
+            {"score": "abc", "home_true_prob": 0.7},  # parse 失败
+            {"score": "1-x", "home_true_prob": 0.6},  # 非数字
+            {"score": "3-2", "home_true_prob": 0.55},  # parse 成功 + fav home win
+        ]
+        result = build_calibration(past)
+        # total=1（只 3-2 parse ok），favored_by_odds=3，favored_won=1
+        assert result["total_matches"] == 1
+        assert result["favored_by_odds"] == 3
+        assert result["favored_won"] == 1
+
+    def test_odds_accuracy_rounding(self):
+        """favored_won / favored_by_odds 比例保留 3 位小数（odds_accuracy）。"""
+        past = [
+            {"score": "2-1", "home_true_prob": 0.7},  # win
+            {"score": "1-2", "home_true_prob": 0.6},  # lose
+            {"score": "1-0", "home_true_prob": 0.8},  # win
+        ]
+        result = build_calibration(past)
+        # favored_by_odds=3，favored_won=2，odds_accuracy=0.667
+        assert result["odds_accuracy"] == 0.667, (
+            f"odds_accuracy 应 round 到 3 位小数；实际 {result['odds_accuracy']}"
+        )
+
+    def test_no_odds_data_zero_odds_metrics(self):
+        """所有场次无 home_true_prob → favored_by_odds=0 / favored_won=0 / odds_accuracy=0。"""
+        past = [
+            {"score": "2-1"},
+            {"score": "1-1"},
+        ]
+        result = build_calibration(past)
+        assert result["favored_by_odds"] == 0
+        assert result["favored_won"] == 0
+        assert result["odds_accuracy"] == 0, "无 odds 时 odds_accuracy 兜底 0"
+
+    def test_home_draw_away_distribution_rates(self):
+        """home_win_rate / draw_rate / away_win_rate 正确反映 1/3 / 1/3 / 1/3。"""
+        past = [
+            {"score": "1-0"},   # home win
+            {"score": "0-1"},   # away win
+            {"score": "1-1"},   # draw
+        ]
+        result = build_calibration(past)
+        assert result["total_matches"] == 3
+        assert result["home_wins"] == 1
+        assert result["draws"] == 1
+        assert result["away_wins"] == 1
+        assert result["home_win_rate"] == 0.333
+        assert result["draw_rate"] == 0.333
+        assert result["away_win_rate"] == 0.333
+
 
 class TestHistoricalPastMatches(unittest.TestCase):
     """P5: 历史完赛记录跨运行累计（线上 ML 激活前提）。"""
