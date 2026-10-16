@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **1206 passed / 70 skipped / 0 failed**（v2.1 660 / v2.2 精修本轮 546 增量：覆盖率补测 + cross-boundary 收口 + 守门行为锁 + flake 根因修；详见 `docs/refine/P3-P4_report.md` / `P5_report.md`）
+测试基线：python -m pytest tests -q → **1649 passed / 71 skipped / 0 failed**（v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443 测基线补测 + helper 直测 + 0 测补全**（R19 396 起步 → R30 1649））。详见 `docs/refine/P3-P4_report.md` / `P5_report.md` / **`R19_R30_test_optimization_report.md`**。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -795,6 +795,27 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 - P5-4：clv_baseline._BJT dead local
 
 **15x 全仓压测基线**：14/15 全过；残余 1/15 flake `test_auto_refresh_trigger_and_dedup`（Windows fs fd 释放延迟根因不在生产代码层面，留作 known issue）。
+
+**R19-R30 测试基线补测（12 轮 39 commit，2026-10-13 ~ 10-15）**：
+
+每一轮走 explore + writer + 全量回归 + Oracle sync 闭环；**全程只新增测试，不改生产代码**（除两个 R19 perf 合并）。本阶段净增 443 测（1382 + 71 + R12-R18 已稳定 = R19 起点 1453 → **R30 1649**）：
+
+| Round | 主题 | 净增测 |
+|---|---|---|
+| **R19** | combo/haf 反查哈希化 + `teams_match_safe` 收口 + `build_rows` 字典复用 | +14 |
+| **R20** | observability 重入 fail-fast + 工作区清理 (retrain 产物 untrack) + ticket 复用 pred_index | +14 |
+| **R21** | news.py 缓存 TTL+LRU 上限 + daily-news 端点覆盖 | +6 |
+| **R22** | predict output 兜底 (`_save_output` / `_emit_ml_*` / `_cleanup_intermediate` 三文件保护 / import 兜底) | +21 |
+| **R23** | calibration `build_calibration` / web 401 鉴权矩阵 / haf 九宫格 / save_results / `append_historical_past_matches` | +25 |
+| **R24** | predictions.py 7 helpers + 2 端点 / `results_by_bjt_date` + `_stable_match_key` / `cleanup_old_files` | +30 |
+| **R25** | backfill_seasons / import_backfill 零测补全（含 `from store import` 注入模式） | +29 |
+| **R26** | backtest 三层（`split bug` 记录） / jobs 锁三重（POSIX-only skip）/ dashboard 8 函数 | +31 |
+| **R27** | calibration 5 内部 helper / ai_analyze 三件套 LLM fallback / jobs 4 分支 | +26 |
+| **R28** | build_parser 17 flag / `load_historical_past_matches`（R27 漏 1 函数）/ onside 4 helper（含 `league_footprint_score` 0.3 分支不可达记录） | +38 |
+| **R29** | jobs `_spin_state` + LockTimeout / `predict._setup_league_run` 正常分支 / core/elo 持久化 trio + rankings | +26 |
+| **R30** | jc_view `_nums` 私有 helper / setup_logger / `_compute_calibration` 三阶段 fallback | +16 |
+
+**关键设计沉淀**（D-08 ~ D-13）见 `docs/refine/R19_R30_test_optimization_report.md`：测试隔离策略（importlib.util 模式 + sys.modules 注入 + from-import 别名处理） + 3 个 bug-shaped 契约锁定（`_bk_parse_window` split bug / `league_footprint_score` 0.3 不可达 / `fetch_season_with_retry` tuple 契约）+ 测试顺序 flake 处理规则。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 
