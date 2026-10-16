@@ -6,12 +6,18 @@
   · 已有 corrupt JSON 时静默覆盖（不死循环）
   · 同日多次调用合并 dedup（用 home_away key）
   · RESULTS_DIR 缺失时 mkdir 兜底
+
+R31 修订：``result_<today_utc>.json`` 文件名依赖 today UTC。
+原 hardcode ``2026-10-15`` 在跨日（2026-10-15 UTC → 2026-10-16 UTC）回归时
+flake fail。改用 ``today_utc()`` 工具函数动态取 today，3 处 test 防
+日期 drift。
 """
 from __future__ import annotations
 
 import importlib.util
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -19,6 +25,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+
+def _today_utc() -> str:
+    """save_results 用 today UTC 作为文件名；测试动态匹配避免日期 drift。"""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def _load_output_module():
@@ -56,16 +67,17 @@ def test_no_scored_matches_returns_early_no_file(tmp_path, monkeypatch):
 def test_corrupt_existing_json_is_silently_overwritten(tmp_path, monkeypatch):
     """已有 corrupt JSON（坏文件） → 静默覆盖，不抛错也不死循环。"""
     _set_results_dir(monkeypatch, tmp_path)
+    today = _today_utc()
 
     # 写坏文件
-    bad = tmp_path / "result_2026-10-15.json"
+    bad = tmp_path / f"result_{today}.json"
     bad.write_text("{not valid json", encoding="utf-8")
 
     # 跑 save_results → 应写合法 JSON 覆盖坏文件
     save_results([{"name": "m1", "home": "A", "away": "B",
-                   "score": "2-1", "kickoff_utc": "2026-10-15T12:00:00Z"}])
+                   "score": "2-1", "kickoff_utc": f"{today}T12:00:00Z"}])
     data = json.loads(bad.read_text(encoding="utf-8"))
-    assert data["date"] == "2026-10-15"
+    assert data["date"] == today
     assert len(data["matches"]) == 1
     assert data["matches"][0]["home"] == "A"
 
@@ -73,23 +85,24 @@ def test_corrupt_existing_json_is_silently_overwritten(tmp_path, monkeypatch):
 def test_same_day_merge_dedupes_by_home_away_key(tmp_path, monkeypatch):
     """同日两次 save_results：相同 (home, away) 覆盖，添加新对阵不丢旧数据。"""
     _set_results_dir(monkeypatch, tmp_path)
+    today = _today_utc()
 
     # 第一次：m1 + m2
     save_results([
         {"name": "m1", "home": "A", "away": "B", "score": "2-1",
-         "kickoff_utc": "2026-10-15T12:00:00Z"},
+         "kickoff_utc": f"{today}T12:00:00Z"},
         {"name": "m2", "home": "C", "away": "D", "score": "0-0",
-         "kickoff_utc": "2026-10-15T14:00:00Z"},
+         "kickoff_utc": f"{today}T14:00:00Z"},
     ])
     # 第二次：m1 比分更新（覆盖）+ 新 m3
     save_results([
         {"name": "m1", "home": "A", "away": "B", "score": "3-1",
-         "kickoff_utc": "2026-10-15T12:00:00Z"},
+         "kickoff_utc": f"{today}T12:00:00Z"},
         {"name": "m3", "home": "E", "away": "F", "score": "1-0",
-         "kickoff_utc": "2026-10-15T16:00:00Z"},
+         "kickoff_utc": f"{today}T16:00:00Z"},
     ])
 
-    data = json.loads((tmp_path / "result_2026-10-15.json").read_text(encoding="utf-8"))
+    data = json.loads((tmp_path / f"result_{today}.json").read_text(encoding="utf-8"))
     matches = {(m["home"], m["away"]): m for m in data["matches"]}
 
     assert len(matches) == 3, f"应 3 个 unique key；实际 {len(matches)}: {list(matches)}"
@@ -104,11 +117,12 @@ def test_same_day_merge_dedupes_by_home_away_key(tmp_path, monkeypatch):
 
 def test_results_dir_created_if_missing(tmp_path, monkeypatch):
     """RESULTS_DIR 父目录不存在 → save_results 自动 mkdir。"""
+    today = _today_utc()
     nested = tmp_path / "deeply" / "nested" / "results"
     _set_results_dir(monkeypatch, nested)
     assert not nested.exists()
 
     save_results([{"name": "m1", "home": "A", "away": "B",
-                   "score": "1-0", "kickoff_utc": "2026-10-15T12:00:00Z"}])
+                   "score": "1-0", "kickoff_utc": f"{today}T12:00:00Z"}])
     assert nested.is_dir(), "RESULTS_DIR 应被自动创建"
-    assert (nested / "result_2026-10-15.json").exists()
+    assert (nested / f"result_{today}.json").exists()
