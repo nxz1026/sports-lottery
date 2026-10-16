@@ -313,3 +313,103 @@ def test_class_lottery_llm_failure_returns_fallback(monkeypatch, caplog):
     assert out[0]["game_num"] == "85"
     assert "LLM 复盘暂不可用" in out[0]["review"]
     assert any("lottery LLM failed" in r.message for r in caplog.records)
+
+
+# ──────────────────────── _class_per_match sort + 截断 (R31 #2) ───────
+
+
+def test_class_per_match_sorts_by_stars_desc_and_truncates_two(monkeypatch):
+    """R31 #2：sort by stars desc + 截断到每 league top 2；LLM 调用数 = 2。
+
+    5-star / 4-star / 3-star / 1-star / None / 0-star 6 项；预期 LLM
+    被调 2 次，传入 5-star 和 4-star（顺序按 stars 降序）。
+    """
+    llm_calls = {"n": 0, "prompts": []}
+
+    def fake_generate(prompt):
+        llm_calls["n"] += 1
+        llm_calls["prompts"].append(prompt)
+        return {"text": f"insight #{llm_calls['n']}"}
+
+    import ai.llm_client as llm
+    monkeypatch.setattr(llm, "generate", fake_generate)
+
+    predictions = {"epl": {"data": {"predictions": [
+        {"home": "A", "away": "B", "direction": "A 胜", "stars": "3-star"},
+        {"home": "C", "away": "D", "direction": "C 胜", "stars": "5-star"},
+        {"home": "E", "away": "F", "direction": "E 胜", "stars": "1-star"},
+        {"home": "G", "away": "H", "direction": "G 胜", "stars": None},
+        {"home": "I", "away": "J", "direction": "I 胜", "stars": "0-star"},
+        {"home": "K", "away": "L", "direction": "K 胜", "stars": "4-star"},
+    ]}}}
+
+    out = aa._class_per_match(predictions, fixtures=[])
+    # 仅 2 次 LLM
+    assert llm_calls["n"] == 2
+    # 验证传入的 home/away 是 stars 最高的两个 (5-star C vs D, 4-star K vs L)
+    assert "C vs D" in llm_calls["prompts"][0]
+    assert "K vs L" in llm_calls["prompts"][1]
+    # 输出 2 条
+    assert len(out) == 2
+
+
+def test_class_per_match_missing_or_zero_stars_treated_as_zero(monkeypatch):
+    """R31 #2：stars=None 与 stars="0-star" 同档；stars="" 也归零（不会 int 解析崩溃）。"""
+    import ai.llm_client as llm
+    llm_calls = []
+
+    def fake_generate(prompt):
+        llm_calls.append(prompt)
+        return {"text": "ok"}
+
+    monkeypatch.setattr(llm, "generate", fake_generate)
+
+    predictions = {"epl": {"data": {"predictions": [
+        {"home": "A", "away": "B", "direction": "A 胜", "stars": None},
+        {"home": "C", "away": "D", "direction": "C 胜", "stars": ""},
+        {"home": "E", "away": "F", "direction": "E 胜", "stars": "0-star"},
+    ]}}}
+
+    # 不应 raise（None → falsy → key=0；"" → falsy → key=0）
+    aa._class_per_match(predictions, fixtures=[])
+    # 全部 key=0 → [] 取不到最大 → 仍 truncate 到 2 行
+    assert len(llm_calls) == 2
+
+
+def test_class_per_match_truncates_each_league_independently(monkeypatch):
+    """R31 #2：多 league 各 3 items → 输出总数 = 4（每 league 各取 top 2）。"""
+    import ai.llm_client as llm
+
+    llm_calls = {"prompts": []}
+
+    def fake_generate(prompt):
+        llm_calls["prompts"].append(prompt)
+        return {"text": "ok"}
+
+    monkeypatch.setattr(llm, "generate", fake_generate)
+
+    predictions = {
+        "epl": {"data": {"predictions": [
+            {"home": "Liverpool", "away": "Arsenal", "stars": "5-star"},
+            {"home": "Chelsea", "away": "Spurs", "stars": "3-star"},
+            {"home": "Wolves", "away": "Brentford", "stars": "1-star"},
+        ]}},
+        "laliga": {"data": {"predictions": [
+            {"home": "Real", "away": "Barca", "stars": "5-star"},
+            {"home": "Atletico", "away": "Valencia", "stars": "4-star"},
+            {"home": "Sevilla", "away": "Villarreal", "stars": "2-star"},
+        ]}},
+    }
+
+    out = aa._class_per_match(predictions, fixtures=[])
+    # 每 league 各 2 → 总 4
+    assert len(out) == 4
+    assert len(llm_calls["prompts"]) == 4
+    # 每 league top 2 是 (5-star, 3-star) → 验证 predict 数据
+    epl_prompts = [p for p in llm_calls["prompts"] if "Liverpool" in p or "Chelsea" in p]
+    laliga_prompts = [p for p in llm_calls["prompts"] if "Real" in p or "Atletico" in p]
+    assert len(epl_prompts) == 2  # Liverpool + Chelsea (top 2)
+    assert len(laliga_prompts) == 2  # Real + Atletico (top 2)
+    # Wolves/Sevilla 不应进入 prompt（低 stars 被截断）
+    assert not any("Wolves" in p for p in llm_calls["prompts"])
+    assert not any("Sevilla" in p for p in llm_calls["prompts"])
