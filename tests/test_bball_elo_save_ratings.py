@@ -50,6 +50,11 @@ _config_bball.ELO = {
 _config_bball.TEAM_CN = {"Atlanta Hawks": "ATL", "Boston Celtics": "BOS"}
 _config_bball.ELO_FILE = Path("unused")  # 占位; 每个 fixture 重定向到 tmp
 _config_bball.TEAMS_SEED_FILE = Path("unused")
+# 占位: R39-4 只用 ELO/ELO_FILE; 其他属性让 from .config_bball import 不爆
+_config_bball.LEAGUE = {"odds_sport": "basketball_nba", "name": "NBA"}
+_config_bball.PREDICT = {"LEAGUE_PACE": 98.5, "AVG_PPG": 112.0, "HOME_SCORE_ADV": 2.5, "ELO_TO_POINTS": 0.06, "SPREAD_CONFIDENCE": 0.65, "TOTAL_CONFIDENCE": 0.6}
+_config_bball.DATA_DIR = Path("unused")
+_config_bball.TEAM_CN_ALIASES = {}
 sys.modules.setdefault("bball.config_bball", _config_bball)
 
 
