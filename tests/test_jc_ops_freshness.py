@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -51,17 +52,25 @@ def jc_ops_mod(monkeypatch):
     def fake_snapshot():
         return {"topics": [{"topic": "x", "since_latest_hours": 5.0}]}
 
-    monkeypatch.setitem(sys.modules, "store.jc_ops_view", types := type("m", (), {})())
-    types.ops_snapshot = fake_snapshot
+    # stub store.jc_ops_view: 必须在 store package 的 namespace 上 setattr stub
+    # (实测 sys.modules 子模块替换对 `from store import jc_ops_view` 无效——
+    #  Python in `from X import Y` 优先查 X.__dict__, 不 fallback 到子模块 import)
+    jc_view_stub = types.ModuleType("store.jc_ops_view")
+    jc_view_stub.ops_snapshot = fake_snapshot
+    import store  # noqa: PLC0415 - ensure `store` package is loaded
+    # store.__init__.py 是空文件, jc_ops_view 不在 namespace 上, 用 raising=False
+    # 让 monkeypatch 在属性不存在时也能 setattr (退出时 delattr, 不 fail)
+    monkeypatch.setattr(store, "jc_ops_view", jc_view_stub, raising=False)
+    # 同步替换 sys.modules 子模块 (D-93-4 用 `import store.jc_ops_view as ...` 时也生效)
+    monkeypatch.setitem(sys.modules, "store.jc_ops_view", jc_view_stub)
 
-    # stub web.services.freshness
-    import web.services.freshness as fres
-    monkeypatch.setattr(fres, "evaluate_topics",
+    # stub web.services.freshness (用字符串路径避免 stale module reference)
+    monkeypatch.setattr("web.services.freshness.evaluate_topics",
                         lambda topics, threshold_hours: {"ok": True,
                                                             "threshold_hours": threshold_hours,
                                                             "stale": [],
                                                             "all": len(topics)})
-    monkeypatch.setattr(fres, "format_alert_lines",
+    monkeypatch.setattr("web.services.freshness.format_alert_lines",
                         lambda r: ["alert-line"])
     return mod
 
