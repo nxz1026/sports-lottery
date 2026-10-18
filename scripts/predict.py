@@ -790,12 +790,21 @@ def _apply_ml_args(args) -> bool:
     return False
 
 
-def _refresh_ml_models(league_key=None, max_age_days: float = 1.0, base_dir=None) -> dict:
+def _refresh_ml_models(league_key=None, max_age_days: float = 0.0, base_dir=None) -> dict:
     """过期/缺失的 ML 模型按需重训（不修改 core，仅复用公开训练函数）。
 
     每次预测跑完后调用：刚结算的比赛进入历史样本，模型随新比赛自更新。
     返回 {league_key: True|False|None}（True=已重训，False=样本不足回退规则，
     None=训练异常跳过，不影响本次预测）。
+
+    P5-Q3 修复：max_age_days 默认值从 1.0 改 0.0 → 每次 cron 都触发 retrain。
+    旧阈值配合每日 cron 间隔 24h 导致「模型 23h < 24h → 静默 SKIP」，
+    实证 ml_model_*.json mtime 平均比 prediction_*.json mtime 滞后 36-48h
+    （10/12-10/18 预测文件每天 01:31 更新，但 ml_model 隔天才更新）。
+    新比赛结算后到下一轮 ML 训练可能滞后 36-48h，对开盘概率影响显著。
+    ML 训练本身耗时 ~5-10s/league × 6 league ≈ 1 分钟，与每日 cron 总耗时
+    （约 6 分钟预测 + 1 分钟 retrain ≈ 7 分钟）相比可接受。
+    如需回退 → 在调用方显式传 ``max_age_days=1.0`` 即可。
     """
     from core.config import LEAGUE_CONFIG, FOOTBALL_DIR
     from core.model.ml_model import train_league_model
@@ -812,10 +821,20 @@ def _refresh_ml_models(league_key=None, max_age_days: float = 1.0, base_dir=None
         except OSError:
             stale = True
         if not stale:
+            # P5-Q3 修复：silent skip 也写一行 INFO，便于 cron 日志 grep 验证
+            # （实证：10/12-10/18 prediction 每天刷新但 ml_model 隔天才动 → 节流过严）
+            logger.info(f"ML refresh skipped for {k} (model fresh, age<{max_age_days}d)")
             continue
+        # P5-Q3 修复：触发 retrain 也写一行 INFO（之前完全没日志）
+        try:
+            age_d = (os.path.getmtime(p) and (_t.time() - os.path.getmtime(p)) / 86400.0) or None
+        except OSError:
+            age_d = None
+        logger.info(f"ML refresh trigger for {k} (model age={age_d}d >= {max_age_days}d)")
         try:
             m = train_league_model(k, base_dir=base_dir)
             out[k] = m is not None
+            logger.info(f"ML refresh done for {k} → {out[k]}")
         except Exception as e:
             # B.3 (Round 11): ML 模型重训失败升级 events（特征不一致 / sample 不足）
             try:
