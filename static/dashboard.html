@@ -233,11 +233,23 @@ details>summary{cursor:pointer;color:var(--blue);font-size:11.5px}
 </main></div>
 <script>
 "use strict";
-const API="/dashboard/jc/api/v1", LOGIN="/dashboard/jc/login", state={pred:null,all:[],playFilter:"all",confidenceStars:0,selected:[],sportFilter:"all",jcTab:"fixtures",jcFixPlay:"all",jcLoaded:{},lotteryLoaded:false,leagueSel:[],timeRange:"all",minConf:0,kw:"",jcFixLeagues:[],jcFixKw:"",lotteryGame:"all",lotteryPer:20,lotteryRows:[],personalized:false};
+// P5 取消独立登录页：登录由 Nginx Basic Auth 在反代层把关（详见 ops/README.md）。
+// 401 不再跳转到 /dashboard/jc/login（页面已下线），改为内联提示 + Nginx 重认证入口。
+const API="/dashboard/jc/api/v1", state={pred:null,all:[],playFilter:"all",confidenceStars:0,selected:[],sportFilter:"all",jcTab:"fixtures",jcFixPlay:"all",jcLoaded:{},lotteryLoaded:false,leagueSel:[],timeRange:"all",minConf:0,kw:"",jcFixLeagues:[],jcFixKw:"",lotteryGame:"all",lotteryPer:20,lotteryRows:[],personalized:false};
 // 竞彩/彩票只读 API 基址（与 API 同一 nginx 前缀，同源自动带 cookie）
 const JCAPI="/dashboard/jc/api/jc";
 const $=s=>document.querySelector(s), esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
-async function api(path){const r=await fetch(API+path,{credentials:"same-origin",headers:{Accept:"application/json"}});let b=null;try{b=await r.json()}catch(_){ }if(r.status===401){location.href=LOGIN;throw Error("未登录")}if(!r.ok)throw Error((b&&b.message)||`HTTP ${r.status}`);return b}
+async function api(path){
+  const r=await fetch(API+path,{credentials:"same-origin",headers:{Accept:"application/json"}});
+  let b=null;try{b=await r.json()}catch(_){}
+  // P5：401 内联处理（Nginx Basic Auth 是真实守门人，浏览器自带 Basic 弹框，无需 /login 中转）。
+  if(r.status===401){
+    const reason=(b&&b.message)||"未登录或会话已过期";
+    throw Object.assign(new Error(reason),{code:401,hint:"访问由 Nginx Basic Auth 把关，浏览器会自动弹窗输入账号密码"});
+  }
+  if(!r.ok)throw Error((b&&b.message)||`HTTP ${r.status}`);
+  return b
+}
 function stateBox(el,msg,error){el.innerHTML=`<div class="empty ${error?"error":""}">${esc(msg)}${error?"<br><button class=\"btn\" onclick=\"location.reload()\">重试</button>":""}</div>`}
 function flat(data){return Object.entries(data?.leagues||{}).flatMap(([league,items])=>(items||[]).map(p=>({...p,league})))}
 function pct(v){const n=Number(v);return Number.isFinite(n)?`${(n<=1?n*100:n).toFixed(1)}%`:"—"}
@@ -571,7 +583,17 @@ function closeHint(p, dir){
 // 未列出的代码（如回测里的 jqc）一律原样显示，绝不猜测。
 const JC_PLAY_CN={had:"胜平负",hhad:"让球胜平负",crs:"比分",ttg:"总进球",haf:"半全场"};
 const LOTTERY_ORDER=["85","35","350133","04"];
-async function jcApi(path){const r=await fetch(JCAPI+path,{credentials:"same-origin",headers:{Accept:"application/json"}});let b=null;try{b=await r.json()}catch(_){ }if(r.status===401||r.status===403){location.href=LOGIN;throw Error("未登录")}if(!r.ok){const m=b&&(typeof b.detail==="string"?b.detail:(typeof b.message==="string"?b.message:null));throw Error(m||`HTTP ${r.status}`)}return b}
+async function jcApi(path){
+  const r=await fetch(JCAPI+path,{credentials:"same-origin",headers:{Accept:"application/json"}});
+  let b=null;try{b=await r.json()}catch(_){}
+  // P5：401/403 不再跳 /login（页面已下线），由 Nginx Basic Auth 接管。
+  if(r.status===401||r.status===403){
+    const m=b&&(typeof b.detail==="string"?b.detail:(typeof b.message==="string"?b.message:null))||"未登录或会话已过期";
+    throw Object.assign(new Error(m),{code:r.status,hint:"访问由 Nginx Basic Auth 把关，浏览器会自动弹窗输入账号密码"});
+  }
+  if(!r.ok){const m=b&&(typeof b.detail==="string"?b.detail:(typeof b.message==="string"?b.message:null));throw Error(m||`HTTP ${r.status}`)}
+  return b
+}
 function jcVal(v){if(v===null||v===undefined||v==="")return "—";if(typeof v==="object")return esc(JSON.stringify(v));return esc(v)}
 // options 是「官方选项代码 → 赔率字符串」，各玩法代码不同；不做代码到中文的映射，全部原样展开。
 function optCell(o){if(o===null||o===undefined||o==="")return "—";if(typeof o!=="object")return esc(o);const ks=Object.keys(o);if(!ks.length)return "—";return `<details><summary>${ks.length} 项（官方代码原样）</summary><div class="opt">${ks.map(k=>`<b>${esc(k)}</b>=${esc(o[k])}`).join(" · ")}</div></details>`}

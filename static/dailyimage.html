@@ -71,13 +71,24 @@ const _PREFIX=location.pathname.slice(0,_idx<0?0:_idx);   // "" 或 "/dashboard/
 const API_BASE=_PREFIX+"/api/jc/";
 async function api(path){
   const r=await fetch(API_BASE+path,{credentials:"same-origin"});
-  if(r.status===401){ location.href=(_PREFIX||"")+"/login"; throw new Error("未登录"); }
+  // P5：401 不再跳 /login（页面已下线），由 Nginx Basic Auth 接管。
+  if(r.status===401){
+    let b=null;try{b=await r.json()}catch(_){}
+    const msg=(b&&b.message)||"未登录或会话已过期";
+    throw new Error(msg+"（Nginx Basic Auth 把关，浏览器会自动弹窗输入账号密码）");
+  }
   if(!r.ok){ const e=await r.json().catch(()=>({message:r.statusText})); throw new Error(e.message||"请求失败"); }
   return r.json();
 }
 /* ===== 命中率渲染辅助 ===== */
 function hitTxt(st){ const h=(st&&st.hit)||{}; if(!h.available) return h.note||"数据积累中"; return `历史 ${h.hit}/${h.n} (30天)`; }
-/* 实时要闻固定 3 行：原文 \n 分隔，每行 ≤26 字，总宽 ≤78 字，超长按行截断（最后一行用 …） */
+/* URL 显示截断：QR 在 x=W-110（80 平方，留 30 边距），URL 起 x=30、font 14px。
+ * 14px 字体下中文 / 全角 ~14px、ASCII ~7px；保守按 6.5px/字符估，预留 QR 空间 → 上限 ≈108 字符。
+ * 超长截到 107 + 「…」既给 QR 留位，又不让 URL 顶到画布右边（被截掉一段 = 「不完整」）。 */
+function fitUrl(s, maxChars=108){ let v=String(s||""); return v.length>maxChars?v.slice(0,maxChars-1)+"…":v; }
+/* 实时要闻固定 3 行：原文 \n 分隔，每行 ≤26 字，总宽 ≤78 字，超长按行截断（最后一行用 …）
+ * 修复「没显示全」：label 行 与 第 1 条资讯行 同基线 → 改用 4 行槽位（label + 3 news），
+ * 每行 22px 行高，标题独占一行不再压到新闻首行。 */
 function fitNews3(t){ let lines=String(t||"今日暂无要闻").replace(/\s+/g," ").trim().split("\n"); lines=lines.slice(0,3).map(s=>s.length>26?s.slice(0,25)+"…":s); return lines.join("\n"); }
 function recTxt(r){
   // 一等让球预测优先（模型在官方让球线上的让球三向：让胜/让平/让负）
@@ -97,7 +108,7 @@ function loadSvg(url){return new Promise((res,rej)=>{const im=new Image();im.onl
 async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   const canvas=document.createElement("canvas");
   canvas.id="dailyCanvas"; const ctx=canvas.getContext("2d");
-  const W=900, HEAD=150, NB=78, ROW=44, FOOT=150;
+  const W=900, HEAD=150, NB=104, ROW=44, FOOT=150;
   canvas.width=W;
   const matched=rows.filter(r=>r.matched);
   // 精选横条（≤2 条）+ LLM 推荐理由：高度按是否显示动态算
@@ -124,13 +135,14 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   ctx.font="13px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.muted;
   ctx.fillText("范围：NBA + 五大联赛 · 非五大联赛场次不纳入每日推荐", W/2, 124);
   let y=HEAD;
-  // 实时要闻条：固定 3 行（NB=78），原文 \n 分隔行渲染
+  // 实时要闻条：固定 3 行（NB=104，label 独占第 1 行 + 3 news × 22px 行高 = 4 行槽位），
+  // 原文 \n 分隔行渲染；标题与首条资讯不再同基线。
   ctx.fillStyle=PAL.warnBg; ctx.fillRect(0,y,W,NB);
   ctx.fillStyle=PAL.link; ctx.font="bold 14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
-  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+18);
+  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+20);
   ctx.fillStyle=PAL.fg; ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   const newsLines=fitNews3(news).split("\n");
-  newsLines.forEach((ln,i)=>{ ctx.fillText(ln, 152, y+18+i*20); });
+  newsLines.forEach((ln,i)=>{ ctx.fillText(ln, 152, y+44+i*22); });
   ctx.strokeStyle=PAL.warnBorder; ctx.strokeRect(0,y,W,NB);
   y+=NB;
   // 精选横条（≤2 条）：无主图精选时整条不画（避免空框架显得排版乱）
@@ -177,7 +189,7 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   ctx.fillStyle=PAL.fg; ctx.textAlign="left"; ctx.font="bold 20px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("长按识别二维码，查看完整分析", 30, canvas.height-FOOT+34);
   ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.link;
-  ctx.fillText(qrurl||"", 30, canvas.height-FOOT+58);
+  ctx.fillText(fitUrl(qrurl), 30, canvas.height-FOOT+58);
   ctx.textAlign="right"; ctx.fillStyle=PAL.fg; ctx.font="bold 16px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("理性购彩 · 量力而行", W-30, canvas.height-FOOT+34);
   if(qr){ try{ const im=await loadSvg(qr); const qs=80, qx=W-qs-30, qy=canvas.height-FOOT+60; ctx.drawImage(im,qx,qy,qs,qs);}catch(e){} }
@@ -232,7 +244,7 @@ function drawTempLeagues(rows,date){
 async function drawNba(rows,date,qr,qrurl,stats,news){
   const canvas=document.createElement("canvas");
   canvas.id="dailyCanvas"; const ctx=canvas.getContext("2d");
-  const W=900, HEAD=120, NB=78, ROW=44, FOOT=150;
+  const W=900, HEAD=120, NB=104, ROW=44, FOOT=150;
   canvas.width=W; canvas.height=HEAD+NB+ROW*rows.length+FOOT;
   ctx.fillStyle=PAL.bg; ctx.fillRect(0,0,W,canvas.height);   /* 去渐变：纯色底 */
   ctx.fillStyle=PAL.subtle; ctx.globalAlpha=.94;
@@ -246,13 +258,14 @@ async function drawNba(rows,date,qr,qrurl,stats,news){
   ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.muted;
   ctx.fillText("让分/大小分为模型预测，仅供信息参考 · 不构成投注建议", W/2, 104);
   let y=HEAD;
-  // 实时要闻条：固定 3 行
+  // 实时要闻条：固定 3 行（NB=104，label 独占第 1 行 + 3 news × 22px 行高 = 4 行槽位），
+  // 与足球主图版式对齐，标题与首条资讯不再同基线。
   ctx.fillStyle=PAL.warnBg; ctx.fillRect(0,y,W,NB);
   ctx.fillStyle=PAL.link; ctx.font="bold 14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
-  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+18);
+  ctx.textAlign="left"; ctx.fillText("📰 实时要闻", 16, y+20);
   ctx.fillStyle=PAL.fg; ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   const newsLinesNba=fitNews3(news).split("\n");
-  newsLinesNba.forEach((ln,i)=>{ ctx.fillText(ln, 152, y+18+i*20); });
+  newsLinesNba.forEach((ln,i)=>{ ctx.fillText(ln, 152, y+44+i*22); });
   ctx.strokeStyle=PAL.warnBorder; ctx.strokeRect(0,y,W,NB);
   y+=NB;
   const cols=[
@@ -273,7 +286,7 @@ async function drawNba(rows,date,qr,qrurl,stats,news){
   ctx.fillStyle=PAL.fg; ctx.textAlign="left"; ctx.font="bold 20px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("长按识别二维码，查看完整分析", 30, canvas.height-FOOT+34);
   ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.link;
-  ctx.fillText(qrurl||"", 30, canvas.height-FOOT+58);
+  ctx.fillText(fitUrl(qrurl), 30, canvas.height-FOOT+58);
   ctx.textAlign="right"; ctx.fillStyle=PAL.fg; ctx.font="bold 16px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("理性购彩 · 量力而行", W-30, canvas.height-FOOT+34);
   if(qr){ try{ const im=await loadSvg(qr); const qs=80, qx=W-qs-30, qy=canvas.height-FOOT+60; ctx.drawImage(im,qx,qy,qs,qs);}catch(e){} }
@@ -353,16 +366,28 @@ async function load(){
     document.getElementById("sub").textContent=`${d.date || ""} · ${d.sport==="basketball"?"NBA 篮球":"竞彩足球"}`;
     // QR 固定指向 Dashboard 主页（不是 dailyimage.html 自身）
     const dashboardUrl=(_PREFIX||"")+"/";
+    // qr 端点若 url 不是 http(s) 会用 PUBLIC_BASE_URL / 默认公网 IP 兜底——
+    // 解析后回传 `q.url` 才是真正的二维码目标，画布 URL 文本必须用它，**不能**直接显示
+    // 客户端拼出的相对路径 `/dashboard/jc/`（扫码无效 + 视觉上看像「地址不完整」）。
     const q=await api("qr?url="+encodeURIComponent(dashboardUrl)).catch(()=>({}));
+    const resolvedUrl=q.url||dashboardUrl;
     const mainRows = SPORT==="basketball" ? (d.rows||[]) : ((d.main_rows!=null)?d.main_rows:(d.rows||[]));
     CANVAS = SPORT==="basketball"
-      ? await drawNba(mainRows,d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news)
-      : await drawFootball(mainRows,d.date,q.qr_data_url||"",dashboardUrl,d.stats||{},news,pickReason);
+      ? await drawNba(mainRows,d.date,q.qr_data_url||"",resolvedUrl,d.stats||{},news)
+      : await drawFootball(mainRows,d.date,q.qr_data_url||"",resolvedUrl,d.stats||{},news,pickReason);
     if(SPORT==="football" && (d.main_rows!=null) && d.main_rows.length===0 && (d.rows||[]).length && d.note){
       const noteBar=document.createElement("div");
       noteBar.style.cssText="text-align:center;color:var(--fg);background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:6px;padding:8px 14px;font-size:13px;margin:0 auto 10px;max-width:900px;line-height:1.6";
       noteBar.textContent="ℹ️ "+d.note;
       host.insertBefore(noteBar,CANVAS);
+    }
+    // P5 篮球 staleness 提示：NBA 预测文件 >48h 未刷新（cron 未跑 / 数据源断），
+    // 顶部加一行「数据已过时 N 小时」让用户明白 ELO 与阵容可能未反映最新比赛。
+    if(SPORT==="basketball" && d.staleness_hours!=null && d.staleness_hours>48){
+      const stBar=document.createElement("div");
+      stBar.style.cssText="text-align:center;color:var(--fg);background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:6px;padding:8px 14px;font-size:13px;margin:0 auto 10px;max-width:900px;line-height:1.6";
+      stBar.textContent="⚠️ 数据已过时 "+d.staleness_hours+" 小时（NBA 预测未刷新；ELO 与阵容可能未反映最新比赛，明日 09:00 北京时间定时任务会重新拉取）";
+      host.insertBefore(stBar,CANVAS);
     }
     host.appendChild(CANVAS);
     // 临时赛事（LEAGUE_TEMP_LEAGUES：亚运/欧冠/世界杯/奥运 等）：附加独立 canvas，

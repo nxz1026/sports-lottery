@@ -95,12 +95,49 @@ def _try_llm(prompt: str) -> dict[str, str]:
     }
 
 
+# 体彩关键词守门：避免 LLM 返回「今日天气」「足坛八卦」之类与体彩无关的内容污染资讯条。
+# 关键词集合是「让球 / 盘口 / 主场 / 客场 / 赛季 / 形态 / 欧战 / 保级 / 争冠 / 胜平负 / 比分 /
+# 大小球 / 让分 / 玩法 / 投注 / 购彩 / 彩民 / 庄家 / 赔率 / 联赛 / 球队 / 球员 / 状态 / 阵容 /
+# 体能 / 压力 / 主场优势 / 客场挑战」之一；覆盖足球 + 篮球主要体彩语境。
+# 命中即视为合规；零命中 → fallback 到下方静态体彩资讯（绝不回传 LLM 的无关文本）。
+_BETTING_KEYWORDS = (
+    "让球", "盘口", "主场", "客场", "赛季", "形态", "欧战", "保级", "争冠",
+    "胜平负", "比分", "大小球", "让分", "玩法", "投注", "购彩", "彩民",
+    "庄家", "赔率", "联赛", "球队", "球员", "状态", "阵容", "体能",
+    "压力", "主场优势", "客场挑战",
+)
+
+
+def _is_betting_relevant(text: str) -> bool:
+    """LLM 返回值是否与体彩语境相关。
+
+    体育关键词集合（见模块常量）至少出现 1 次才算合规。
+    ``text`` 已 strip 过（``_try_llm`` 出口处），空串视为不相关。
+    """
+    if not text:
+        return False
+    return any(kw in text for kw in _BETTING_KEYWORDS)
+
+
+def _fallback_news(label: str) -> str:
+    """LLM 输出与体彩无关时的兜底资讯（≤78 字、3 行）。"""
+    return (
+        f"{label}今日多场在售\n"
+        "让球深盘需核合理\n"
+        "主客场形态看赛季压力"
+    )
+
+
 def generate_daily_news(*, date_iso: str, sport: str, context: str, picks_ctx: str,
                         label: str) -> dict[str, str]:
     """生成 (date, sport) 维度缓存的每日资讯。
 
     返回 ``{"news": str, "pick_reason": str}``；news 限 ≤78，pick_reason 限 ≤60。
     调用方负责补占位文案（参考 web.routers.jc.daily_news）。
+
+    关键词守门：LLM 返回值若不含任一 ``_BETTING_KEYWORDS`` → 视为「与体彩无关」，
+    替换为 ``_fallback_news(label)``（绝不回传「天气/八卦/比分预测」之类污染资讯条）。
+    缓存键 + 占位文案同步刷新（同一日重启进程内行为可预测）。
 
     R21 #1：缓存加 TTL（默认 24h）+ LRU 大小上限（默认 64）。命中同一对象
     引用（``a is b``，符合 tests/test_web_news.py 守门）。
@@ -114,9 +151,14 @@ def generate_daily_news(*, date_iso: str, sport: str, context: str, picks_ctx: s
 
     prompt = _build_prompt(context, picks_ctx, label)
     raw = _try_llm(prompt)
+    news_text = raw["news"][:78]
+    pick_text = raw["pick_reason"][:60]
+    # 体彩守门：news 不合规 → 替换为静态兜底；pick_reason 不强制（短句易误伤）
+    if not _is_betting_relevant(news_text):
+        news_text = _fallback_news(label)
     out = {
-        "news": raw["news"][:78],
-        "pick_reason": raw["pick_reason"][:60],
+        "news": news_text,
+        "pick_reason": pick_text,
     }
     # 仅在非空时缓存（与既有行为一致：双空不该占位）
     if out["news"] or out["pick_reason"]:

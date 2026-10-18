@@ -1,7 +1,9 @@
 """web.api — league-api 服务入口（FastAPI 应用工厂）。
 
 - GET  /health    免鉴权健康检查
-- 静态挂载 /login（static/login.html）；未登录 GET / → 302 /login
+- 静态挂载 /static/（含 dashboard.html / dailyimage.html）
+- P5：登录页（static/login.html）已下线；账号密码由 Nginx Basic Auth 在反代层把关。
+  GET / 直接 302 到 dashboard.html（不再中转 /login），浏览器见 Basic Auth 弹框。
 - 注册 auth 路由与统一异常处理
 - python web/api.py 启动开发服务器（host/port 读 env，默认仅本机）
 """
@@ -82,19 +84,17 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     def index(request: Request):
-        from web.auth import COOKIE_NAME
-        from web import session_store
-        token = request.cookies.get(COOKIE_NAME, "")
-        if not token or not session_store.validate_token(token):
-            return RedirectResponse(url="/login", status_code=302)
-        # 已登录进入新版 SPA（dashboard.html，API 路径带 /dashboard/jc/ 前缀）。
+        """P5：直接 302 到 dashboard.html（不再中转 /login）。
+
+        鉴权由 Nginx Basic Auth 在反代层完成；web 进程只管渲染 SPA，
+        不再持「未登录跳登录页」的概念。session cookie 仅作为扩展能力保留
+        （外部工具可通过 /api/v1/login 设置），但 / 不再据此判定。
+        """
         return RedirectResponse(url="/static/dashboard.html", status_code=302)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-    @app.get("/login")
-    def login_page():
-        return RedirectResponse(url="/static/login.html", status_code=302)
+    # P5：删除 /login 路由（已无对应静态页面；保留路径会让运维误以为还存在）。
 
     app.include_router(auth_router)
     app.include_router(predictions_router)

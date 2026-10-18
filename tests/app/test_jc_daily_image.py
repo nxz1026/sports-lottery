@@ -252,6 +252,126 @@ def test_basketball_out_of_window_returns_available_false(
     assert d["available"] is False
 
 
+# ---------- P5：NBA 窗口过滤（只渲染 [today, today+7]） --------------------
+
+
+def test_basketball_filters_out_far_future_predictions(
+    patch_today, empty_accuracy, monkeypatch
+):
+    """P5：predictions 包含窗口内（3 天后）+ 窗口外（45 天后）→ 仅窗口内进入画布。
+
+    此前实现把 predictions 全量当 rows 渲染，画布会出现 11 月 / 12 月的预排赛，
+    用户看到的不是「今天的篮球每日一图」（commit 4aea03d 反馈）。
+    """
+    today_iso = date(2026, 9, 21)
+    # 两条预测：一条窗口内（9/24 = delta=3），一条窗口外（11/05 = delta=45）
+    preds = [
+        {"home": "LAL", "away": "BOS", "kickoff_date": "2026-09-24"},
+        {"home": "GSW", "away": "MIA", "kickoff_date": "2026-11-05"},
+    ]
+    monkeypatch.setattr("web.services.store.latest_by_league", lambda: {
+        "nba": {"data": {"predictions": preds}},
+    })
+    # nba_rows 模拟：传入过滤后的 preds，输出对应 row；传入全量会输出两条。
+    # 这里用「断言传入的 preds 已被窗口过滤」的方式：
+    captured = {}
+
+    def fake_nba_rows(in_preds):
+        captured["preds"] = list(in_preds)
+        return [{"home": p["home"], "away": p["away"],
+                 "match": f"{p['home']} vs {p['away']}",
+                 "direction": "x 胜",
+                 "spread_pred": 1.0, "total_pred": 220.0,
+                 "margin": 1.0, "score": "110-109"} for p in in_preds]
+    monkeypatch.setattr("web.services.team_match.nba_rows", fake_nba_rows)
+
+    from web.app.jc import daily_image_vm
+    d = daily_image_vm(sport="basketball", today=today_iso)
+    # 关键断言：nba_rows 收到的 preds 已被窗口过滤，只剩 1 条
+    assert len(captured["preds"]) == 1, f"nba_rows 应收到 1 条窗口内预测，实际 {len(captured['preds'])}"
+    assert captured["preds"][0]["home"] == "LAL"
+    assert d["available"] is True
+    assert len(d["rows"]) == 1
+
+
+def test_basketball_staleness_hours_set_on_old_file(
+    patch_today, empty_accuracy, monkeypatch
+):
+    """P5：NBA 预测文件 generated_at 距今 >48h → staleness_hours 字段 + note 提示。
+
+    让用户明白「数据已过时 N 小时，明日定时任务会重新拉取」，不阻断渲染。
+    """
+    from datetime import datetime, timezone, timedelta as _td
+
+    today_iso = date(2026, 9, 21)
+    # generated_at = 5 天前（远超 48h 阈值）
+    ga = (datetime.now(timezone.utc) - _td(days=5)).isoformat()
+    monkeypatch.setattr("web.services.store.latest_by_league", lambda: {
+        "nba": {"data": {"predictions": [
+            {"home": "LAL", "away": "BOS", "kickoff_date": "2026-09-22"},
+        ]}, "generated_at": ga},
+    })
+    monkeypatch.setattr("web.services.team_match.nba_rows", lambda preds: [
+        {"home": "LAL", "away": "BOS", "match": "LAL vs BOS"},
+    ])
+
+    from web.app.jc import daily_image_vm
+    d = daily_image_vm(sport="basketball", today=today_iso)
+    assert d["available"] is True
+    # staleness_hours 是 int 且 >48
+    assert isinstance(d["staleness_hours"], int)
+    assert d["staleness_hours"] > 48
+    # note 字段：包含「数据已过时」字样
+    assert d.get("note") and "数据已过时" in d["note"]
+
+
+def test_basketball_staleness_no_warning_on_fresh_file(
+    patch_today, empty_accuracy, monkeypatch
+):
+    """P5：generated_at 距今 ≤48h → 无 note 提示（避免无意义告警）。"""
+    from datetime import datetime, timezone, timedelta as _td
+
+    today_iso = date(2026, 9, 21)
+    # generated_at = 12 小时前（远低于 48h）
+    ga = (datetime.now(timezone.utc) - _td(hours=12)).isoformat()
+    monkeypatch.setattr("web.services.store.latest_by_league", lambda: {
+        "nba": {"data": {"predictions": [
+            {"home": "LAL", "away": "BOS", "kickoff_date": "2026-09-22"},
+        ]}, "generated_at": ga},
+    })
+    monkeypatch.setattr("web.services.team_match.nba_rows", lambda preds: [
+        {"home": "LAL", "away": "BOS", "match": "LAL vs BOS"},
+    ])
+
+    from web.app.jc import daily_image_vm
+    d = daily_image_vm(sport="basketball", today=today_iso)
+    assert d["available"] is True
+    # staleness_hours 是 int 但 ≤48
+    assert isinstance(d["staleness_hours"], int)
+    assert d["staleness_hours"] <= 48
+    assert d.get("note") is None, f"新鲜文件不应有 staleness note，实际 {d.get('note')!r}"
+
+
+def test_basketball_staleness_none_when_no_generated_at(
+    patch_today, empty_accuracy, monkeypatch
+):
+    """P5：nba 文件无 generated_at 字段 → staleness_hours=None，不告警。"""
+    today_iso = date(2026, 9, 21)
+    monkeypatch.setattr("web.services.store.latest_by_league", lambda: {
+        "nba": {"data": {"predictions": [
+            {"home": "LAL", "away": "BOS", "kickoff_date": "2026-09-22"},
+        ]}},  # 无 generated_at
+    })
+    monkeypatch.setattr("web.services.team_match.nba_rows", lambda preds: [
+        {"home": "LAL", "away": "BOS", "match": "LAL vs BOS"},
+    ])
+
+    from web.app.jc import daily_image_vm
+    d = daily_image_vm(sport="basketball", today=today_iso)
+    assert d["staleness_hours"] is None
+    assert d.get("note") is None
+
+
 # ---------- Step 7：stats.hit 透传 ------------------------------------
 
 def test_football_hit_stats_reflects_accuracy(patch_today, filled_accuracy, monkeypatch):

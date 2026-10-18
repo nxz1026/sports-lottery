@@ -387,7 +387,12 @@ def test_daily_news_sport_basketball(client):
 
 
 def test_daily_news_falls_back_when_llm_returns_empty(client, monkeypatch):
-    """LLM 返回双空 → 占位文案「今日有多场五大联赛在售，详情见下表」。"""
+    """P5：LLM 返回双空 → 经 P5 守门回退 fallback（非空体彩语境）→ news 是 fallback 内容。
+
+    旧行为：双空 → router 占位文案「今日有多场五大联赛在售，详情见下表」。
+    P5 行为：双空 → web.services.news._fallback_news 替换（label + 三行体彩角度），
+    router 占位分支不再触发（news 已非空）。
+    """
     import web.services.news as news_svc
     news_svc._NEWS_CACHE.clear()
     _patch_llm(monkeypatch, news="", pick_reason="")
@@ -395,18 +400,27 @@ def test_daily_news_falls_back_when_llm_returns_empty(client, monkeypatch):
     r = client.get("/api/jc/daily-news", cookies=cookies)
     assert r.status_code == 200
     body = r.json()
-    assert "五大联赛" in body["news"], "football 双空应走 football 占位文案"
+    # P5 fallback 内容（label + 3 行体彩角度）
+    assert "竞彩足球" in body["news"], "football 双空应走 P5 fallback（含 label）"
+    assert any(kw in body["news"] for kw in news_svc._BETTING_KEYWORDS), \
+        "P5 fallback 必须含体彩关键词"
+    # 旧 router 占位文案不应再出现（已被 P5 守门接管）
+    assert "五大联赛在售" not in body["news"], "P5 接管后 router 占位文案不再生效"
 
 
 def test_daily_news_cache_hit_avoids_second_llm_call(client, monkeypatch):
-    """R21 #1 验收：同一天同一 sport 第二次调 → 命中 web.news._NEWS_CACHE，LLM 不再被调。"""
+    """R21 #1 验收：同一天同一 sport 第二次调 → 命中 web.news._NEWS_CACHE，LLM 不再被调。
+
+    P5 守门：news 必须含 _BETTING_KEYWORDS 之一，否则被替换为 fallback；
+    fallback 同样进缓存，第二次调用仍命中。测试用「让球」前缀保证原值不被替换。
+    """
     import web.services.news as news_svc
     news_svc._NEWS_CACHE.clear()
     calls = {"n": 0}
 
     def gen(prompt, **kw):
         calls["n"] += 1
-        return {"news": "n1", "pick_reason": "p1"}
+        return {"news": "让球深盘 n1", "pick_reason": "p1"}
     import ai.llm_client as llm
     monkeypatch.setattr(llm, "generate", gen)
 

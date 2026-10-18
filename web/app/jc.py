@@ -87,6 +87,55 @@ def _nba_available(preds: list, today: _date) -> bool:
     return False
 
 
+def _nba_filter_window(preds: list[dict], today: _date) -> list[dict]:
+    """过滤 NBA predictions 到 [today, today+7] 窗口。
+
+    P5 修复「篮球每日一图是历史数据 / 数据完全不对」：
+    ``nba_rows`` 返回的 ``rows`` 是 ``predictions`` 全量（含 60 天预排期）；
+    若直接当「今日」渲染，会把 11 月、12 月的赛季预排赛也展示成「今日推荐」，
+    用户觉得看到的不是「今天的篮球每日一图」。
+    守门与 ``_nba_available`` 一致：窗口内的场次才进画布；窗口外的剔除
+    （不静默丢，按过期数据对待）。
+
+    在 predictions 列表层过滤（kickoff_date 来自原始预测对象），再交给 nba_rows
+    渲染；不在 nba_rows 后的 dict 列表层过滤（nba_rows 输出不保留 kickoff_date）。
+    """
+    out = []
+    for p in preds or []:
+        kd = str(p.get("kickoff_date") or "")
+        try:
+            d = _date.fromisoformat(kd)
+        except ValueError:
+            continue
+        delta = (d - today).days
+        if 0 <= delta <= 7:
+            out.append(p)
+    return out
+
+
+def _nba_staleness_hours(preds_doc: dict | None, today: _date) -> int | None:
+    """NBA 预测文件的 staleness（小时）：generated_at 到 today 的差值。
+
+    ``preds_doc`` 是 ``latest_by_league()["nba"]`` 整体；无 generated_at 字段 → None。
+    用于在篮球每日一图顶部加一行 staleness 提示（>48h 标「数据已过时」），不阻断渲染。
+    """
+    if not isinstance(preds_doc, dict):
+        return None
+    ga = preds_doc.get("generated_at")
+    if not ga:
+        return None
+    from datetime import datetime as _dt
+    try:
+        moment = _dt.fromisoformat(str(ga).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return None
+    from datetime import timezone as _tz
+    now = _dt.now(_tz.utc)
+    return int((now - moment).total_seconds() // 3600)
+
+
 # ---------------------------------------------------------------------------
 # 应用层 VM —— 入口
 # ---------------------------------------------------------------------------
@@ -113,9 +162,16 @@ def daily_image_vm(sport: str = "football", today: _date | None = None) -> dict:
     latest = web_store.latest_by_league()
 
     if sport == "basketball":
-        nba_predictions = (latest.get("nba") or {}).get("data", {}).get("predictions", [])
-        nba = nba_rows(nba_predictions)
-        if not _nba_available(nba_predictions, today):
+        nba_doc = latest.get("nba") or {}
+        nba_predictions = (nba_doc.get("data") or {}).get("predictions", [])
+        # P5 修复：先按 [today, today+7] 窗口过滤原始 predictions（kickoff_date 在源数据上），
+        # 再交给 nba_rows 渲染；不在 nba_rows 输出层过滤（其输出不保留 kickoff_date）。
+        nba_predictions_in_window = _nba_filter_window(nba_predictions, today)
+        nba = nba_rows(nba_predictions_in_window)
+        staleness_hours = _nba_staleness_hours(nba_doc, today)
+        # 用「过滤后空」作为 available=False 守门（与 _nba_available 语义一致）；
+        # 模拟 nba_rows（不依赖 kickoff_date）也能正确返回空态。
+        if not nba_predictions_in_window or not nba:
             return {
                 "sport": "basketball", "available": False, "rows": [],
                 "date": today.isoformat(),
@@ -123,11 +179,21 @@ def daily_image_vm(sport: str = "football", today: _date | None = None) -> dict:
                 "stats": {"scope": "NBA", "on_sale": 0, "recommend": 0, "nba": 0,
                           "hit": {"available": False, "n": 0, "hit": 0, "note": "数据积累中"}},
             }
+        # staleness 提示：预测文件 >48h → 顶部一行「数据已过时 N 小时」，
+        # 不阻断渲染但让用户知道今日可能没刷新到最新 ELO / 阵容。
+        note = None
+        if staleness_hours is not None and staleness_hours > 48:
+            note = (
+                f"⚠ 数据已过时 {staleness_hours} 小时"
+                "（NBA 预测未刷新，ELO 与阵容可能未反映最新比赛；明日 09:00 北京时间定时任务会重新拉取）"
+            )
         return {
             "sport": "basketball", "available": True, "rows": nba,
             "date": today.isoformat(),
+            "note": note,
             "stats": {"scope": "NBA", "on_sale": len(nba), "recommend": len(nba), "nba": len(nba),
                       "hit": {"available": False, "n": 0, "hit": 0, "note": "数据积累中"}},
+            "staleness_hours": staleness_hours,
         }
 
     # sport == "football"（默认）

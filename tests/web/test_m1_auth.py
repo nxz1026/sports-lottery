@@ -74,22 +74,27 @@ def test_health_no_auth(client, monkeypatch):
     assert "checks" in body
 
 
-def test_root_redirects_to_login_when_anonymous(client):
+def test_root_redirects_to_dashboard_when_anonymous(client):
+    """P5：登录页下线后，GET / 直接 302 到 dashboard.html。
+
+    鉴权由 Nginx Basic Auth 在反代层把关；web 进程只管渲染 SPA，
+    不再持有「未登录跳登录页」的概念。
+    """
     res = client.get("/", follow_redirects=False)
     assert res.status_code == 302
-    assert res.headers["location"] == "/login"
+    assert res.headers["location"] == "/static/dashboard.html"
 
 
-def test_login_page_served(client):
+def test_login_route_removed(client):
+    """P5：/login 路由已移除（页面下线，避免运维误以为还存在）。"""
     res = client.get("/login", follow_redirects=False)
-    assert res.status_code == 302
-    assert res.headers["location"] == "/static/login.html"
+    assert res.status_code == 404
 
 
-def test_static_login_html_200(client):
+def test_static_login_html_removed(client):
+    """P5：static/login.html 已下线 → 静态挂载返回 404。"""
     res = client.get("/static/login.html")
-    assert res.status_code == 200
-    assert "login-form" in res.text
+    assert res.status_code == 404
 
 
 def test_me_unauthorized_uniform_error(client):

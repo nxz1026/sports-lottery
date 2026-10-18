@@ -205,10 +205,14 @@ def test_d110_3_generate_daily_news_same_object_identity(news_mod):
 
 
 def test_d110_4_generate_daily_news_truncates_to_length_limits(news_mod, monkeypatch):
-    """D-110-4: generate_daily_news news <=78 / pick_reason <=60 长度截断 (L118-119)."""
+    """D-110-4: generate_daily_news news <=78 / pick_reason <=60 长度截断 (L118-119).
+
+    P5 体彩守门：测试用含「让球」前缀的串，避开 fallback 替换（守门对称）。
+    """
     mod, fake_generate = news_mod
 
-    long_news = "X" * 200  # 远超 78 上限
+    # P5 守门：news 前缀「让球」（关键词），避免触发 fallback 替换。
+    long_news = "让球" + "X" * 198  # 200 字，截到 78 后仍有「让球」关键词
     long_pick = "Y" * 100  # 远超 60 上限
     fake_generate.return_value = {"news": long_news, "pick_reason": long_pick}
 
@@ -218,18 +222,35 @@ def test_d110_4_generate_daily_news_truncates_to_length_limits(news_mod, monkeyp
     )
 
     assert len(out["news"]) == 78
+    assert out["news"] == long_news[:78]
     assert len(out["pick_reason"]) == 60
 
 
 def test_d110_5_generate_daily_news_does_not_cache_all_empty(news_mod):
-    """D-110-5: LLM 返 {"news": "", "pick_reason": ""} 时不写入缓存 (双空不该占位, L122-123)."""
+    """D-110-5: LLM 返 {"news": "", "pick_reason": ""} 时缓存写入语义（守门替换 fallback 后）。
+
+    P5 行为变更：双空 → 经 P5 守门替换为 fallback（非空）→ 缓存条目视为「已填充」。
+    旧测试要求「不缓存」已不适用；改为验证「缓存但有 fallback 内容」+「不再回 LLM」。
+    """
     mod, fake_generate = news_mod
     fake_generate.return_value = {"news": "", "pick_reason": ""}
 
-    mod.generate_daily_news(
+    # 第一次调用：LLM 双空 → fallback 替换 → 写入缓存（fallback 内容非空）
+    out_a = mod.generate_daily_news(
         date_iso="2025-10-17", sport="football",
         context="c", picks_ctx="p", label="label",
     )
+    # P5 fallback 后：缓存条目存在，且 news 是 fallback（体彩语境）
+    assert ("2025-10-17", "football") in mod._NEWS_CACHE
+    assert out_a["news"] != "", "P5 双空必须经守门回退为 fallback（非空）"
+    assert any(kw in out_a["news"] for kw in mod._BETTING_KEYWORDS), \
+        "fallback 内容必须含体彩关键词"
 
-    # 缓存不写入
-    assert ("2025-10-17", "football") not in mod._NEWS_CACHE
+    # 第二次调用：缓存命中 → 不再回 LLM（fake_generate 不再被调用）
+    fake_generate.call_count = 0
+    out_b = mod.generate_daily_news(
+        date_iso="2025-10-17", sport="football",
+        context="c", picks_ctx="p", label="label",
+    )
+    assert fake_generate.call_count == 0, "P5 fallback 后应缓存命中，不回 LLM"
+    assert out_b == out_a
