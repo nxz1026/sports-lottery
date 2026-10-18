@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **1649 passed / 71 skipped / 0 failed**（v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443 测基线补测 + helper 直测 + 0 测补全**（R19 396 起步 → R30 1649））。详见 `docs/refine/P3-P4_report.md` / `P5_report.md` / **`R19_R30_test_optimization_report.md`**。
+测试基线：python -m pytest tests -q → **2346 passed / 71 skipped / 0 failed**（v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -816,6 +816,22 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 | **R30** | jc_view `_nums` 私有 helper / setup_logger / `_compute_calibration` 三阶段 fallback | +16 |
 
 **关键设计沉淀**（D-08 ~ D-13）见 `docs/refine/R19_R30_test_optimization_report.md`：测试隔离策略（importlib.util 模式 + sys.modules 注入 + from-import 别名处理） + 3 个 bug-shaped 契约锁定（`_bk_parse_window` split bug / `league_footprint_score` 0.3 不可达 / `fetch_season_with_retry` tuple 契约）+ 测试顺序 flake 处理规则。
+
+### v2.3 (2026-10-15 ~ 10-18) R31-R61 测试基线补测：0 直测清零
+
+31 轮 31 commit，全程只新增测试，不改生产代码（除 R50-2 flake fix 一个 commit `3bcee34`）。本阶段净增 +697 测（R30 1649 → **R61 2346**）：
+
+| Round | 主题 | 净增测 |
+|---|---|---|
+| **R31-R49** | 19 轮：predict/storage/odds 三层多 helper 0 测补全（含 `simulate_league` / 5 个 fetch / `_market_projection` 等）+ 19 个 D 契约（D-87 ~ D-91 集中期） | +545 |
+| **R50-R61** | 12 轮：13 个模块 0 直测清零（auth / features / i18n / poisson / llm / rankings / store / news / jobs / ticket / lottery / apifootball / parse / ingest / model / observability）+ 28 个 D 契约（D-92 ~ D-124） | +152 |
+
+**关键沉淀**（D-87 ~ D-124 共 38 个新契约）：
+- **R50-2 flake fix `3bcee34`**：`from store import jc_ops_view` 在 `scripts.store` 是 package 时走 `__init__`，`sys.modules['store.jc_ops_view']` 子模块替换无效；改 `monkeypatch.setattr(spec_mod, "jc_ops_view", stub, raising=False)` 写入 store namespace。
+- **死分支发现**：`core.model.features` L121 兜底前置 `or 0.5` 已守护，正常 input 永不触发；用负数概率验证 L121-122 逻辑本身。`i18n` L72-75 过滤 flat 分支 `all(isinstance(v, str))` 已先验；用嵌套响应触发嵌套 dict 过滤。
+- **from-import 死绑定**：`from core.config import FOOTBALL_DIR` 顶层绑定到 module global，`monkeypatch core.config.FOOTBALL_DIR` 无效；改为 patch spec-load 模块的 global。
+
+详见各 round commit message 与 `docs/refine/R19_R30_test_optimization_report.md`（沿用同设计模式 + D 类契约同编号体例，**不**单独写 v2.3 报告以避免文档展开）。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 
