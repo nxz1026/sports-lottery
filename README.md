@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2346 passed / 71 skipped / 0 failed**（v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2428 passed / 71 skipped / 0 failed**（v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R63 +82**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -832,6 +832,43 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 - **from-import 死绑定**：`from core.config import FOOTBALL_DIR` 顶层绑定到 module global，`monkeypatch core.config.FOOTBALL_DIR` 无效；改为 patch spec-load 模块的 global。
 
 详见各 round commit message 与 `docs/refine/R19_R30_test_optimization_report.md`（沿用同设计模式 + D 类契约同编号体例，**不**单独写 v2.3 报告以避免文档展开）。
+
+### v2.4 (2026-10-18 ~ 10-19) R62-R63 生产修复 + hot-path logger ASCII 收口
+
+v2.3 之后跨入"测试基线饱和、生产修复优先"阶段。本段记录 e280a3b 之后的 5 个 commit，本阶段净增 +82 测（R61 2346 → **R63 2428**）：
+
+**Dashboard 三连发（4aea03d / 093dafa / f78aa40）**：
+- `4aea03d` 比赛详情面板人话翻译（取代 ML 术语）+ 三级 `modelProbs` 回退修复（`model.probs` → `prediction.probs` → 推导）
+- `093dafa` 5 项每日一图：odds / brier / DC ρ / calibration offset / sharpness；篮球 UI 修复（球员得分缺数据兜底）
+- `f78aa40` 默认 24h 时间窗口（`mode=24h`）+ 指定日期过滤（`?date=YYYY-MM-DD`），避免默认窗口拉 30 天过载
+
+**两轮生产修复（3424939 + 4a6dc8b，均冠 P5-Q 编号不入 R## 命名体例）**：
+
+| Commit | P5 编号 | 修复 | 实证 |
+|---|---|---|---|
+| `3424939` | **Q3** | `scripts/predict.py::_refresh_ml_models` 默认 `max_age_days=0.0`（取消节流）+ 加 INFO 日志："ML model %s is N days old, retraining" | Oracle `ml_model_*.json` mtime 实证：5 联赛全滞后 36-48h（10/17 01:32 → 10/18 11:24），Q3 修复后等今天 cron 触发即可一并验证 |
+| `4a6dc8b` | **Q5** | `predict.py::main --all` 过滤 `LEAGUE_CONFIG` 中 `active=False` 联赛；`run_league` 入口加 active 守门（显式 `--league nba` 抛 `SystemExit` 指向 `scripts/bball/run.py`） | Oracle cron `934790cfd121.log` 871KB 实证：10/17+10/18 两次 cron 因 NBA active=False / data_source="the-odds" 不在 `fetch_events` if/elif 链 → 落 `else: fetch_espn(epl)` → ESPN HTTP 400 → 退出码 1。修复后 cron 退出码 0 |
+
+**R43 hot-path logger ASCII 收口**：
+
+Q5 修复初衷是「避免 Windows 默认控制台编码 cp1252/GBK 把日志打成乱码导致告警脚本 grep 失败」，但 R43 AST 全仓扫发现 13 处遗漏（hot-path 文件 logger.{info,warning,error,debug} 与 print 文案含中文）：
+
+- `scripts/predict.py` 3 处（`492` / `496` / `510`）：full-season fixture fetch / champion probability / monte carlo 无赛程
+- `scripts/bball/run.py` 3 处（`120` / `127` / `163`）：`ODDS_API_KEY not set` / odds api free tier / NBA prediction failed
+- `scripts/core/retrain_baseline.py` 7 处（`559` / `568` / `578` / `600` / `621` / `645` / `670`）：events.jsonl 找不到 / 无 prediction-outcome 配对 / features 不足 / 样本不足 / fit ValueError / 落盘失败 / 训练完成
+- `scripts/core/observability.py` 1 处（`264`）：events.jsonl unavailable 降级提示
+
+全部转英文。**新增 `tests/test_logger_hot_path_ascii.py` 5 测守门**：
+- 4 个 parametrized AST 扫 `HOT_PATH_FILES` 全部 logger/print 字面量，断言 `ord(c) < 128`
+- `test_hot_path_files_exist` 守门 `HOT_PATH_FILES` 列表本身不被静默删除
+- 实测验证：临时把 observability.py 还原中文 → 守门测试 `L264 warning` 抓到 1 处违规（设计回归）
+
+未来任何人加 hot-path 中文 logger 文案会被这测拦截。
+
+**R43 backlog 留待 R44**（不在本段范围）：
+- ingest/* 15 处 + core/data/* 5 处采集链路中文（cron 跑但告警阈值不依赖文本）
+- backfill_*.py + import_backfill.py + store/jc_*_view.py 等一次性脚本 ~20 处（不在 cron 路径）
+- 仓库根缺 `AGENTS.md`（init skill 默认产物）
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 
