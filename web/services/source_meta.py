@@ -66,9 +66,7 @@ def list_timer_runs() -> dict[str, dict]:
     if proc.returncode != 0 or not proc.stdout:
         return out
     # systemd 在 "ago" / "left" 等副词前还有时间 token；其他情形 PASSED 单 token。
-    # 时间 token 末尾是 "<digits>h|min|s|ms|us|m"（systemd 254 起分钟可缩写 "1m" 而非 "1min"）；
-    # 副词（ago/left/in）末尾不是这些。
-    _TIME_SUFFIXES = ("h", "min", "s", "ms", "us", "m")
+    # PASSED 长度只由末 token 是否为副词决定（见下方 passed_len）。
     _TIME_QUALIFIERS = ("ago", "left", "in")
     for line in proc.stdout.splitlines():
         line = line.strip()
@@ -89,19 +87,9 @@ def list_timer_runs() -> dict[str, dict]:
         last_end = passed_start  # LAST 终点（PASSED 起点）exclusive
         last_start = last_end - 4  # LAST 起点
         # LEFT 在 LAST 之左（NEXT 紧邻 LEFT 之右）。
-        # LEFT 单 token 例："14h" / "23h" → 末 token 以 time-suffix 结尾。
-        # LEFT 双 token 例："4min 44s" / "1h 30min" → 末两 token 均以 time-suffix 结尾。
-        # （LEFT 没有 "ago"/"left"/"in" 之类副词，那是 PASSED 段才有。）
-        left_len = 1
-        left_end_excl = last_start  # LEFT 终点 = LAST 起点（exclusive）
-        if (left_end_excl - 1 >= -(len(tokens))
-                and left_end_excl - 2 >= -(len(tokens))
-                and tokens[left_end_excl - 1].endswith(_TIME_SUFFIXES)
-                and tokens[left_end_excl - 2].endswith(_TIME_SUFFIXES)):
-            left_len = 2
-        # NEXT 占固定 4 token；剩余 tokens 必须 ≥ left_len + 4 + 4 + passed_len + 2（UNIT+ACTIVATES）
-        # 上面 if len(tokens) < 10 已筛过最低 12 多 token 场景（含 PASSED=2 / LEFT=2）。
-        # 切片 tokens[:4] / tokens[last_start:last_end] 直接取，len 不为 4 → 跳过。
+        # 审计 R45：此处原有的 left_len / left_end_excl / _TIME_SUFFIXES 判定链计算后
+        # 从未被消费（ruff F841）——LEFT 的合法性实际由下方 next_tokens/last_tokens
+        # 的 len==4 校验兜住，已删除该死代码。
         next_tokens = tokens[:4]
         last_tokens = tokens[last_start:last_end]
         if len(next_tokens) != 4 or len(last_tokens) != 4:

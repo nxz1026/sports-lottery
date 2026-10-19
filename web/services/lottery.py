@@ -150,18 +150,28 @@ def stats(numbers: list[list]) -> dict:
 
 # ---------- 5) 随机基线证伪回测 ----------
 def random_baseline_backtest(payout_func, history: list[list], strategies: list[dict],
-                             rounds: int = 1000) -> dict:
+                             rounds: int = 1000, seed: int = 42) -> dict:
     """随机基线证伪：对比若干「策略」与「纯随机」在历史开奖上的累计收益。
 
     payout_func(预测号码, 历史draw) -> 收益（正=中奖，负=未中成本）。需外部注入（取决于彩种奖级/成本）。
     strategies: [{name, generate: () -> 一注号码}]
     返回各策略期望收益 vs 随机基线期望收益；若无策略跑赢随机 → 定位正确。
+
+    审计 R45 修复：原实现 ``random.sample(...) if False else i`` 是**死分支**——
+    随机基线实际拿"循环下标 i"当预测号（且是 int，与策略产出的号码列表不同型），
+    于是 payout_func 恒走"未中"分支、random_baseline_avg 恒为最差值（实测 -1.0），
+    任何策略都会被判"跑赢随机"，与函数目的（证伪策略）完全相反。
+    现在按与策略相同的"号码列表"语义，从历史号码空间随机取样；
+    用固定 seed 保证可复现（否则 beats_random 会随抽样漂移）。
     """
     import random
-    out = {}
-    random_outcomes = [payout_func(random.sample(history[0] if history else [0], len(history)) if False else i, hist)
-                       for i, hist in enumerate(history[:rounds])]
+    rng = random.Random(seed)
+    window = history[:rounds]
+    random_outcomes = [
+        payout_func(list(rng.choice(history)), hist) for hist in window
+    ] if (window and history) else []
     random_avg = sum(random_outcomes) / len(random_outcomes) if random_outcomes else 0.0
+    out = {}
     for st in strategies:
         payoffs = []
         for i, hist in enumerate(history[:rounds]):

@@ -69,13 +69,17 @@ def record_to_score(records: list) -> float:
 
 def spread_movement_factor(away_open: dict | None, away_close: dict | None,
                           home_open: dict | None = None, home_close: dict | None = None) -> float:
-    """综合主客场盘口 line + odds 变化判断 market 方向。
-
-    P1-B 升级: 原版仅用 away spread line 差值，
-    现在加入 home spread + 双方 odds 变化作为辅助信号。
+    """综合盘口 line + odds 变化判断 market 方向。
 
     正值 = 盘口向主队移动（利好主队）
     负值 = 盘口向客队移动（利好客队）
+
+    审计 R45 订正：原 docstring 称"P1-B 升级: 现在加入 home spread"，
+    但实际调用点（``_derive_odds_fields``）只传 away 侧，home 分支从未生效。
+    且**有意如此**：ESPN 的 home/away line 互为镜像（home=-1.5 ↔ away=+1.5），
+    两侧项数值相同（都等于 ``(a_close - a_open)/3``）→ 同时传会翻倍而非互补。
+    故 home_open/home_close 保留为可选参数但调用方不传；如需主客位移的
+    独立信号，应先做符号归一而不是简单相加。
     """
     signal = 0.0
 
@@ -247,7 +251,9 @@ def _derive_odds_fields(odds: dict, home_form: str, away_form: str,
     ps = odds.get("pointSpread") or {}
     spread_h = ps.get("home") or {}
     spread_a = ps.get("away") or {}
-    spread_h.get("open")
+    # 审计 R45：此处原有一行裸表达式 ``spread_h.get("open")``（取值即弃、无副作用），
+    # 已删除。home 侧不参与 spread_move 计算，理由见 spread_movement_factor docstring
+    # （主客 line 互为镜像，同传会翻倍）。
     spread_h_close = spread_h.get("close") or {}
     spread_a_open = spread_a.get("open") or {}
     spread_a_close = spread_a.get("close") or {}

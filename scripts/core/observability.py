@@ -251,8 +251,9 @@ def log_error(exc: BaseException, *, context: str = "", **fields: Any) -> None:
 # D.1 (Round 11): startup / 不可写目录场景下静默丢的哨兵 —— 一次性 logger.warning
 # 让运营"看得见"events 没写。否则测试 tmp_path 路径 / 只读 mount / 配置错误
 # 等场景会让 events 整个空的，但用户压根不知道。
+# 审计 R45：同名的 runtime.log 哨兵（旧变量 _UNWRITABLE_LOG_WARNED）从未接线、
+# 全仓零引用，已删除——保留死变量只会让后来者以为该保护存在。
 _UNWRITABLE_EVENTS_WARNED = False
-_UNWRITABLE_LOG_WARNED = False
 
 
 def _warn_unwritable_events_once(reason: str) -> None:

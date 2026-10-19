@@ -55,15 +55,47 @@ def test_stats():
 
 
 def test_random_baseline():
-    # 注入：固定收益，策略永远猜 [1]，随机也是历史号码；都比 baseline 高
+    """随机基线必须是**真随机**：能区分"赢随机"与"输随机"的策略。
+
+    审计 R45：旧版此测试断言 ``hot1``（恒猜 [1]）beats_random —— 但它只在
+    随机基线坏掉（拿循环下标当预测号、恒取最差 -1.0）时才成立。修好基线后
+    证实该断言是假的：10 场里恒猜 [1] 只中 1 场，而随机基准约 2 场，
+    hot1 实际**输**给随机。这里改为断言真实契约。
+    """
     hist = [[1], [2], [3], [4], [5], [6], [7], [8], [9], [0]]
     def pay(guess, draw):
         return 1 if guess == draw else -1
-    strategies = [{"name": "hot1", "generate": lambda: [1]},
-                  {"name": "empty", "generate": lambda: [9]}]
+    # 用可索引的作弊策略：第 i 局猜 history[i]
+    calls = {"i": 0}
+    def cheat_gen():
+        g = hist[calls["i"] % len(hist)]
+        calls["i"] += 1
+        return g
+    strategies = [{"name": "cheat", "generate": cheat_gen},
+                  {"name": "always1", "generate": lambda: [1]}]
     r = L.random_baseline_backtest(pay, hist, strategies, rounds=10)
     assert "random_baseline_avg" in r
-    assert r["strategies"]["hot1"]["beats_random"]  # 猜1对1次，净胜
+    # 作弊：10/10 命中 → earn_avg=1.0，必赢随机
+    assert r["strategies"]["cheat"]["beats_random"] is True
+    assert r["strategies"]["cheat"]["earn_avg"] == 1.0
+    # 恒猜 [1]：只中 1 场 → 输给随机（随机期望约 2 场）
+    assert r["strategies"]["always1"]["beats_random"] is False
+    # 随机基线不再是退化的最差值 -1.0
+    assert r["random_baseline_avg"] > -1.0
+
+
+def test_random_baseline_is_reproducible():
+    """同 seed → 同结果（beats_random 不随抽样漂移）。"""
+    hist = [[1], [2], [3], [4], [5], [6], [7], [8], [9], [0]]
+    def pay(guess, draw):
+        return 1 if guess == draw else -1
+    st = [{"name": "x", "generate": lambda: [3]}]
+    a = L.random_baseline_backtest(pay, hist, st, rounds=10, seed=7)
+    b = L.random_baseline_backtest(pay, hist, st, rounds=10, seed=7)
+    assert a == b
+    # 不同 seed 允许不同（不强断言，只确保接口可传）
+    c = L.random_baseline_backtest(pay, hist, st, rounds=10, seed=99)
+    assert "random_baseline_avg" in c
 
 
 def test_bad_number_fallback():

@@ -116,6 +116,7 @@ def evaluate_baseline(samples: list[dict]) -> BaselineMetrics:
     naive_brier_sum = 0.0
     correct = 0
     naive_correct = 0
+    n_eval = 0  # 审计 R45 修复：只统计真正参与评估的样本数（见下方分母）
     naive_label = _naive_top_label(
         samples, _normalize=lambda s: _normalize_result_label(s.get("result", "")) or "H"
     )
@@ -131,6 +132,7 @@ def evaluate_baseline(samples: list[dict]) -> BaselineMetrics:
         if outcome is None or outcome not in _RESULT_TO_INDEX:
             continue  # 跳过未识别的 outcome label（如未来扩展 OT/PK）
 
+        n_eval += 1
         brier_sum += _brier(probs, outcome)
         naive_brier_sum += _brier({"h": 1 / 3, "d": 1 / 3, "a": 1 / 3}, outcome)
 
@@ -146,13 +148,17 @@ def evaluate_baseline(samples: list[dict]) -> BaselineMetrics:
         mv = s.get("model", "unknown")
         model_versions[mv] = model_versions.get(mv, 0) + 1
 
+    # 审计 R45 修复：分母必须用「实际参与评估」的 n_eval，而不是 len(samples)。
+    # 原实现把上面 continue 跳过的（未识别 outcome）样本也算进分母 → 指标被系统性
+    # 低估。实测：3×home_win + 7×'OT' → n=10 时 accuracy=0.3，正确应为 1.0。
     n = len(samples)
+    denom = n_eval if n_eval else None
     metrics = BaselineMetrics(
         n=n,
-        brier=brier_sum / n,
-        naive_brier=naive_brier_sum / n,
-        accuracy=correct / n,
-        naive_accuracy=naive_correct / n,
+        brier=brier_sum / denom if denom else None,
+        naive_brier=naive_brier_sum / denom if denom else None,
+        accuracy=correct / denom if denom else None,
+        naive_accuracy=naive_correct / denom if denom else None,
         per_outcome={k: {"n": v["n"], "accuracy": v["n_pred"] / v["n"] if v["n"] else 0.0}
                      for k, v in per_outcome.items() if v["n"] > 0},
         model_versions=model_versions,
