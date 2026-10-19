@@ -1,7 +1,8 @@
 # 核心预测引擎使用纯 stdlib（urllib.request, json, gzip, math, pathlib），零外部依赖。
 # 但下列模块有第三方依赖，本地复现对应功能需安装：
-#   AI 富化（ai/llm_client.py）：requests / pyyaml
+#   AI 富化（ai/llm_client.py）：requests
 #   DB 落库（scripts/store/、scripts/ingest/）：psycopg[binary]（v2 起新增的唯一引擎侧依赖）
+# 审计 R45：pyyaml 曾在此声明但全仓（scripts/web/ai/collector-cn）无任何 import yaml，
+# 属冗余依赖，已移除（如后续引入 YAML 配置再按需加回）。
 requests>=2.28
-pyyaml>=6.0
 psycopg[binary]>=3.1

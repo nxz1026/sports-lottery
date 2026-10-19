@@ -120,10 +120,15 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 
 **接口基线的三个给定事实（不得违反）：**
 1. web 层**顶层**绝不 `import scripts.*` / `import ai.*`（见 `web/services/datasource.py` docstring 与 `tests/web/test_no_scripts_import.py` 静态守护）。
-   - **唯一允许的 lazy import 边界**：`web/services/news.py::_try_llm` 内部 `from ai import llm_client`
-     是文档化例外（详见 `docs/web/WO-M6R.md` §1），用于 LLM 客户端的优雅降级；
-     新增 LLM 端点必须经 `web.services.news.generate_daily_news` 调用，不在其它 web 文件内
-     重复 `from ai import llm_client`。
+   - **允许的 lazy import 边界**（函数体内 `from ai...`，非顶层）实际有两处：
+     1. `web/services/news.py::_try_llm` — LLM 客户端网关，用于优雅降级
+        （详见 `docs/web/WO-M6R.md` §1）；
+     2. `web/services/ai_analyze.py` 的 `_class_per_match` / `_class_banker` /
+        `_class_lottery` 三处 `from ai.llm_client import generate`（异步 job 内调用）。
+   - **约定**：新增 LLM 端点优先经 `web.services.news.generate_daily_news`，
+     不在其它 web 文件内新增 `from ai import llm_client`；`ai_analyze.py` 的现有
+     三处属历史遗留（审计 R45 记录，此前 README 误称`news.py` 为"唯一"边界）。
+     两者都在函数体内、都不违反上面第 1 条（顶层禁止）。
    - `web/services/accuracy.py::league_accuracy_web` 是 `core.backtest.league_accuracy`
      的等价 web 侧实现（读 `web.services.store._stable_match_key`），用于 `jc.py::real_accuracy`
      与 `predictions.py::live_accuracy`，完全去除 web → scripts 的反向依赖；键语义由
@@ -155,7 +160,12 @@ ESPN (无 key 降级)                  盘口移动量化                Dixon-C
 > - 单测位置 `tests/web/test_jc_daily_image.py` 保留，新 `tests/app/test_*.py`
 >   加 VM 纯函数单测。
 >
-> 在迁移完成前，`web/app/` 不创建（空目录 git 也不会追踪）。
+> **进展（审计 R45 更新）**：`web/app/` 已创建并落地首个样板 ——
+> `web/app/jc.py::daily_image_vm`（纯函数、无 FastAPI 依赖），`web/routers/jc.py`
+> 的 `/daily-image` 端点已退化为 `from web.app import jc as app_jc; return
+> app_jc.daily_image_vm(...)` 透传，单测在 `tests/app/test_jc_daily_image.py`。
+> 其余屏（gap / movement 等）仍在内联阶段，按 `web/app/__init__.py` 记录的
+> 迁移路径逐个抽出。原「`web/app/` 不创建」的说法已过时。
 
 **View Model (VM) 约定** —— 每个「屏 / 图 / 表」对应一个 VM，包含：
 - `columns`：列定义（字段名 + 表头 + 渲染提示），替代前端 `JC_FIX_COLS`/`JC_ISSUE_COLS`
@@ -442,7 +452,7 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 - **体彩应用层**：`web/auth.py::require_auth` 强制校验 `lp_session` cookie（单账号 session）。登录账号来自 `AUTH_USERNAME` / `AUTH_PASSWORD`（在 `.env`，已 gitignore 不入库），签发 `lp_session` cookie，前端遇 `401` 自动跳 `/dashboard/jc/login`。
 - **生产验证**：体彩账号登录后只能访问 `/dashboard/jc/`；`/` `/dashboard/` `/resume/` `/admin/` 对体彩用户一律 `401`（仍由 Nginx Basic Auth 保护）。
 
-> ⚠️ 体彩账号目前是单账号（生产当前为 `a`/`a`）。**正式对外前务必在 `.env` 改为强口令**（改后重启 `league-dashboard.service`）；若 8077 直连端口对外暴露，则绕过 Nginx 后只剩应用层单账号保护。
+> ⚠️ 体彩账号是单账号，生产 `.env` 里 `AUTH_USERNAME`/`AUTH_PASSWORD` 仍是弱口令（占位值，见 `.env.example`）。**正式对外前务必改为强口令**（改后重启 `league-web.service`）；若 8077 直连端口对外暴露，则绕过 Nginx 后只剩应用层单账号保护。具体口令不写入本文件——本仓是公开仓库。
 
 ### 多用户方案（规划中，暂未实现）
 
@@ -471,12 +481,14 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 
 ## 运行与部署
 
-`league-api`（原"league-predict Web Dashboard"）即这套预测读取 API + 自看面板，跑在本机 NDORACLE（`140.83.62.161`）上：systemd `league-dashboard.service`（127.0.0.1:8077）+ Nginx 代理公网 `/dashboard/jc/`，前端在 `static/`，后端在 `web/`。FastAPI Cloud Hobby 档已退役，无 fastapicloud.dev / scale-to-zero，session 与预测 JSON 直接落本机盘 / DB。详细部署说明见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
+`league-api`（原"league-predict Web Dashboard"）即这套预测读取 API + 自看面板，跑在本机 NDORACLE（`140.83.62.161`）上：systemd `league-web.service`（127.0.0.1:8077）+ Nginx 代理公网 `/dashboard/jc/`，前端在 `static/`，后端在 `web/`。FastAPI Cloud Hobby 档已退役，无 fastapicloud.dev / 无容器 scale-to-zero，session 与预测 JSON 直接落本机盘 / DB。详细部署说明见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
+
+> 单元名以 `ops/league-web.service` 为准（审计 R45 前本节误写 `league-dashboard.service`）。
 
 | 项 | 值 |
 |---|---|
 | 线上地址 | https://140.83.62.161/dashboard/jc/ |
-| 进程 | `league-dashboard.service`（systemd `127.0.0.1:8077`，`Restart=on-failure`） |
+| 进程 | `league-web.service`（systemd `127.0.0.1:8077`，`Restart=on-failure`） |
 | 公网入口 | 本机 Nginx（`/dashboard/jc/` → 静态入口 + `/dashboard/jc/api/` → `league-api /api/`，走 Nginx Basic Auth） |
 
 **nginx location → 后端路径速查（P3-D1）**：
@@ -489,14 +501,14 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 | `/dashboard/jc/api/...` | `proxy_pass http://127.0.0.1:8077/api/...;` | `/api/v1/...` |
 | `/dashboard` | `http://127.0.0.1:8099/` | —（旧门户，Basic Auth 保护） |
 
-**前端 API 基址**（`static/dashboard.html:206`）：`const API="/dashboard/jc/api/v1"`。所有 fetch 均同源（credentials:"same-origin"），浏览器自动带 cookie + Basic Auth 头。
+**前端 API 基址**（`static/dashboard.html:242`）：`const API="/dashboard/jc/api/v1"`。所有 fetch 均同源（credentials:"same-origin"），浏览器自动带 cookie + Basic Auth 头。
 
 **调试命令**：
 
 ```bash
-# 公网入口冒烟
-curl -kI https://140.83.91.844/dashboard/jc/          # 401 / Basic 触发
-curl -kI -u admin:ndjack https://140.83.91.844/dashboard/jc/api/v1/health
+# 公网入口冒烟（凭据从 Nginx Basic Auth 口令文件取，勿写入本文件——本仓是公开仓库）
+curl -kI https://140.83.62.161/dashboard/jc/          # 401 / Basic 触发
+curl -kI -u "$BASIC_USER:$BASIC_PASS" https://140.83.62.161/dashboard/jc/api/v1/health
 # 直接打后端（绕过 nginx）
 curl -sS http://127.0.0.1:8077/api/v1/health           # 必须本机
 # nginx 实时错误
@@ -508,20 +520,20 @@ sudo tail -F /var/log/nginx/error.log
 **临时赛事白名单（亚运 / 欧冠 / 世界杯 / 奥运 等）**：
 - 通过 `.env` 的 `LEAGUE_TEMP_LEAGUES`（CSV）控制，五大联赛 + 临时白名单一并出现在每日一图 / dashboard 今日推荐。
 - 国内采集机 0 改动（数据本就在 26 个联赛里持续入港），临时赛事**无模型预判**（historical_past_matches.json 仅含五大联赛），仅显示官方盘口。
-- 启用：`echo 'LEAGUE_TEMP_LEAGUES=亚运会男足,亚运会女足' >> /home/ubuntu/league-v2/repo/.env && sudo systemctl restart league-dashboard`，`/health` 会暴露当前白名单。
-- 下线：`sed -i '/^LEAGUE_TEMP_LEAGUES=/d' .env && sudo systemctl restart league-dashboard`，自动恢复五大联赛主面板。
+- 启用：`echo 'LEAGUE_TEMP_LEAGUES=亚运会男足,亚运会女足' >> /home/ubuntu/DSH/sports-lottery/.env && sudo systemctl restart league-web`，`/health` 会暴露当前白名单。
+- 下线：`sed -i '/^LEAGUE_TEMP_LEAGUES=/d' .env && sudo systemctl restart league-web`，自动恢复五大联赛主面板。
 - 命名：与 `fact.jc_match.league_cn` 官方全名一致（如"亚运会男足"/"欧罗巴联赛"），错误命名会显示空态卡 + note。
 
 **部署链路（本机）**：
-1. `/home/ubuntu/league-v2/repo/.env`（gitignore）存凭据：`AUTH_USERNAME/PASSWORD`、`API_FOOTBALL_KEY`、`FOOTBALL_DATA_API_KEY`、`ODDS_API_KEY`/`NBA_API_KEY`、`LEAGUE_*`、`LLM_*` 等。systemd 通过 `EnvironmentFile=` 注入；不要提交该文件。
+1. `/home/ubuntu/DSH/sports-lottery/.env`（gitignore）存凭据：`AUTH_USERNAME/PASSWORD`、`API_FOOTBALL_KEY`、`FOOTBALL_DATA_API_KEY`、`ODDS_API_KEY`/`NBA_API_KEY`、`LEAGUE_*`、`LLM_*` 等。systemd 通过 `EnvironmentFile=` 注入；不要提交该文件。
 2. 代码 push 到 `origin/main`，本机直接 `git pull` 即拿到最新代码；systemd `Restart=on-failure` 会自动重启加载新代码（仅 Python/前端；`.env` 改动需手动 restart 加载）。
-3. 核验：`curl -kI https://140.83.62.161/dashboard/jc/` 返回 200（过 Basic Auth 后），`/dashboard/jc/api/v1/me` 过 `a/a` 登录后 200。
+3. 核验：`curl -kI https://140.83.62.161/dashboard/jc/` 返回 200（过 Basic Auth 后），`/dashboard/jc/api/v1/me` 过应用层账号（`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）登录后 200。
 
 **运行时预测/富化**（在 Web 界面触发，或 API）：
 - `POST /api/v1/jobs/predict`（选联赛/数据源/蒙特卡洛）跑 `scripts/predict.py`。**不传参数时只跑英超**（`--league` 默认值 `epl`）；要跑全部 5 个足球联赛须显式传 `{"all": true}`，或传 `{"league": "laliga"}` 等指定单个联赛。
 - `POST /api/v1/jobs/predict-bball` 跑 `scripts/bball/run.py`（NBA，独立入口）。参数白名单 `ahead_days`(1..180)/`backtest`(1..60)。需要 `ODDS_API_KEY` **和** `NBA_API_KEY` 同时设置成同一个值——两个名字并存是历史遗留：config 层 `SourcePolicy` 的守卫变量是 `NBA_API_KEY`，而 v1 冻结代码 `scripts/bball/run.py` 实际读的是 `ODDS_API_KEY`，只设一个会出现「守卫说可用、脚本说没 key」的不一致。另需 `LEAGUE_SOURCE_ODDS_API=on`（收费源默认关闭，见 D9）。NBA 休赛期默认 `ahead_days=1` 会得 0 场，需放宽窗口。
 - `POST /api/v1/jobs/ai-enrich` 跑 `python -m web.enrich` 生成中文 AI 摘要（LLM 走 agnes-ai，OpenAI 兼容）。
-- 每日配额共享计数：`predict` / `predict-bball` / `ai-enrich` 共用同一计数器与并发守卫，同时只允许一个预测类任务运行（并发 409）。容器 scale-to-zero，结果 JSON 不跨冷启持久（冷启回退 git 种子）。
+- 每日配额共享计数：`predict` / `predict-bball` / `ai-enrich` 共用同一计数器与并发守卫，同时只允许一个预测类任务运行（并发 409）。结果 JSON 直接落本机盘（`scripts/predictions/*.json`），无容器冷启丢失问题。
 
 ### 定时运行（systemd timer，2026-09-18 重建）
 
@@ -529,9 +541,9 @@ sudo tail -F /var/log/nginx/error.log
 
 | 机制 | 载体 | 频率 | 干什么 |
 |---|---|---|---|
-| Dashboard 常驻服务 | `league-dashboard.service`（systemd，`Restart=on-failure`） | 常驻 | 提供 `/dashboard/jc/` 全部 API |
+| Dashboard 常驻服务 | `league-web.service`（systemd，`Restart=on-failure`） | 常驻 | 提供 `/dashboard/jc/` 全部 API |
 | 竞彩数据采集 | 用户 crontab `*/10 * * * *` | 每 10 分钟 | 跑 `jc-ingest-run.sh` 落库 `fact.jc_*` |
-| **每日全量预测** | `league-daily-predict.timer`（systemd） | 每日 **09:00 Asia/Shanghai** | 足球全联赛 + NBA + AI 富化 |
+| **每日全量预测** | `league-daily-predict.timer`（systemd） | 每日 **09:30 Asia/Shanghai** | 足球全联赛 + NBA + AI 富化 |
 
 **为什么从进程内 apscheduler 换成 systemd timer**（旧实现实测 0 次成功触发）：
 
@@ -548,9 +560,9 @@ sudo tail -F /var/log/nginx/error.log
 
 **新实现**（`ops/` 三个文件，unit 需 `sudo install -m 644` 到 `/etc/systemd/system/`）：
 
-- `ops/league-daily-predict.timer` — `OnCalendar=*-*-* 09:00:00 Asia/Shanghai`（**时区必须显式写**）
+- `ops/league-daily-predict.timer` — `OnCalendar=*-*-* 09:30:00 Asia/Shanghai`（**时区必须显式写**；实际值以 `ops/league-daily-predict.timer` 为准，审计 R45 前本节误写 09:00）
   + `Persistent=true`（错过的触发在开机后补跑一次）。
-- `ops/league-daily-predict.service` — `Type=oneshot`，`After/Requires=league-dashboard.service`。
+- `ops/league-daily-predict.service` — `Type=oneshot`，`After/Wants=league-web.service`。
 - `ops/league-daily-predict.sh` — **走 HTTP API 而不是直调 CLI**：配额守卫
   （`PREDICT_DAILY_LIMIT`，默认 80）与并发守卫（`active_job`）都在 `web/services/jobs.py` 里，
   直调 `scripts/predict.py` 会绕过它们、与页面上的手动任务撞车吃光配额。
@@ -562,15 +574,15 @@ sudo tail -F /var/log/nginx/error.log
 可与手点的作业区分——定时任务跑没跑可以自证。此前该字段被硬编码成 `manual`。
 
 ```bash
-# 查下次触发时刻（应显示 01:00 UTC = 09:00 BJT）
+# 查下次触发时刻（应显示 01:30 UTC = 09:30 BJT）
 systemctl list-timers league-daily-predict.timer
 
-# 手动触发一次（等价于等到 09:00）
+# 手动触发一次（等价于等到 09:30）
 sudo systemctl start league-daily-predict.service
 journalctl -u league-daily-predict.service -n 50 --no-pager
 
 # 校验 OnCalendar 的时区解释
-systemd-analyze calendar "*-*-* 09:00:00 Asia/Shanghai"
+systemd-analyze calendar "*-*-* 09:30:00 Asia/Shanghai"
 ```
 
 > 旧的环境变量 `ENABLE_CRON` / `CRON_HOUR` 已随进程内调度一并移除（`web/services/cron.py` 删除、
@@ -835,7 +847,7 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 
 ### v2.4 (2026-10-18 ~ 10-19) R62-R64 生产修复 + AGENTS.md + R43 策略收回
 
-v2.3 之后跨入"测试基线饱和、生产修复优先"阶段。本段记录 e280a3b 之后的 7 个 commit，测试基线 R61 2346 → **R64 2357 passed**（2428 collected；+82 净增后 R44 删守门测试 -5）：
+v2.3 之后跨入"测试基线饱和、生产修复优先"阶段。本段记录 e280a3b 之后的 **10 个 commit**（审计 R45 校正，此前误写 7），测试基线 R61 2346 → **R64 2357 passed**（2428 collected；+82 净增后 R44 删守门测试 -5）：
 
 **Dashboard 三连发（4aea03d / 093dafa / f78aa40）**：
 - `4aea03d` 比赛详情面板人话翻译（取代 ML 术语）+ 三级 `modelProbs` 回退修复（`model.probs` → `prediction.probs` → 推导）
@@ -851,7 +863,7 @@ v2.3 之后跨入"测试基线饱和、生产修复优先"阶段。本段记录 
 
 **R43 hot-path logger ASCII 收口（6841f23）→ R44 撤回策略**
 
-R43 以「避免 Windows cp1252/GBK 把日志打成乱码导致告警脚本 grep 失败」为由，把 13 处 hot-path logger 文案（`predict.py` 3 / `bball/run.py` 3 / `retrain_baseline.py` 7 / `observability.py` 1）改成英文，并加 `tests/test_logger_hot_path_ascii.py` 5 测守门。
+R43 以「避免 Windows cp1252/GBK 把日志打成乱码导致告警脚本 grep 失败」为由，把 **14 处** hot-path logger 文案（`predict.py` 3 / `bball/run.py` 3 / `retrain_baseline.py` 7 / `observability.py` 1，合计 3+3+7+1=14；审计 R45 校正，此前正文误写「13 处」而括号分项自相矛盾）改成英文，并加 `tests/test_logger_hot_path_ascii.py` 5 测守门。
 
 **R44 用实证推翻了这个前提**，并撤回策略（守门测试已删）：
 
@@ -863,15 +875,90 @@ R43 以「避免 Windows cp1252/GBK 把日志打成乱码导致告警脚本 grep
 
 守门测试本身还有**独立缺陷**：`_extract_string_literals` 只取 `node.args` 中直接是 `ast.Constant` 的字符串，而本仓日志绝大多数是 f-string —— 内嵌片段挂在 `ast.JoinedStr` 之下而非 `node.args` 顶层，**全部漏检**。实测 `predict.py`：守门测试检出 0 处，真实非 ASCII 有 14 处（全在 f-string 内）。即测试报 "5 passed" 时，它守护的文件里 14 处违规一处没看到。
 
-处置：删除守门测试（`99d494a`）；R43 已上线的 13 处英文文案保留不动（语言风格问题，非缺陷）。本仓中文注释 + 中文日志是既有惯例（`ops/league-daily-predict.sh` 自身输出全中文、稳定运行数月），已在 `AGENTS.md` 明文记录，后续不再做 ASCII 收口。
+处置：删除守门测试（`99d494a`）；R43 已上线的 14 处英文文案保留不动（语言风格问题，非缺陷）。本仓中文注释 + 中文日志是既有惯例（`ops/league-daily-predict.sh` 自身输出全中文、稳定运行数月），已在 `AGENTS.md` 明文记录，后续不再做 ASCII 收口。
 
 **R44 新增 `AGENTS.md`（`d9734ce`）**：仓库根此前缺失（agents.md 标准文件，被 OpenCode/Codex/Cursor/Aider/Devin/Gemini CLI 等消费）。内容全部来自实测：ruff E/F/W/I + line-length 120 双引号、`PYTHONPATH=scripts` 必需、三层分层依赖方向约束、conventional commits（scope 带模块名）、pre-push 5x 压测、systemd 定时任务与退出码语义（0/1/2/3），并把上表"告警只看作业 status 不 grep 日志"的排障结论写入 Ops 段以防重复误判。
 
 **R43/R44 遗留（有意不做）**：`ingest/*` + `core/data/*` + 一次性脚本的中文日志维持原样 —— 前提同上（无危害）。
 
+**R45 全维度审计（4 个并行视角：文档声明 / 测试有效性 / 代码缺陷 / 安全运维）**
+
+方法上吸取 R43 的教训：**不读代码猜，逐条实测**。4 个子代理结论全部人工复核，
+推翻了其中 5 条（见下"证伪记录"），只采纳经复现/实证的部分。
+
+**已修复的真缺陷（每条均经复现验证）**：
+
+| 位置 | 缺陷 | 实证方式 |
+|---|---|---|
+| `web/services/jobs.py:191-194` | `except (ProcessLookupError, OSError)` 排在 `except PermissionError` **之前**（后者 ⊂ OSError，永不可达）→ POSIX 上"活进程但非本用户持有"被误判为已死 → 可能删活锁 | `issubclass(PermissionError, OSError)` → `True`；已调换顺序 |
+| `scripts/core/retrain_baseline.py:149` | 分母用 `len(samples)`，但循环对未识别 outcome `continue` → 指标系统性低估 | 实测 3×`home_win`+7×`OT`：`accuracy` **0.3 → 1.0**（改用实际评估计数 `n_eval`；全无效样本指标为 `None` 而非除零） |
+| `web/services/lottery.py:162` | `random.sample(...) if False else i` 死分支 → "随机基线"恒为最差值（实测 `-1.0`），任何策略都"跑赢随机"，与证伪目的相反 | 改为按号码列表语义随机取样（固定 seed 可复现）；**连带发现测试 `test_random_baseline` 断言的是假事实**（恒猜 `[1]` 实际输随机），已改写真实契约 + 新增可复现性测试 |
+| `scripts/core/data/parse.py:250` | 裸表达式语句 `spread_h.get("open")`（取值即弃） | 已删；并订正 `spread_movement_factor` docstring —— home 分支**有意不启用**：ESPN 主客 line 互为镜像（`-1.5`↔`+1.5`），两侧项数值相同会**翻倍而非互补** |
+| `scripts/core/observability.py:255` | `_UNWRITABLE_LOG_WARNED` 定义后全仓零读写 | 已删（`reset_for_test` 也未同步它） |
+| `web/services/source_meta.py:95-102` | `left_len` 计算后从未消费（ruff F841），连带 `left_end_excl` / `_TIME_SUFFIXES` 全成死代码 | LEFT 合法性实际由下方 `len(next_tokens)!=4` 兜住（已验证索引边界安全） |
+
+**已修复的运维隐患**：
+
+| 位置 | 问题 | 修复 |
+|---|---|---|
+| `ops/league-daily-predict.sh:23-24` | 只读 `LEAGUE_AUTH_*`，未注入时兜底 `a`/`a`；而 unit `EnvironmentFile` 注入的是 `AUTH_USERNAME`/`AUTH_PASSWORD` —— **生产能跑只因 `.env` 里恰好也是 `a`/`a`**。一旦改密立刻 401 → `exit 2`，整条日管线静默失效 | 改为直接读 `AUTH_USERNAME`/`AUTH_PASSWORD`（`LEAGUE_AUTH_*` 仍可临时覆盖）；缺凭据时**显式告警 + exit 2**（不再拿空串试登录）。已在 Oracle 用 `env -i` 三场景实测：只有 `AUTH_*` → 正确解析 |
+| `ops/league-daily-predict.sh` ALERT_LOG | `:61/65` 引用 `$ALERT_LOG` 但 `:181` 才赋值，`set -u` 下未绑定变量会让告警路径自身崩溃 | 定义上移到 `log()` 之后（首次使用之前）。注：该分支仅 webhook 为空时进入，生产 `FEISHU_WEBHOOK_URL` 已配置 → 当前不可达，属预防性修复 |
+
+**凭据清理（公开仓库，最高优先）**：
+
+`gh repo view` 实测本仓 `visibility: PUBLIC`。以下明文凭据已从工作树删除：
+`README.md`（`curl -u admin:<口令>`）、`docs/acceptance-2026-09-17.md`（3 处）、
+`docs/web-ux-audit-2026-10-11.md`、`docs/project/收尾-处置记录-20260920.md`
+（均含 Nginx Basic 口令）、`docs/web/WORKLOG.md`（旧 `AUTH_PASSWORD` 值 + 两把
+数据源 key 前缀）。全部替换为环境变量注入写法或"见生产 `.env`"。
+**口令本身是否轮换需运维决策**（见文末"待办"）。
+
+**文档订正（本节同时修正了本文档自身的错误）**：
+
+| 原文 | 实际 |
+|---|---|
+| timer「每日 09:00」（6 处） | `ops/league-daily-predict.timer` 为 **09:30** |
+| 「13 处」hot-path（括号分项 3+3+7+1） | 实为 **14** 处 |
+| 「e280a3b 之后 7 个 commit」 | 实为 **10** 个 |
+| `league-dashboard.service`（7 处） | 仓库无此单元；真名 **`league-web.service`** |
+| `/home/ubuntu/league-v2/repo/.env`（2 处） | `/home/ubuntu/DSH/sports-lottery/.env` |
+| `dashboard.html:206` | **242** 行 |
+| 「`web/app/` 不创建」 | 已创建且已接线（`web/app/jc.py::daily_image_vm` + router 透传） |
+| 「无 scale-to-zero」vs「容器 scale-to-zero」 | 自相矛盾；本机 systemd，无容器冷启问题 |
+| IP `140.83.91.844` vs `140.83.62.161` | 统一为 **`140.83.62.161`**（7 处） |
+| 「`news.py` 是 web→ai **唯一**反向依赖点」 | 另有 `ai_analyze.py` 三处函数体内 lazy import（未违反"顶层禁止"，但契约表述已订正） |
+| 「全仓 101 个 .py ~12k 行」 | 历史快照值；当前 138 个 .py / ~16.5k 行 |
+| `requirements.txt` 声明 `pyyaml` | 全仓无 `import yaml`，属冗余依赖，已移除 |
+| `AGENTS.md`「pytest **须** `PYTHONPATH=scripts`」 | pytest 不需要（各测试自注入 `sys.path`）；仅裸 `import core` 需要 —— 措辞已订正 |
+
+**R45 证伪记录（子代理断言被实测推翻，刻意不采纳）** —— 再次印证
+"听起来合理 ≠ 成立"：
+
+1. ❌「认证变量错配 → 每日登录**必然** 401 → `exit 2`，整条管线不执行」（原判危害"高"）
+   → 实测生产日志 `登录成功` + `退出码 0`，因为 `.env` 里恰好是 `a`/`a`。代码脆弱性成立，**所述后果不成立**。
+2. ⚠️「`ALERT_LOG` 时序 → 告警路径自身崩溃、卡片与 sentinel 都写不出」（原判"高"）
+   → 该分支仅 webhook 为空时进入，生产 webhook 已配置 → **当前不可达**。时序问题真实，但非"高"。
+3. ❌「`scripts/core/jc_gate.py` 0% 覆盖是**风险**」
+   → 该模块 docstring 首行即 `DEPRECATED / 未接线 (R15c)`，0% 是**有意归档**。
+4. ❌「README 声称 ruff 干净」
+   → README **没有**该声明（误归因）。但 `AGENTS.md` 让跑 `ruff check .` 会失败属实（当前 699 条告警）。
+5. ⚠️「『推理内核零外部依赖』声明为假」
+   → `core/i18n.py:50` 是函数体内 lazy import + 优雅降级，README 自身已注明 → 非虚假声明。
+
+**ruff 基线**：`ruff check .` 当前 699 条（`I001`185 / `W292`142 / `E402`107 /
+`E501`97 / `F401`88 / `F841`25…），其中生产代码 F 类仅 9 处。是否纳入门禁待决。
+
+**测试有效性（审计发现，本轮未修）**：
+- `tests/test_jc_view_aggregations.py:106-176` 有 5 个"钳制"测试名不副实
+  （1 个 `assert True` + 4 个无断言）
+- `tests/test_lottery_ticket_clv_helpers.py:290-296` 用 `except Exception: pass`
+  **吞掉断言** → 异常即静默通过（本轮修 lottery 时已顺带移除同类反模式）
+- `tests/web/test_no_scripts_import.py` 只遍历 `tree.body`（模块顶层），
+  `try`/`if TYPE_CHECKING:` 块内的 import 不命中（实测 4 种注入只检出 1 种）
+
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 
-对 scripts/ 与 web/ 全仓（101 个 .py，~12k 行）做了**结构审查**（健壮性 / 模块化 / 死代码 / 逻辑错误），
+对 scripts/ 与 web/ 全仓（**当时**101 个 .py，~12k 行；审计 R45 时已增至 138 个 .py / ~16.5k 行）做了**结构审查**（健壮性 / 模块化 / 死代码 / 逻辑错误），
 经逐条核实后修复真实问题；子代理报告含大量误报（门面 re-export、副作用导入、告警抑制机制、
 降级式 `except` 等均被误判为 bug），**只修经验证存在的缺陷**：
 
