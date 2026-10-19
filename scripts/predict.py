@@ -705,6 +705,17 @@ def _finalize_league_output(silent, output, calibration_offset, now_utc, predict
 
 
 def run_league(league_key: str, args, now_utc, dates_str, silent: bool = False) -> dict | None:
+    # P5-Q5 修复：active=False 联赛（如 nba）由 scripts/bball/run.py 单独处理，
+    # predict.py 不支持其 data_source="the-odds"。--all 模式已在 main 跳过；
+    # 这里再守一层避免用户显式 --league nba 撞 ESPN 400 崩溃。
+    _lc = LEAGUE_CONFIG.get(league_key, {})
+    if _lc.get("active") is False:
+        # 纯 ASCII：同上 stderr 编码考虑；bball 路径名是 ASCII 所以无影响。
+        raise SystemExit(
+            f"predict.py does not support {league_key} "
+            f"(active=False / data_source={_lc.get('data_source')}). "
+            f"Use scripts/bball/run.py or the predict_bball job in ops/league-daily-predict.sh."
+        )
     data_source, run_monte_carlo, n_simulations, run_backtest, use_dc, _t_start, host_country, tournament_type, past, future, fifa_rankings, elo_ratings = _setup_league_run(league_key, args, now_utc, dates_str)
 
     if not future and not past:
@@ -937,10 +948,21 @@ def main() -> int:
         # R15a #8: --all 模式批量边界事件锚点 —— 5 联赛 × N matches 跑测后
         # grep 时间窗口定位 "这次跑覆盖了哪些 league / 几个 succeeded" 更直观。
         from core.observability import log_event as _log_event_batch
-        _log_event_batch("batch_start", mode="all", n_leagues=len(LEAGUE_CONFIG))
+        # P5-Q5 修复：跳过 active=False 的联赛（如 nba 由 scripts/bball/run.py 单独处理，
+        # active=False 但 data_source="the-odds" —— predict.py 的 fetch_events 没有
+        # "the-odds" 分支，会落到默认 else: fetch_espn(epl)，撞 ESPN 400）。
+        # 实证：10/17+10/18 cron 都因 NBA 这一步撞 HTTP 400 退出码 1。
+        active_leagues = [k for k in LEAGUE_CONFIG
+                          if LEAGUE_CONFIG.get(k, {}).get("active", True)]
+        skipped = [k for k in LEAGUE_CONFIG if k not in active_leagues]
+        if skipped:
+            # 纯 ASCII：避免 Windows 默认控制台编码 (cp1252/GBK) 把日志打成乱码，
+            # 后续 grep / 告警匹配失败。监控告警脚本统一以英文锚定。
+            logger.info(f"--all skipping inactive leagues {skipped} (predict.py lacks their data_source)")
+        _log_event_batch("batch_start", mode="all", n_leagues=len(active_leagues))
         all_outputs = []
         failed_leagues = 0
-        for league_key in LEAGUE_CONFIG:
+        for league_key in active_leagues:
             print(f"\n{'#'*60}", file=sys.stderr)
             print(f"# LEAGUE: {league_key}", file=sys.stderr)
             print(f"{'#'*60}", file=sys.stderr)

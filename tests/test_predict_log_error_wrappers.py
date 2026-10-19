@@ -353,6 +353,104 @@ class TestPredictMainLoopLogError:
         assert "simulated league failure" in e.get("exc_repr", "")
 
 
+# ──────────────────────────── P5-Q5: --all 跳过 inactive 联赛 ─────────────────────────
+
+
+class TestPredictAllSkipsInactiveLeagues:
+    """P5-Q5：main() --all 模式跳过 active=False 联赛（不撞 ESPN 400）。
+
+    Oracle 实证：10/17+10/18 cron 都因 LEAGUE_CONFIG['nba']['active']=False 但
+    data_source='the-odds'（predict.py 不支持）→ 落到 else: fetch_espn(epl) →
+    URL 含空 dates= 参数 → ESPN HTTP 400 → 整轮 cron 退出码 1。
+    """
+
+    def test_all_mode_skips_nba_in_default_config(self, monkeypatch, caplog):
+        """默认 LEAGUE_CONFIG 含 nba(active=False)；--all 跑通且无 run_league(nba) 调用。
+
+        用 caplog 截 logger.info：predict.py 第 32 行 import 时 logger.handler.stream
+        已经绑定旧 sys.stderr，后续 patch("sys.stderr", ...) 改的是模块属性但
+        StreamHandler 不会刷新引用 —— stderr.log 文件拿不到 logger 输出。
+        caplog 直接挂到 logging root/propagation，不依赖 StreamHandler。
+        """
+        import logging
+        import predict
+
+        called_leagues: list[str] = []
+
+        def fake_run_league(league_key, args, now_utc, dates_str, silent=False):
+            called_leagues.append(league_key)
+            return None  # 不抛错，让 main 跑完 5 个 active league
+
+        caplog.set_level(logging.INFO, logger="predict")
+        with patch.object(predict, "run_league", side_effect=fake_run_league), \
+             patch.object(predict, "_refresh_ml_models", return_value={}), \
+             patch.object(predict, "_cleanup_intermediate", return_value={}):
+            test_argv = ["predict.py", "--all", "--data-source", "football-data"]
+            monkeypatch.setattr("sys.argv", test_argv)
+            predict.main()
+
+        # 关键断言：run_league 不应被 nba 触发
+        assert "nba" not in called_leagues, \
+            f"--all 不应调 run_league('nba')，实际: {called_leagues}"
+        # 至少 5 个 active league 跑了（epl/laliga/bundesliga/seriea/ligue1）
+        assert len(called_leagues) >= 5
+
+        # logger.info 应有 skip 提示（纯 ASCII，避免 Windows 控制台编码乱码）
+        skip_records = [r for r in caplog.records
+                        if r.name == "predict" and "skipping inactive" in r.getMessage()]
+        assert len(skip_records) >= 1, \
+            f"logger 应提示跳过 inactive 联赛，实际 records: " \
+            f"{[(r.name, r.getMessage()) for r in caplog.records]}"
+        msg = skip_records[0].getMessage()
+        assert "nba" in msg, f"skip 提示应含 nba，实际: {msg}"
+
+    def test_explicit_league_nba_raises_systemexit(self, monkeypatch):
+        """显式 --league nba → SystemExit 清晰提示（不是 ESPN 400 崩溃）。
+
+        run_league 内的 active 检查必须先于 _setup_league_run（后者才会撞 ESPN 400）。
+        因此不能 mock run_league —— 让真函数跑到 SystemExit 那行。
+        但 _setup_league_run 走 ESPN / football-data 网络 IO，需要把
+        _setup_league_run 旁路掉，让 run_league 直接到 active 守门。
+        """
+        import predict
+
+        # 旁路 _setup_league_run 让 run_league 入口的 active 守门先命中
+        with patch.object(predict, "_setup_league_run",
+                          side_effect=AssertionError("active 守门未先于 _setup 命中")):
+            test_argv = ["predict.py", "--league", "nba", "--data-source", "football-data"]
+            monkeypatch.setattr("sys.argv", test_argv)
+            with pytest.raises(SystemExit) as exc_info:
+                predict.main()
+            # SystemExit 信息要明确告知用 bball/run.py（纯 ASCII）
+            msg = str(exc_info.value)
+            assert "nba" in msg and "bball" in msg, \
+                f"SystemExit 应提示用 bball/run.py，实际: {msg}"
+
+    def test_active_false_in_custom_config_skipped(self, tmp_path, monkeypatch):
+        """临时把 epl 标 active=False → --all 跳过 epl。"""
+        import predict
+
+        called: list[str] = []
+
+        def fake_run_league(league_key, args, now_utc, dates_str, silent=False):
+            called.append(league_key)
+            return None
+
+        patched_cfg = {k: dict(v, active=False) if k == "epl" else v
+                       for k, v in predict.LEAGUE_CONFIG.items()}
+        with patch.object(predict, "LEAGUE_CONFIG", patched_cfg), \
+             patch.object(predict, "run_league", side_effect=fake_run_league), \
+             patch.object(predict, "_refresh_ml_models", return_value={}), \
+             patch.object(predict, "_cleanup_intermediate", return_value={}):
+            test_argv = ["predict.py", "--all", "--data-source", "football-data"]
+            monkeypatch.setattr("sys.argv", test_argv)
+            with patch("sys.stderr", new=open(tmp_path / "stderr.log", "w")):
+                predict.main()
+
+        assert "epl" not in called, \
+            f"active=False 的 epl 应被跳过，实际: {called}"
+
+
 # ──────────────────── R22 #2: _emit_ml_predictions / _emit_ml_outcomes 直接单测 ────────────────────
 
 
