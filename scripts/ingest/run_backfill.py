@@ -9,13 +9,13 @@ import datetime as dt
 import time
 from contextlib import closing, nullcontext
 
-from psycopg import Connection, sql
-
 from config import allow_paid_once, describe
 from core.leagues import LEAGUE_CONFIG
 from core.log import logger
-from ingest import api_get, quota
+from psycopg import Connection, sql
 from store import pg
+
+from ingest import api_get, quota
 
 SEASONS = ("2022", "2023", "2024")
 SOURCES: dict[str, tuple[str, str, int, str, str]] = {  # cli 名 → (source, raw 表, cap, id 字段, 端点模板)

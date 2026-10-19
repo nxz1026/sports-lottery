@@ -12,8 +12,6 @@ import logging
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):

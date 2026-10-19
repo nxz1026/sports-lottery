@@ -20,9 +20,9 @@ def client(monkeypatch):
     monkeypatch.setenv("SESSION_DB_PATH", "/tmp/ticket-sessions.db")
     monkeypatch.setenv("AUTH_USERNAME", "unit-ticket")
     monkeypatch.setenv("AUTH_PASSWORD", "unit-pass")
+    import web.auth
     import web.config as config
     import web.session_store
-    import web.auth
     importlib.reload(config)
     importlib.reload(web.session_store)
     importlib.reload(web.auth)
@@ -48,8 +48,9 @@ def client(monkeypatch):
         (f"主{i}", f"客{i}"): entries[i] for i in range(14)
     })
 
-    from web.api import create_app
     from fastapi.testclient import TestClient
+
+    from web.api import create_app
     return TestClient(create_app())
 
 
@@ -108,17 +109,18 @@ def test_no_matches_empty_degraded(monkeypatch):
     monkeypatch.setenv("SESSION_DB_PATH", "/tmp/ticket2.db")
     monkeypatch.setenv("AUTH_USERNAME", "unit-ticket2")
     monkeypatch.setenv("AUTH_PASSWORD", "unit-pass2")
+    import web.auth
     import web.config as config
     import web.session_store
-    import web.auth
     importlib.reload(config)
     importlib.reload(web.session_store)
     importlib.reload(web.auth)
     monkeypatch.setattr("store.jc_view.issue_matches", lambda g, i: [])
     from web.services import store as ws
     monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {})
-    from web.api import create_app
     from fastapi.testclient import TestClient
+
+    from web.api import create_app
     c = TestClient(create_app())
     c.post("/api/v1/login", json={"username": "unit-ticket2", "password": "unit-pass2"})
     d = c.post("/api/v1/ticket/sfc", json={"choose": 9}).json()

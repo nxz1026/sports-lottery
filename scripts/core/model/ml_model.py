@@ -137,7 +137,7 @@ def train_league_model(league_key: str, elo_ratings: dict | None = None,
     """
     from core.calibration import load_historical_past_matches
     from core.config import LEAGUE_CONFIG, ML_CONFIG
-    from core.model.features import build_training_set, NUM_FEATURES
+    from core.model.features import NUM_FEATURES, build_training_set
 
     past = load_historical_past_matches(days=days, league=league_key)
     if len(past) < ML_CONFIG["min_train_samples"]:

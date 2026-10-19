@@ -16,9 +16,8 @@ from __future__ import annotations
 
 import datetime as dt
 
-from psycopg import Connection
-
 from config import source_policy
+from psycopg import Connection
 
 DEFAULT_SOURCE = "api_football"
 CHARGE_SQL = """

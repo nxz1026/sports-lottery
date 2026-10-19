@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """league-api 看盘 HTML 生成器 (P5-1)。
 
 生成静态 HTML Dashboard 文件，可视化预测结果：
@@ -9,13 +7,14 @@ from __future__ import annotations
 - 历史准确率趋势
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from core.config import PREDICTIONS_DIR
 from core.log import logger
-
 
 DASHBOARD_TEMPLATE = """<!DOCTYPE html>
 <html lang="zh-CN">

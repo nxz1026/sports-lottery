@@ -14,7 +14,6 @@
 """
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 
@@ -27,7 +26,6 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
         sys.path.insert(0, p)
 
 from market.devig import devig, safe_devig  # noqa: E402
-
 
 # ────────────────────────── 边界 / 过滤语义 ──────────────────────────
 

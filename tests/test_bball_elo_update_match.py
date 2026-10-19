@@ -22,7 +22,6 @@ D-31 (sum conservation lock):
 from __future__ import annotations
 
 import importlib.util
-import math
 import sys
 import types
 from pathlib import Path

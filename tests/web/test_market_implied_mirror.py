@@ -51,8 +51,9 @@ def _doc_with_flat_selections(decimals: dict[str, float]) -> dict:
 
 def test_implied_probs_match_scripts_market_implied():
     """``implied_probs`` = 1/odds：web 与 scripts 一致。"""
-    from web.routers.predictions import _market_projection
     from market.devig import implied as scripts_implied
+
+    from web.routers.predictions import _market_projection
 
     for label, decimals in _FIXTURES:
         proj = _market_projection(_build_doc(decimals))
@@ -67,8 +68,9 @@ def test_implied_probs_match_scripts_market_implied():
 
 def test_devig_probs_match_scripts_market_devig():
     """``devig_probs`` = (1/odds)/Σ(1/odds)：去水后 Σ==1，web 与 scripts 一致。"""
-    from web.routers.predictions import _market_projection
     from market.devig import devig as scripts_devig
+
+    from web.routers.predictions import _market_projection
 
     for label, decimals in _FIXTURES:
         proj = _market_projection(_build_doc(decimals))
@@ -89,8 +91,9 @@ def test_devig_probs_match_scripts_market_devig():
 
 def test_margin_matches_scripts_market_margin():
     """``margin`` = Σ(1/odds) - 1：庄家水钱比例。"""
-    from web.routers.predictions import _market_projection
     from market.devig import margin as scripts_margin
+
+    from web.routers.predictions import _market_projection
 
     for label, decimals in _FIXTURES:
         proj = _market_projection(_build_doc(decimals))
@@ -103,8 +106,9 @@ def test_margin_matches_scripts_market_margin():
 
 def test_selections_can_be_flat_numbers():
     """selections 项是裸数值（不是 ``{"decimal_odds": x}``）也应走 complete 分支。"""
-    from web.routers.predictions import _market_projection
     from market.devig import devig as scripts_devig
+
+    from web.routers.predictions import _market_projection
 
     decimals = {"home": 1.85, "draw": 3.40, "away": 4.20}
     proj = _market_projection(_doc_with_flat_selections(decimals))

@@ -13,8 +13,12 @@ from __future__ import annotations
 from psycopg import sql
 
 from ingest._upsert_helper import (
-    build_upsert_sql as _build_sql,
     bind_values,
+)
+from ingest._upsert_helper import (
+    build_upsert_sql as _build_sql,
+)
+from ingest._upsert_helper import (
     validate as _validate_impl,
 )
 

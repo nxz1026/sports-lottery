@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Event parsing and odds/statistics extraction."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
-from core.log import logger
+
 # 兼容 re-export：tests/test_parse.py 仍 `from core.data.parse import to_cn`
 from core.i18n import to_cn
+from core.log import logger
 
 
 def parse_american_odds(odds_str: str | None) -> float | None:
@@ -141,8 +142,9 @@ def remove_vig(home_p: float | None, draw_p: float | None, away_p: float | None 
     - "logit"（默认）: 对数比例法 (Shen & Steinberg, 1994)，更准确处理热门方高抽水
     - "proportional": 简单比例法（向后兼容）
     """
-    from core.config import BOOKMAKER_MARGIN, MIN_IMPLIED_PROB
     import math
+
+    from core.config import BOOKMAKER_MARGIN, MIN_IMPLIED_PROB
 
     if draw_p is None:
         return None, None, None

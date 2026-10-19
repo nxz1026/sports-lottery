@@ -24,15 +24,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
-import os
-import threading
 import tarfile
 import time
 import urllib.error
 import urllib.request
-import io
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -603,7 +601,7 @@ def main() -> int:
     _locked = False
     if args.push_batch:
         if not _acquire_singleton_lock():
-            print(f"[singleton] 已有活跃批次在跑，本次 no-op")
+            print("[singleton] 已有活跃批次在跑，本次 no-op")
             return 0
         _locked = True
     try:

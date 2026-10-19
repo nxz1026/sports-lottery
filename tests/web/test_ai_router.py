@@ -136,8 +136,8 @@ def test_analyze_invalid_date_returns_available_false(client):
 
 def test_analyze_file_not_exists_returns_available_false(client, tmp_path):
     """日期合法但文件不存在 → available=False + no analysis note。"""
+
     import web.services.ai_analyze as aa_mod
-    import datetime as _dt
     with patch.object(aa_mod, "_output_path", return_value=tmp_path / "missing.json"):
         cookies = _login(client)
         r = client.get("/api/v1/ai/analyze?date=2026-01-01", cookies=cookies)

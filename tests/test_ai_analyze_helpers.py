@@ -17,8 +17,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
@@ -26,7 +24,6 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
         sys.path.insert(0, p)
 
 from web.services import ai_analyze as aa
-
 
 # ──────────────────────── _read_* 兜底 ────────────────────────
 
@@ -169,7 +166,7 @@ def test_main_returns_2_on_invalid_date(monkeypatch, capsys):
 
 def test_today_bjt_uses_plus8_offset(monkeypatch):
     """R25 #3：today_bjt() 走 +8h 时区；UTC 凌晨 ≤7:59 视为 BJT 仍同日。"""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     # 模拟 UTC 2026-10-15T01:00:00Z = BJT 2026-10-15T09:00:00 → 同日
     fake_utc = datetime(2026, 10, 15, 1, 0, 0, tzinfo=timezone.utc)
     fake_bjt = fake_utc.astimezone(timezone(timedelta(hours=8)))

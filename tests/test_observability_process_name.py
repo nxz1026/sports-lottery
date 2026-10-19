@@ -23,7 +23,6 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
         sys.path.insert(0, p)
 
 import core.observability as obs  # noqa: E402
-from core import log as core_log  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

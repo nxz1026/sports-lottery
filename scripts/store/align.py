@@ -9,7 +9,6 @@ token 子集（两侧非空、主客不互换、不许差实词）；两源不�
 from __future__ import annotations
 
 import re
-import unicodedata
 from datetime import datetime, timezone
 
 from core.log import logger

@@ -14,9 +14,10 @@ from core.constants import DC_RHO, MAX_GOALS_MC
 from core.log import logger
 from derive.grid import admissible_rho, dc_grid
 from derive.registry import derive_play
+from store import pg
+
 from model.fit import fit_attack_defense
 from model.sides import PRIOR, commit_sha, jqc_sides, lambdas
-from store import pg
 
 PLAYS = ("had", "crs", "ttg", "jqc")  # 本单只写这四种；hhad 缺官方让球线、haf 未注册
 SEASONS_SQL = "SELECT DISTINCT league_key, season FROM fact.fixture WHERE status = 'ft' AND round <> 'Relegation Round'"

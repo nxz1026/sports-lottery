@@ -1,6 +1,9 @@
 #!/usr/bin/env pwsh
 # sports-lottery pre-push hook
-# 在 git push 前自动跑 5x pytest 压测，任何一次 fail 阻断 push。
+# 在 git push 前依次跑：
+#   1) ruff check .（R46 起门禁，已清零）
+#   2) python tools/check_docs_claims.py（README/AGENTS 声明 vs 代码事实）
+#   3) 5x pytest 压测，任何一次 fail 阻断 push。
 # 设计参考：stress_runs/run5x.ps1（手动版）；R14 commit 1 提供自动化版。
 #
 # 启用方法（任一）：
@@ -12,8 +15,8 @@
 #   git push ...
 #
 # 退出码：
-#   0 = 5x 全过，放行 push
-#   1 = 任一次 fail，阻断 push
+#   0 = 门禁 + 5x 全过，放行 push
+#   1 = 任一 fail，阻断 push
 
 $ErrorActionPreference = 'Stop'
 
@@ -31,6 +34,26 @@ if (-not $repoRoot) {
 }
 Set-Location $repoRoot
 $env:PYTHONPATH = "scripts"
+
+# ── 快速门禁：ruff + 文档声明校验 ────────────────────────────
+# R46 起：ruff 已清零并纳入门禁；tools/check_docs_claims.py 守住
+# "README/AGENTS 声明 == 代码事实"（R43-R45 连续三轮栽在这里）。
+# 这两项都在 5x 压测之前跑，秒级失败好过压测完才发现。
+Write-Host "[pre-push] gate 1/2: ruff check ." -ForegroundColor Cyan
+& python -m ruff check .
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[pre-push] BLOCKED: ruff check 失败（新增 F/W/I 问题）" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "[pre-push] gate 2/2: check_docs_claims" -ForegroundColor Cyan
+& python tools/check_docs_claims.py
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[pre-push] BLOCKED: 文档声明与代码不一致（见上方 FAIL 行）" -ForegroundColor Red
+    Write-Host "[pre-push] 修正文档或代码后重试；确实需要更新声明时改 README/AGENTS 后再跑。" -ForegroundColor Yellow
+    exit 1
+}
+Write-Host "[pre-push] gates passed" -ForegroundColor Green
 
 # ── 测试范围（与 stress_runs/run5x.ps1 不同：用 retrain+ml_feedback 链路 + observability
 # 关键测试，避免 5x 全量 30+s 的体感）。PRIMARY:风险最高的改动面。

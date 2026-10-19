@@ -29,9 +29,8 @@ for p in (str(REPO_ROOT),):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from web.routers.jobs import _validate_bball_args
 from web.errors import ApiError
-
+from web.routers.jobs import _validate_bball_args
 
 # ──────────────────────── D-28 bool trap ────────────────────────
 

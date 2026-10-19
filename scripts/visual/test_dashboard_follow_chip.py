@@ -1,5 +1,8 @@
 """Playwright 验证 B 改动。 通过 route() 把 /dashboard/jc/api/ 重写到 /api/。"""
-import json, http.cookiejar, urllib.request
+import http.cookiejar
+import json
+import urllib.request
+
 from playwright.sync_api import sync_playwright
 
 BASE = "http://127.0.0.1:8077"
@@ -76,7 +79,7 @@ with sync_playwright() as p:
     assert after_off == initial_n
 
     if console_errors:
-        print(f"[B] console err:\n" + "\n".join(console_errors[:5]))
+        print("[B] console err:\n" + "\n".join(console_errors[:5]))
     assert not console_errors, f"{len(console_errors)} console errors"
 
     print("\n[B] PASS：关注 chip 现在真正生效")

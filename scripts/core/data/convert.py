@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Data format converters: football-data.org and API-Football to ESPN format."""
+
+from __future__ import annotations
 
 from core.data.parse import decimal_to_american
 

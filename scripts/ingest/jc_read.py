@@ -5,7 +5,9 @@ from datetime import datetime
 from pathlib import Path
 
 from core.log import logger
-from ingest.jc_manifest import _manifest, _check_entry, _resolve
+
+from ingest.jc_manifest import _check_entry, _manifest, _resolve
+
 OPTIONAL = ("jc_odds_history",)
 
 

@@ -30,9 +30,9 @@ for p in (str(REPO_ROOT),):
         sys.path.insert(0, p)
 
 from web import config
+from web.routers.jobs import _lazy_auto_trigger
 from web.services import jobs as jobs_mod
 from web.services import store
-from web.routers.jobs import _lazy_auto_trigger
 
 
 @pytest.fixture

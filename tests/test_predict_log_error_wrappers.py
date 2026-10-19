@@ -373,6 +373,7 @@ class TestPredictAllSkipsInactiveLeagues:
         caplog 直接挂到 logging root/propagation，不依赖 StreamHandler。
         """
         import logging
+
         import predict
 
         called_leagues: list[str] = []
@@ -577,10 +578,10 @@ class TestEmitMlImportFailure:
     def test_emit_predictions_import_failure_logs_and_returns(
             self, tmp_path, monkeypatch):
         """``core.ml_feedback.record_prediction`` 不存在 → import 失败兜底。"""
-        from predict import _emit_ml_predictions
         # 把 record_prediction 从 module 中删 → ``from core.ml_feedback import
         # record_prediction`` 失败
         import core.ml_feedback
+        from predict import _emit_ml_predictions
         monkeypatch.delattr(core.ml_feedback, "record_prediction", raising=False)
 
         # 不能走到 for 循环 — 函数应 import 失败直接 return
@@ -604,8 +605,8 @@ class TestEmitMlImportFailure:
     def test_emit_outcomes_import_failure_logs_and_returns(
             self, tmp_path, monkeypatch):
         """``core.ml_feedback.record_outcome`` 不存在 → import 失败兜底。"""
-        from core.output import _emit_ml_outcomes
         import core.ml_feedback
+        from core.output import _emit_ml_outcomes
         monkeypatch.delattr(core.ml_feedback, "record_outcome", raising=False)
 
         _emit_ml_outcomes([

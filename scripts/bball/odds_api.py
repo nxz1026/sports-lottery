@@ -1,9 +1,9 @@
 """The Odds API 的篮球数据访问与盘口解析。"""
-from datetime import datetime, timedelta, timezone
 import json
 import re
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 
 def _sanitize_url(url: str) -> str:

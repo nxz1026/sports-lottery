@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2357 passed / 71 skipped / 0 failed**（2428 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R64 +82**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2358 passed / 71 skipped / 0 failed**（2429 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -847,7 +847,7 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 
 ### v2.4 (2026-10-18 ~ 10-19) R62-R64 生产修复 + AGENTS.md + R43 策略收回
 
-v2.3 之后跨入"测试基线饱和、生产修复优先"阶段。本段记录 e280a3b 之后的 **10 个 commit**（审计 R45 校正，此前误写 7），测试基线 R61 2346 → **R64 2357 passed**（2428 collected；+82 净增后 R44 删守门测试 -5）：
+v2.3 之后跨入"测试基线饱和、生产修复优先"阶段。本段记录 e280a3b 之后的 **10 个 commit**（审计 R45 校正，此前误写 7），测试基线 R61 2346 → **R66 2358 passed**（2429 collected）：
 
 **Dashboard 三连发（4aea03d / 093dafa / f78aa40）**：
 - `4aea03d` 比赛详情面板人话翻译（取代 ML 术语）+ 三级 `modelProbs` 回退修复（`model.probs` → `prediction.probs` → 推导）
@@ -945,8 +945,7 @@ R43 以「避免 Windows cp1252/GBK 把日志打成乱码导致告警脚本 grep
 5. ⚠️「『推理内核零外部依赖』声明为假」
    → `core/i18n.py:50` 是函数体内 lazy import + 优雅降级，README 自身已注明 → 非虚假声明。
 
-**ruff 基线**：`ruff check .` 当前 699 条（`I001`185 / `W292`142 / `E402`107 /
-`E501`97 / `F401`88 / `F841`25…），其中生产代码 F 类仅 9 处。是否纳入门禁待决。
+**ruff 基线**：~~`ruff check .` 当前 699 条~~ → **R46 已清零，见下节**。
 
 **测试有效性（审计发现，本轮未修）**：
 - `tests/test_jc_view_aggregations.py:106-176` 有 5 个"钳制"测试名不副实
@@ -955,6 +954,31 @@ R43 以「避免 Windows cp1252/GBK 把日志打成乱码导致告警脚本 grep
   **吞掉断言** → 异常即静默通过（本轮修 lottery 时已顺带移除同类反模式）
 - `tests/web/test_no_scripts_import.py` 只遍历 `tree.body`（模块顶层），
   `try`/`if TYPE_CHECKING:` 块内的 import 不命中（实测 4 种注入只检出 1 种）
+
+**R46：ruff 门禁清零（698 → 0）+ 文档声明校验器**
+
+R45 结尾问"是否纳入门禁"，本轮给出答案：**纳入，且已清零**。
+
+| 类别 | 处置 | 说明 |
+|---|---|---|
+| `E402` 107 → 0 | **修根因**（12 文件） | 本仓把 `from __future__ import annotations` 写在模块 docstring **之前**，导致 docstring 变成无意义表达式（`__doc__` 为 None）且后续 import 全被报 E402。把 docstring 提回文件首句即同时修好两者 |
+| `I001`185 / `W292`142 / `F401`88 / `E401`6 / `W605`1 / `F541`3 | `ruff --fix` 自动修 | 439 处。F401 删除前逐类确认 `__init__.py` 门面重导出走 `__all__`（不受影响） |
+| `F841`24（全在 tests） | 逐条判读 | 多为 pytest fixture 注入或有意的可读性锚点（`before = ...` 后断言 `after`），删了只会更难读 → tests/ 豁免 F841；**生产代码 F 类现为 0** |
+| `W291`/`W293`4 | 手工修 | 中文 docstring 里的行尾空格 |
+| `E501`96 / `E701`19 / `E731`8 / `E741`11 | **显式豁免 + 写明理由** | 行宽集中在长中文注释/SQL/f-string，手工折行易改坏语义；`ruff format` 会一次重排 409 个文件（远超本轮范围）。E701/E731/E741 是 ingest/ 与彩票映射表的有意紧凑写法。**F 类与 W 类不豁免**——那是真问题 |
+
+豁免写在 `pyproject.toml` 的 `ignore` + `per-file-ignores`，每条都带决策说明，
+避免变成"默默忽略"。现在 `ruff check .` **All checks passed**，新增 F/W/I 问题会挡住提交。
+
+**新增 `tools/check_docs_claims.py`（17 项断言，改文档后重跑即可发现漂移）**
+
+R43/R44/R45 连续三轮栽在"文档声明与代码不符"（timer 09:00 vs 09:30、13 处 vs 14 处、
+pytest 须 PYTHONPATH vs 实际不需要）。本脚本把可机械校验的部分固化：
+版本号三方一致、timer 时刻与时区、systemd 单元名、部署路径、测试基线 collected 数、
+ruff 门禁退出码、dashboard.html 行号、`DEFAULT_N_SIMULATIONS` / `DEFAULT_PAST_DAYS` /
+`FEATURE_COLUMNS` 三处常量、仓库无明文凭据。首次运行即查出 8 处漂移（含
+`2428 collected` 已随 R46 变为 2429、AGENTS.md 仍称"ruff 非全绿"），修正后 **17/17 通过**。
+
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 

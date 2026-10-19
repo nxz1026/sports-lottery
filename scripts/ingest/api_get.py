@@ -15,12 +15,12 @@ from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 
-from psycopg import Connection, pq, sql
-from psycopg.types.json import Jsonb
-
 from config import source_policy, spend_allowed
 from core.constants import TIMEOUT_API_FOOTBALL, TIMEOUT_FOOTBALL_DATA
 from core.log import logger
+from psycopg import Connection, pq, sql
+from psycopg.types.json import Jsonb
+
 from ingest import quota
 
 SOURCES: dict[str, tuple[str, str, int]] = {  # source → (key 环境变量, 鉴权头, 超时秒)；key 名唯一出处是 config

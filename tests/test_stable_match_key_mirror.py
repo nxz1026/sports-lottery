@@ -18,8 +18,8 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(REPO_ROOT))
 
 from core.backtest import _bk_stable_key as engine_key  # noqa: E402
-from web.services.store import _stable_match_key as web_key  # noqa: E402
 
+from web.services.store import _stable_match_key as web_key  # noqa: E402
 
 # 每条 case 喂两侧同一份 rec；两侧返回值应一致，否则 = 镜像漂移
 _CASES: list[tuple[str, dict, str]] = [

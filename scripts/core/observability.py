@@ -31,7 +31,6 @@ import logging.handlers
 import os
 import sys
 import threading
-import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path

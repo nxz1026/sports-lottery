@@ -1,7 +1,7 @@
 """篮球引擎配置常数。"""
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 _ROOT_DIR = Path(__file__).parents[2]
 _SKILL_DIR = Path(__file__).parent.parent

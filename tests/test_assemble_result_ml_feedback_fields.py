@@ -87,7 +87,7 @@ class TestAssembleResultMlFeedbackFields(unittest.TestCase):
         }
         # ml_proba 三元组（H/D/A），触发 ml-blend 路径
         mock_blend.return_value = (0.55, 0.25, 0.20, [0.5, 0.25, 0.25])
-        from core.predictor import calculate_prediction, ML_CONFIG
+        from core.predictor import ML_CONFIG, calculate_prediction
         match = self._make_match()
         result = calculate_prediction(match, use_dixon_coles=False)
         self.assertIn("model_version", result)

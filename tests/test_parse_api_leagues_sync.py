@@ -15,8 +15,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
@@ -42,8 +40,8 @@ def test_fd_leagues_matches_historical():
 
 def test_nba_excluded_from_both():
     """NBA（无 api_football_id / league_id）不污染 AF_LEAGUES / FD_LEAGUES。"""
-    from store import parse_api
     from core.leagues import LEAGUE_CONFIG
+    from store import parse_api
 
     # LEAGUE_CONFIG 含 nba 但 nba 没有 api_football_id / league_id 字段
     assert "nba" in LEAGUE_CONFIG
@@ -53,8 +51,8 @@ def test_nba_excluded_from_both():
 
 def test_af_fd_keys_pair_with_league_config_football():
     """每个足球联赛 key（去 nba）都同时出现在 AF + FD 两张表里。"""
-    from store import parse_api
     from core.leagues import LEAGUE_CONFIG
+    from store import parse_api
 
     football_keys = {
         k for k, v in LEAGUE_CONFIG.items()
@@ -97,6 +95,7 @@ def test_adding_new_league_to_config_propagates_to_af(monkeypatch):
     )
     # force re-import parse_api to pick up the monkeypatched LEAGUE_CONFIG
     import importlib
+
     from store import parse_api
     importlib.reload(parse_api)
 
@@ -110,6 +109,7 @@ def test_removing_league_from_config_propagates(monkeypatch):
     monkeypatch.delitem(leagues.LEAGUE_CONFIG, "epl")
 
     import importlib
+
     from store import parse_api
     importlib.reload(parse_api)
 

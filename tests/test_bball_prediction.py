@@ -37,7 +37,6 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from bball import run as bball_run  # noqa: E402
 
-
 # 固定 now: 2026-09-15 10:00 UTC, BJT 2026-09-15 18:00 (同日 BJT date = 09-15)
 # 18:00Z commence 在 BJT 是 2026-09-16 02:00 -> kickoff_date = "2026-09-16"
 NOW = datetime(2026, 9, 15, 10, 0, tzinfo=timezone.utc)

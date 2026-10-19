@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.log import logger
 from psycopg import Connection
 from psycopg.types.json import Jsonb
 
-from core.log import logger
 from store import align
 from store.parse_api import af_fixtures, fd_fixtures
 from store.upsert_fixtures import af_anchors, league_maps, read_blocks

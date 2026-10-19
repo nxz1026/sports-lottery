@@ -4,9 +4,10 @@ from contextlib import closing
 from pathlib import Path
 
 from core.log import logger
+from store import pg
+
 from ingest.jc_read import OPTIONAL, files_for_batch, iter_markers
 from ingest.jc_topic import load_topic
-from store import pg
 
 TOPICS = ("jczq_offer", "jczq_result", "jc_issue", "jc_issue_result",
           "lottery_draw", "jclq_offer", "jclq_result")

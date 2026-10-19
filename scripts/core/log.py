@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Logging setup for the league-predict engine。
 
 P-6 增强：本模块顶层 ``logger = setup_logger("predict")`` 之后，``core.observability.setup()``
@@ -10,6 +8,8 @@ P-6 增强：本模块顶层 ``logger = setup_logger("predict")`` 之后，``cor
 
 进程崩溃后仍可从 ``runtime.log`` 回看 stderr 内容。
 """
+
+from __future__ import annotations
 
 import logging
 import os

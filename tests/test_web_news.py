@@ -276,6 +276,7 @@ def test_ttl_size_env_override(monkeypatch):
     monkeypatch.setenv("LEAGUE_PREDICT_NEWS_TTL_S", "120")
     monkeypatch.setenv("LEAGUE_PREDICT_NEWS_MAX_SIZE", "8")
     import importlib
+
     import web.services.news as news_mod
     importlib.reload(news_mod)
     assert news_mod._NEWS_TTL_S == 120.0

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -107,7 +106,6 @@ def test_setup_ahead_days_filters_far_future(predict_mod, monkeypatch):
     now_utc = datetime.now(timezone.utc)
 
     # 直接调 ahead_cutoff 路径：从 _setup_league_run 内部取出 cutoff 然后过滤 future
-    import math
     _ahead_days = max(1, int(getattr(args, "ahead_days", 5)))
     _ahead_cutoff_ts = (now_utc + (_ahead_days * 86400 * 1e6 / 1e6) if False else
                         (now_utc.timestamp() + _ahead_days * 86400))

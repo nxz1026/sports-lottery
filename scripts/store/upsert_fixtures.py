@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.log import logger
 from psycopg import Connection, sql
 from psycopg.types.json import Jsonb
 
-from core.log import logger
 from store import align
 from store.parse_api import af_fixtures, fd_fixtures
 from store.team_identity import merge_fd_teams, resolve_team

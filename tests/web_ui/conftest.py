@@ -30,7 +30,7 @@ STATIC_DIR = REPO_ROOT / "static"
 def _try_import_playwright():
     """Return playwright.sync_api or None; never raises."""
     try:
-        playwright = importlib.import_module("playwright")
+        importlib.import_module("playwright")
         return importlib.import_module("playwright.sync_api")
     except ImportError:
         return None

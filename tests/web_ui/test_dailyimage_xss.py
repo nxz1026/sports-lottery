@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1].parent
@@ -76,8 +75,8 @@ def test_esc_renders_payload_safely():
     src = (REPO_ROOT / "static" / "dailyimage.html").read_text(encoding="utf-8")
     m = re.search(r"const\s+esc\s*=[^\n]+", src)
     assert m, "esc implementation not found"
-    import subprocess
     import os
+    import subprocess
     js_src = (
         m.group(0)
         + "\nconst result = esc('<img onerror=alert(1)>');\nprocess.stdout.write(result);\n"

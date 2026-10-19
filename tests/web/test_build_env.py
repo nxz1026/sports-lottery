@@ -88,9 +88,9 @@ def test_includes_engine_relevant_keys():
 
 def test_unknown_env_var_dropped():
     """未列在白名单的任意变量都被丢弃（最小特权）。"""
-    from web.services import jobs
-
     import os
+
+    from web.services import jobs
     saved = os.environ.get("TOTALLY_RANDOM_XYZ_VAR")
     try:
         os.environ["TOTALLY_RANDOM_XYZ_VAR"] = "secret-stuff"
@@ -105,9 +105,9 @@ def test_unknown_env_var_dropped():
 
 def test_build_env_does_not_mutate_os_environ():
     """_build_env 必须返回新 dict，不应改动 os.environ。"""
-    from web.services import jobs
-
     import os
+
+    from web.services import jobs
     before = dict(os.environ)
     env = jobs._build_env()
     # 反向修改
@@ -119,9 +119,9 @@ def test_build_env_does_not_mutate_os_environ():
 
 def test_build_env_handles_missing_keys():
     """未设置的可选变量允许不存在；不应该抛 KeyError。"""
-    from web.services import jobs
-
     import os
+
+    from web.services import jobs
     saved = {k: os.environ.pop(k, None) for k in ("API_FOOTBALL_KEY", "LLM_API_KEY", "DSN_ING")}
     try:
         env = jobs._build_env()

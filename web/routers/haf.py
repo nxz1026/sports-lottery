@@ -63,6 +63,7 @@ def _resolve_match(payload: dict) -> tuple[str, str, float]:
     if (not home or not away) and payload.get("match_num") is not None:
         try:
             from store import jc_view
+
             from web.services import store as web_store
             today = web_store.bjt_today().isoformat()
             fixtures = jc_view.fixtures_on(today) or []

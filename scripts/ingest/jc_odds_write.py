@@ -4,9 +4,8 @@
 外层事务与已成功的行存活，单条坏行不炸整批（每天 144 趟）。"""
 from __future__ import annotations
 
-from psycopg.types.json import Json
-
 from core.log import logger
+from psycopg.types.json import Json
 from store.parse_odds_hist import parse_env
 
 _SQL = ("insert into fact.jc_odds_history "

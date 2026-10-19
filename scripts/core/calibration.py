@@ -1,13 +1,13 @@
-from __future__ import annotations
-
 """Calibration: historical match analysis and prediction offset computation."""
+
+from __future__ import annotations
 
 import json
 import time
 from pathlib import Path
 from typing import Any
 
-from core.config import PREDICTIONS_DIR, FOOTBALL_DIR
+from core.config import FOOTBALL_DIR, PREDICTIONS_DIR
 from core.log import logger
 
 

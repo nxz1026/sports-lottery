@@ -18,9 +18,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("SESSION_DB_PATH", str(tmp_path / "sessions.db"))
     monkeypatch.setenv("AUTH_USERNAME", "unit-test-user")
     monkeypatch.setenv("AUTH_PASSWORD", "unit-test-pass")
+    import web.auth as auth
     import web.config as config
     import web.session_store as session_store
-    import web.auth as auth
     importlib.reload(config)
     importlib.reload(session_store)
     importlib.reload(auth)

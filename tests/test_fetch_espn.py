@@ -29,11 +29,9 @@ from __future__ import annotations
 
 import gzip
 import importlib.util
-import io
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 

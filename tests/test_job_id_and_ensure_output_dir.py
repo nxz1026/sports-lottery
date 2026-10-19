@@ -18,8 +18,6 @@ import re
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for p in (str(REPO_ROOT),):
     if p not in sys.path:
@@ -27,7 +25,6 @@ for p in (str(REPO_ROOT),):
 
 from web.services import ai_analyze as ai_mod
 from web.services import jobs as jobs_mod
-
 
 # ──────────────────────── D-38 _ensure_output_dir ────────────────────────
 

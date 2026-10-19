@@ -21,9 +21,8 @@ P-6 (2026-10-13) 引入。**目标**：为后续提升预测准确率保留结�
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import core.observability as _obs
 

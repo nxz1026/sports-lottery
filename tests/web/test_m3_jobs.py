@@ -403,6 +403,7 @@ class TestOrphanRecovery:
     def test_stale_running_is_recovered(self, client, tmp_path, monkeypatch):
         """running 超过 2*timeout → active_job 回收为 failed 并放行新任务。"""
         import time as _t
+
         from web.services import jobs as jb
         stale = jb.create_job([], trigger="test")
         jb._spin_state(stale["id"], jb.STATUS_RUNNING, started_at=_t.time() - 99999)

@@ -12,10 +12,9 @@ import shutil
 from contextlib import closing, nullcontext
 from pathlib import Path
 
+from core.log import logger
 from psycopg import Connection, pq, sql
 from psycopg.types.json import Jsonb
-
-from core.log import logger
 from store import pg
 from store.parse_collector import canonical_src_hash, row_error
 from store.upsert_official import RAW_PREVIEW_CHARS, STG_TABLES

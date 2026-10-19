@@ -31,7 +31,7 @@ def test_untrusted_direct_ignores_proxy_headers():
 
     模拟外部客户端直连后端（绕过 nginx），伪造 XFF 头不能改变记录的 IP。
     """
-    from web import auth, config
+    from web import auth
 
     req = _make_request(
         "203.0.113.50",  # RFC 5737 doc IP，假设不在白名单
@@ -43,7 +43,7 @@ def test_untrusted_direct_ignores_proxy_headers():
 
 def test_trusted_direct_reads_xff_first_hop():
     """直连 IP 是 nginx（127.0.0.1）+ 有 XFF → 取首跳（原始客户端）。"""
-    from web import auth, config
+    from web import auth
 
     req = _make_request(
         "127.0.0.1",
@@ -55,7 +55,7 @@ def test_trusted_direct_reads_xff_first_hop():
 
 def test_trusted_direct_reads_x_real_ip_when_no_xff():
     """直连 IP 是 nginx + 无 XFF + 有 X-Real-IP → 取 X-Real-IP。"""
-    from web import auth, config
+    from web import auth
 
     req = _make_request(
         "127.0.0.1",
@@ -110,13 +110,13 @@ def test_login_rate_limit_uses_real_ip_when_behind_proxy():
     mock 配置 + TestClient + 5 次错误登录后第 6 次应 429。
     """
     from unittest.mock import patch
+
+    # 用 m1 的 app fixture 不依赖：临时建一个 app
+    from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     from web import auth, config, errors
     from web.auth import router as auth_router
-
-    # 用 m1 的 app fixture 不依赖：临时建一个 app
-    from fastapi import FastAPI
     app = FastAPI()
     errors.register(app)  # 让 ApiError 转 401/429 JSON 响应
     app.include_router(auth_router)

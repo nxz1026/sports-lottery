@@ -13,7 +13,7 @@ import argparse
 import json
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,27 +25,29 @@ _REPO_ROOT = str(Path(__file__).parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+from core.backtest import backtest_with_live_results, reconcile_predictions
+from core.calibration import build_calibration, compute_calibration_offset, load_historical_past_matches
 from core.config import (
-    LEAGUE_CONFIG, PREDICTIONS_DIR, DC_RHO, DEFAULT_N_SIMULATIONS, DEFAULT_PAST_DAYS,
+    DC_RHO,
+    DEFAULT_N_SIMULATIONS,
+    DEFAULT_PAST_DAYS,
+    LEAGUE_CONFIG,
+    PREDICTIONS_DIR,
 )
 from core.constants import DEFAULT_AHEAD_DAYS
-from core.log import logger
 from core.data.fetch import fetch_events
-from core.rankings import fetch_fifa_rankings
 from core.data.parse import parse_events
+from core.elo import get_or_init_elo_ratings, process_match_result, save_elo_ratings
+from core.log import logger
+from core.model.monte_carlo import build_league_standings, derive_team_strengths, monte_carlo_champion
 from core.model.poisson import fit_dc_rho
-from core.model.monte_carlo import (
-    monte_carlo_champion, build_league_standings, derive_team_strengths
-)
-from core.calibration import build_calibration, compute_calibration_offset, load_historical_past_matches
-from core.backtest import reconcile_predictions, backtest_with_live_results
 from core.output import cleanup_old_files, save_results
 from core.predictor import calculate_prediction
-from core.elo import get_or_init_elo_ratings, process_match_result, save_elo_ratings
+from core.rankings import fetch_fifa_rankings
 
 # AI feedback loop — load previous enrichment scores (按联赛在 run_league 内隔离加载)
 try:
-    from ai.feedback_loop import load_ai_adjustments, adjust_prediction
+    from ai.feedback_loop import adjust_prediction, load_ai_adjustments
 except Exception:
     def load_ai_adjustments(league_key: str = "") -> dict:  # noqa: ARG001
         return {}
@@ -617,8 +619,8 @@ def _setup_league_run(league_key: str, args, now_utc, dates_str):
         espn_slug = league_config.get("espn_slug")
         if espn_slug:
             try:
-                from core.data.odds_enrich import enrich_soccer_odds
                 from core.data.fetch import fetch_espn
+                from core.data.odds_enrich import enrich_soccer_odds
                 days = sorted({str(m.get("kickoff_utc"))[:10].replace("-", "")
                                for m in future if m.get("kickoff_utc")})
                 espn_events: list = []
@@ -782,9 +784,9 @@ def _apply_ml_args(args) -> bool:
         logger.info("ML blending disabled via --no-ml")
 
     if args.train_ml:
+        from core.elo import get_or_init_elo_ratings
         from core.model.ml_model import train_all_league_models
         from core.rankings import fetch_fifa_rankings
-        from core.elo import get_or_init_elo_ratings
         fifa = fetch_fifa_rankings()
         elo = get_or_init_elo_ratings(fifa)
         logger.info("Training per-league ML models from historical data...")
@@ -817,11 +819,12 @@ def _refresh_ml_models(league_key=None, max_age_days: float = 0.0, base_dir=None
     （约 6 分钟预测 + 1 分钟 retrain ≈ 7 分钟）相比可接受。
     如需回退 → 在调用方显式传 ``max_age_days=1.0`` 即可。
     """
-    from core.config import LEAGUE_CONFIG, FOOTBALL_DIR
-    from core.model.ml_model import train_league_model
-    from pathlib import Path
     import os
     import time as _t
+    from pathlib import Path
+
+    from core.config import FOOTBALL_DIR, LEAGUE_CONFIG
+    from core.model.ml_model import train_league_model
     keys = [league_key] if league_key else list(LEAGUE_CONFIG)
     base = Path(base_dir) if base_dir else Path(FOOTBALL_DIR) / "references"
     out: dict = {}
@@ -869,6 +872,7 @@ def _cleanup_intermediate(days: int = 7) -> dict:
     返回 {predictions,results,references} 各自删除数。
     """
     import time as _t
+
     from core.config import FOOTBALL_DIR
     cutoff = _t.time() - days * 86400
     base = Path(FOOTBALL_DIR)

@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-import json
 import random
 import sys
 import tempfile
@@ -20,10 +19,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from core import observability as obs  # noqa: E402
 import core.ml_feedback as mlf  # noqa: E402
+from core import observability as obs  # noqa: E402
 from core.retrain_baseline import (  # noqa: E402
-    evaluate_baseline, reliability_diagram, format_report, format_reliability_report,
+    evaluate_baseline,
+    format_reliability_report,
+    format_report,
+    reliability_diagram,
 )
 
 

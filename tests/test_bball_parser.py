@@ -21,13 +21,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from bball import run as bball_run  # noqa: E402
-
 
 # ──────────────────────── D-51 flag + default 锁 ────────────────────────
 

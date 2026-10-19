@@ -14,7 +14,6 @@
 """
 from __future__ import annotations
 
-
 # 边角输入钳制
 _ODDS_MIN = 1.01
 _PROB_MIN = 0.0

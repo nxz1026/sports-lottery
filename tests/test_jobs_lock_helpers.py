@@ -26,9 +26,8 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from web.services import jobs as jobs_mod
 from web.errors import LockTimeout
-
+from web.services import jobs as jobs_mod
 
 # ──────────────────────── _exclusive_lock ────────────────────────
 

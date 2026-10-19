@@ -173,9 +173,11 @@ class TestAdminEventsSummaryEndpoint:
     @pytest.fixture()
     def client(self, monkeypatch):
         import importlib
-        from fastapi.testclient import TestClient
+
         # 隔离 env，让 tests 不依赖生产 session.db
         import tempfile
+
+        from fastapi.testclient import TestClient
         tmp = tempfile.mkdtemp()
         monkeypatch.setenv("AUTH_USERNAME", "unit-test-user")
         monkeypatch.setenv("AUTH_PASSWORD", "unit-test-pass")

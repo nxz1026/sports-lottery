@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Iterable
 
-
 DEFAULT_THRESHOLD_HOURS = 24
 
 

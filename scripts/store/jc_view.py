@@ -19,10 +19,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from psycopg.rows import dict_row
-
 from core.log import logger
 from market.devig import safe_devig
+from psycopg.rows import dict_row
+
 from store import pg
 
 

@@ -10,7 +10,7 @@ from unittest.mock import patch
 from core.config import ML_CONFIG
 from core.model.features import NUM_FEATURES
 from core.model.ml_model import MatchMLModel, load_league_model, save_league_model
-from core.predictor import calculate_prediction, _ML_MODEL_CACHE
+from core.predictor import _ML_MODEL_CACHE, calculate_prediction
 
 
 def _make_match(**overrides):

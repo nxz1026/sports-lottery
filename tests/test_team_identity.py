@@ -24,6 +24,7 @@ from core.i18n import to_cn  # noqa: E402
 from psycopg.types.json import Jsonb  # noqa: E402
 from store import pg, upsert_fixtures  # noqa: E402
 from store.team_identity import FD_KEY  # noqa: E402
+
 from tests.test_align import _af_body, _fd_body, _put, _q  # noqa: E402
 
 

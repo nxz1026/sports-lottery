@@ -50,8 +50,8 @@ def mc_mod():
 
 def _stub_pmf_max_goals(monkeypatch, pmf_func, max_goals: int = 2):
     """Stub dixon_coles_pmf + MAX_GOALS_MC 让循环受控。"""
-    from core.model import poisson as poisson_mod
     from core import config as config_mod
+    from core.model import poisson as poisson_mod
 
     monkeypatch.setattr(poisson_mod, "dixon_coles_pmf", pmf_func)
     monkeypatch.setattr(config_mod, "MAX_GOALS_MC", max_goals)

@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.log import logger
 from psycopg.rows import dict_row
 
-from core.log import logger
 from store import pg
 
 _TEAMS_SQL = """select m.league_cn as league,

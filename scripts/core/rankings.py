@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """FIFA rankings: single source of truth, breaks circular dependency between model and data layers."""
+
+from __future__ import annotations
 
 import json
 

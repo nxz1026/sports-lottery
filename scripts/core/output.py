@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Output: save results and cleanup old files."""
+
+from __future__ import annotations
 
 import json
 import time

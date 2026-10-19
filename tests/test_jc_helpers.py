@@ -26,15 +26,12 @@ import sys
 import types
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for p in (str(REPO_ROOT),):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 from web.routers import jc as jc_mod
-
 
 # ──────────────────────── _envelope D-47 ────────────────────────
 
@@ -67,7 +64,7 @@ def test_picks_context_d47_basketball_returns_empty_string(monkeypatch):
         return []
 
     monkeypatch.setattr(jc_mod, "_picks_context",
-                        lambda sport, limit=2: "")  # noqa: 已经测默认行为
+                        lambda sport, limit=2: "")  # 默认行为已由其它用例覆盖
     # 直接调源函数 - 不应该触发网络/import
     out = jc_mod._picks_context("basketball", limit=3)
     assert out == ""
@@ -109,7 +106,6 @@ def test_picks_context_happy_path_renders_two_picks(monkeypatch):
     monkeypatch.setattr(build_rows, "__call__",
                         lambda f, p: f)
     # 注: build_rows 是函数, 不可直接 setattr. 用 monkeypatch.setattr 在 web.routers.jc 上的 import 名
-    import web.routers.jc as _jc_ns
     # 由于 _picks_context 内 lazy import `from web.services.team_match import build_rows as _br`,
     # _br 是函数引用, 我们不能直接 patch 函数, 但可 patch web.services.team_match.build_rows
     import web.services.team_match as _tm

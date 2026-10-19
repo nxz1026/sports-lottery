@@ -9,8 +9,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
@@ -28,8 +26,9 @@ _FIXTURES = [
 
 def test_compute_haf_matches_scripts_derive_probs():
     """web.compute_haf 输出 ≡ scripts.derive.haf.probs 输出。"""
-    from web.services.haf import compute_haf
     from derive.haf import probs as scripts_probs
+
+    from web.services.haf import compute_haf
 
     for label, lh, la, line, mg in _FIXTURES:
         web = compute_haf(lh, la, line=line, max_goals=mg)
@@ -39,8 +38,9 @@ def test_compute_haf_matches_scripts_derive_probs():
 
 def test_compute_haf_uses_scripts_authoritative_constants():
     """HT_RATIO 与 HAF_ORDER 在 web / scripts 端必须一致（任何一边改都该同步）。"""
-    from web.services import haf as web_haf
     from derive import haf as scripts_haf
+
+    from web.services import haf as web_haf
 
     assert web_haf.HT_RATIO == scripts_haf.HT_RATIO
     assert web_haf.HAF_ORDER == scripts_haf.HAF_ORDER
@@ -48,8 +48,9 @@ def test_compute_haf_uses_scripts_authoritative_constants():
 
 def test_compute_haf_invalid_inputs_match():
     """非法 λ → web / scripts 都返 None（同步语义）。"""
-    from web.services.haf import compute_haf
     from derive.haf import probs as scripts_probs
+
+    from web.services.haf import compute_haf
 
     invalid = [(None, 1.0), (1.0, None), (0.0, 1.0), (-1.0, 1.0),
                ("x", 1.0), (1.0, "x")]
@@ -60,8 +61,9 @@ def test_compute_haf_invalid_inputs_match():
 
 def test_compute_haf_zero_line_matches_no_line():
     """line=0 与省略 line 在 web / scripts 两端都等价。"""
-    from web.services.haf import compute_haf
     from derive.haf import probs as scripts_probs
+
+    from web.services.haf import compute_haf
 
     lh, la = 1.5, 1.2
     assert compute_haf(lh, la, line=0) == compute_haf(lh, la)

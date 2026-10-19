@@ -37,10 +37,9 @@ for p in (str(REPO_ROOT),):
         sys.path.insert(0, p)
 
 from web import config  # noqa: F401  pre-import; ensure package init
-from web.services import store
 from web.routers import jobs as router_jobs
 from web.routers.jobs import _today_has_data
-
+from web.services import store
 
 FIXED_TODAY = __import__("datetime").date(2026, 7, 15)
 

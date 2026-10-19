@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """ELO Dynamic Rating System (P4-1).
 
 场级更新的 ELO 评分系统，替代静态 FIFA 月级排名。
 支持主客场调整、目标得分期望（GDA）、多联赛适配。
 P0-D 升级: 增加 ELO ratings 持久化（save/load），避免每次冷启动。
 """
+
+from __future__ import annotations
 
 import json
 import math

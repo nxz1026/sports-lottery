@@ -102,7 +102,6 @@ def test_build_league_output_d53_reconciliation_only_when_nonempty(predict_mod):
     a = _args(predict_mod)
     # 默认 reconcile_predictions 行为: 空 dict / 空 -> 不附
     monkeypatch = None  # 用 fixture 自带的 monkeypatch
-    import pytest as _pytest
     # 用 mock: 让 reconcile_predictions 返空 / 返非空
     predict_mod.reconcile_predictions = lambda past: {}  # 空 -> 不附
     a["past"] = [{"match_id": "x"}]

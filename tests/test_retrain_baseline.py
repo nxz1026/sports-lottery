@@ -24,11 +24,17 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import core.observability as obs  # noqa: E402
 import core.ml_feedback as mlf  # noqa: E402
+import core.observability as obs  # noqa: E402
 from core.retrain_baseline import (  # noqa: E402
-    evaluate_baseline, load_joined_samples, format_report, run,
-    BaselineMetrics, _brier, _top_label, _naive_top_label,
+    BaselineMetrics,
+    _brier,
+    _naive_top_label,
+    _top_label,
+    evaluate_baseline,
+    format_report,
+    load_joined_samples,
+    run,
 )
 
 

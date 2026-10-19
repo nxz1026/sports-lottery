@@ -40,7 +40,6 @@ D-123 锁 align._side_hit + _pair_hit (6 测):
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -134,8 +133,8 @@ def align_mod():
 
 def _valid_envelope(topic: str = "x", payload: dict | None = None) -> str:
     """构造符合 ENVELOPE 8 字段的合法 JSON 行. src_hash 通过 canonical_src_hash 校验."""
-    from core.team_norm import strip_accents_and_lowercase  # 实际不用, 反正 sanity
-    import hashlib, json
+    import hashlib
+    import json
     payload = payload or {"result": "data"}
     # 仿照 parse_values.canonical_src_hash 算 sha256 (简化版)
     canon = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False)

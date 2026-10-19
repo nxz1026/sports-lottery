@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from derive import goals4, haf, scores31, totals
+from derive import goals4, scores31, totals
 from derive.handicap import probs
 
 PlayOut = dict[str, float] | tuple[dict[str, float], dict[str, float]]

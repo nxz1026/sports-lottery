@@ -12,7 +12,6 @@ from collections import Counter
 from functools import lru_cache
 from typing import Iterable
 
-
 # ---- 彩种元数据（范围/位数；不做金额） ----
 GAME_SPEC: dict = {
     "85":      {"name": "超级大乐透", "front": 5, "back": 2, "front_pool": 35, "back_pool": 12},

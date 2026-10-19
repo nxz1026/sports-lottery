@@ -152,7 +152,6 @@ def test_train_ml_triggers_early_return(predict_mod, monkeypatch):
     fake_elo_mod = type("E", (), {"get_or_init_elo_ratings": staticmethod(lambda f: fake_elo)})
 
     # 拦截 imports 走 fake namespace（sys.modules 已含这些包，无需 monkeypatch）
-    import core.config as core_cfg
 
     monkeypatch.setitem(sys.modules, "core.model.ml_model", fake_ml_model)
     monkeypatch.setitem(sys.modules, "core.rankings", fake_rankings)

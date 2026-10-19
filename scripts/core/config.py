@@ -8,7 +8,7 @@ specific sub-modules directly.
 from __future__ import annotations
 
 # ── 从 constants 重新导出所有符号 ──────────────────
-from core.constants import (                     # noqa: F401
+from core.constants import (  # noqa: F401
     _SKILL_DIR,
     BOOKMAKER_MARGIN,
     CONFEDERATION_STRENGTH,
@@ -36,12 +36,12 @@ from core.constants import (                     # noqa: F401
 )
 
 # ── 从 leagues 重新导出所有符号 ────────────────────
-from core.leagues import (                      # noqa: F401
+from core.leagues import (  # noqa: F401
     LEAGUE_CONFIG,
     LEAGUE_DC_RHO,
     LEAGUE_LAMBDA_MULTIPLIER,
 )
- 
+
 LEAGUE_CONFIG["nba"] = {
     "name": "NBA",
     "name_cn": "NBA",

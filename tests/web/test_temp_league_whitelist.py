@@ -17,7 +17,6 @@ for p in (str(REPO_ROOT), str(REPO_ROOT / "scripts")):
 
 from web.config import parse_league_temp  # noqa: E402
 
-
 # ---------- parse_league_temp 单元测试 ----------
 
 def test_parse_empty_returns_empty_tuple():
@@ -97,13 +96,14 @@ def client(monkeypatch):
     monkeypatch.setenv("SESSION_DB_PATH", "/tmp/jctemp-sessions.db")
     monkeypatch.setenv("AUTH_USERNAME", "unit-temp")
     monkeypatch.setenv("AUTH_PASSWORD", "unit-pass")
+    import web.auth
     import web.config as config
     import web.session_store
-    import web.auth
     for m in (config, web.session_store, web.auth):
         importlib.reload(m)
-    from web.api import create_app
     from fastapi.testclient import TestClient
+
+    from web.api import create_app
     return TestClient(create_app())
 
 
@@ -115,8 +115,9 @@ def _login(c):
 def test_daily_image_filter_includes_temp_league(monkeypatch, client):
     """env 配 LEAGUE_TEMP_LEAGUES=亚运会女足 → daily-image 过滤后应保留 1 行亚运会女足。"""
     monkeypatch.setenv("LEAGUE_TEMP_LEAGUES", "亚运会女足")
+    import web.auth
     import web.config as config
-    import web.session_store, web.auth
+    import web.session_store
     for m in (config, web.session_store, web.auth):
         importlib.reload(m)
     from web.routers import jc as jc_router

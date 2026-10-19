@@ -119,7 +119,7 @@ def test_algo_suggestion_d76_3_missing_confidence_returns_none_rating(tm_mod):
 
 
 def test_algo_suggestion_d76_4_invalid_stars_returns_zero(tm_mod):
-    """R47-4 D-76-4: stars 缺或非标准格式 -> stars=0。
+    r"""R47-4 D-76-4: stars 缺或非标准格式 -> stars=0。
 
     L127-130 `m = re.search(r"(\d+)-star", stars); if m: n_star = int(m.group(1))`。
     缺 stars / "无星" / "star" (无数字) / None 都 -> 0。

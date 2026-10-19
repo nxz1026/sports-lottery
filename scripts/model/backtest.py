@@ -20,7 +20,8 @@ from math import log
 from core.log import logger
 from derive import scores31
 from derive.handicap import KEYS as HAD_KEYS
-from derive.totals import KEYS as TTG_KEYS, TOP as TTG_TOP
+from derive.totals import KEYS as TTG_KEYS
+from derive.totals import TOP as TTG_TOP
 
 EPS = 1e-6  # log_loss 的显式下界：p 为精确 0 是真会发生的，不许悄悄 clamp 成别的值
 JQC_KEYS = ("0", "1", "2", "3+")  # 竞彩官方 4 档（设计 §6.1）：一队进球 ≥3 全并进 "3+"

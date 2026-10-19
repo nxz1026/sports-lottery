@@ -1,13 +1,13 @@
 """Tests for calibration module (P1-5: 补充核心路径覆盖)"""
 
-import unittest
-import tempfile
-
 import sys
+import tempfile
+import unittest
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from core.calibration import compute_calibration_offset, build_calibration, _parse_score, append_historical_past_matches
+from core.calibration import _parse_score, append_historical_past_matches, build_calibration, compute_calibration_offset
 
 
 class TestParseScore(unittest.TestCase):

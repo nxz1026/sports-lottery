@@ -20,8 +20,8 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import core.observability as obs  # noqa: E402
 import core.ml_feedback as mlf  # noqa: E402
+import core.observability as obs  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

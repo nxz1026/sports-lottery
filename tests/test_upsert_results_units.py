@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from store import upsert_results  # noqa: E402
 
-
 # ────────────────────────── 常量模板 ──────────────────────────
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from core.config import FOOTBALL_DIR, COUNTRY_CN
+from core.config import COUNTRY_CN, FOOTBALL_DIR
 from core.log import logger
 
 TRANSLATION_CACHE_FILE = FOOTBALL_DIR / "references" / "team_translations.json"

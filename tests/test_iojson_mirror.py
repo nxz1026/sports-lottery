@@ -23,8 +23,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
@@ -38,9 +36,10 @@ def test_iojson_encodings_are_known_set():
 
 def test_web_store_json_load_uses_same_three_encodings():
     """web/services/store._json_load 兜底集合与 scripts 端镜像（utf-8/gbk/gb18030）。"""
-    from web.services import store
     # 从 web 端 _json_load 源码字面量提取（避免直接 import private）
     import inspect
+
+    from web.services import store
     src = inspect.getsource(store._json_load)
     for enc in ("utf-8", "gbk", "gb18030"):
         assert f'"{enc}"' in src, (
@@ -120,6 +119,7 @@ def test_backtest_uses_try_load_json_with_gb18030_fallback(tmp_path, monkeypatch
     _try_load_json + 包含 gb18030 兜底（旧版漏 gb18030 的漂移已修复）。
     """
     import inspect
+
     from core import backtest
 
     # 不直接 import _bk_load_recent_predictions（私有），从源码确认

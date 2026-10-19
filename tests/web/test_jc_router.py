@@ -17,7 +17,6 @@ import base64
 import importlib
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -127,7 +126,6 @@ def test_fixtures_invalid_day_returns_400(client):
 
 def test_fixtures_valid_day_passes_through(client):
     """day=2026-01-15 → 走 _DAY_BY 分支（fixtures_on 被调）。"""
-    import store.jc_view as jcv
     seen = []
     monkeypatch_ = None  # noqa
     cookies = _login(client)

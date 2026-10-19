@@ -15,26 +15,27 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from web import config
-from web import errors
-from web.services import health as health_svc
+from web import config, errors
 from web.auth import router as auth_router
+from web.services import health as health_svc
+
 try:
     from web.routers.ai import router as ai_router
 except Exception:  # AI 扩展模块损坏不得拖垮 app 启动（WO-M3 验收点 C）
     errors.logger.exception("AI 路由导入失败，已降级跳过")
     ai_router = None
-from web.routers.jobs import router as jobs_router
-from web.routers.jc import router as jc_router, v1_router as jc_v1_router
-from web.routers.jc_ops import router as jc_ops_router
-from web.routers.predictions import router as predictions_router
-from web.routers.sources import router as sources_router
+from web.lifecycle import lifespan
+from web.routers.admin import router as admin_router  # R15b
 from web.routers.combo import router as combo_router
 from web.routers.haf import router as haf_router
+from web.routers.jc import router as jc_router
+from web.routers.jc import v1_router as jc_v1_router
+from web.routers.jc_ops import router as jc_ops_router
+from web.routers.jobs import router as jobs_router
 from web.routers.lottery_api import router as lottery_api_router
+from web.routers.predictions import router as predictions_router
+from web.routers.sources import router as sources_router
 from web.routers.ticket import router as ticket_router
-from web.routers.admin import router as admin_router  # R15b
-from web.lifecycle import lifespan
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 APP_TITLE = "league-api"

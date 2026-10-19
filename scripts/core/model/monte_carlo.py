@@ -19,8 +19,8 @@ from core.log import logger
 
 def simulate_match_dc(lambda_h: float, lambda_a: float, rho: float = 0.2) -> tuple[int, int]:
     """用 Dixon-Coles 联合泊松模拟单场比分"""
-    from core.model.poisson import dixon_coles_pmf
     from core.config import MAX_GOALS_MC
+    from core.model.poisson import dixon_coles_pmf
 
     _max_g = MAX_GOALS_MC  # 统一范围常量（与 poisson.py dixon_coles_match_probs 一致）
     probs: list[tuple[int, int, float]] = []
@@ -161,7 +161,6 @@ from core.model.monte_carlo_league import (  # noqa: E402,F401
     simulate_league,
 )
 from core.model.monte_carlo_worldcup import simulate_world_cup  # noqa: E402,F401
-
 
 __all__ = [
     "simulate_match_dc",

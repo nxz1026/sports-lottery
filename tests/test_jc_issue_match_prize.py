@@ -2,7 +2,8 @@
 prizeLevelList → fact.jc_issue_prize。纯函数 + 假游标两层测，DB 由 conn fixture 隔离。"""
 from __future__ import annotations
 
-import sys, uuid
+import sys
+import uuid
 from datetime import date
 from pathlib import Path
 

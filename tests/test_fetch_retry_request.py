@@ -1,6 +1,6 @@
 """R36-5: scripts/core/data/fetch.py::_retry_request 5 测直测 + D-19 锁定（Top 6）。
 
-现状：通用重试机制 0 直测；仅在 test_p0_window_mc_stablekey.py / 
+现状：通用重试机制 0 直测；仅在 test_p0_window_mc_stablekey.py /
 test_setup_league_run_branches.py 中以 monkeypatch 间接使用。
 所有外部 API 调用的统一重试器，指数退避。
 
@@ -18,7 +18,6 @@ D-19 bug-shaped 锁定（fetch.py:100）：`delay = ESPN_RETRY_DELAY_SECONDS * 2
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 

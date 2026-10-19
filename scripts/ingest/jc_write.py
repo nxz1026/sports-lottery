@@ -8,7 +8,6 @@ from typing import Any
 
 from psycopg import sql
 from psycopg.types.json import Json
-
 from store.parse_values import dec
 
 

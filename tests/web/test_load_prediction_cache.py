@@ -81,8 +81,8 @@ def test_cache_invalidates_on_new_file(tmp_path, monkeypatch):
 
 def test_cache_invalidates_on_file_modified(tmp_path, monkeypatch):
     """已有文件被覆盖 → mtime 变化 → 失效。"""
+
     from web.services import store as store_mod
-    import os
 
     monkeypatch.setattr(store_mod, "OUTPUT_DIR", tmp_path)
     (tmp_path / "predictions").mkdir()

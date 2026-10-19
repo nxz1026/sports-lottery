@@ -22,7 +22,6 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from bball import run as bball_run  # noqa: E402
 
-
 # ---- _kickoff_utc / _kickoff_date ----
 
 def test_kickoff_utc_iso_with_z_round_trip() -> None:

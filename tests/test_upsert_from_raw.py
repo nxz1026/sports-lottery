@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from core.i18n import to_cn  # noqa: E402
 from store import pg, selfcheck, upsert_fixtures, upsert_results  # noqa: E402
+
 from tests.test_align import COUNT_SQL, _af_body, _fd_body, _put, _q  # noqa: E402
 
 

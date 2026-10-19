@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.elo import expected_score, DEFAULT_ELO
+from core.elo import DEFAULT_ELO, expected_score
 
 FEATURE_COLUMNS: list[str] = [
     # Odds features

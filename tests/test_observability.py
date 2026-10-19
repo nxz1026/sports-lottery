@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import logging
 import sys
-import threading
 from pathlib import Path
 
 import pytest
@@ -157,7 +156,6 @@ def test_sys_excepthook_writes_critical_and_event(tmp_path):
         # 直接手动重演 my_hook 的核心（写 logger + log_event）+ 调 fake_default
         # 完整路径：manually 模拟，因为 hook 内部对 default 的引用是 closure 捕获的
         # 验证：写文件的部分被触发了
-        from types import TracebackType
         import traceback
         try:
             raise ValueError("uncaught test")
@@ -229,6 +227,7 @@ def test_core_log_import_triggers_observability_autoinstall(tmp_path, monkeypatc
     monkeypatch.setattr(core_log.observability, "logs_dir", lambda: tmp_path / "auto_logs")
     # 强制 import 触发顶层 setup
     import importlib
+
     import core.log
     importlib.reload(core.log)
     # 验证：装挂在默认 FOOTBALL_DIR/logs（不是 monkeypatch 路径）—— 因 setup() 早于 monkeypatch

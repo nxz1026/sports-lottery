@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
-import json
-import urllib.request
 import gzip
+import json
 import os
 import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from core.config import (
-    ESPN_URL_TEMPLATE, ESPN_MAX_RETRIES, ESPN_RETRY_DELAY_SECONDS,
-    ESPN_TIMEOUT_SECONDS, LEAGUE_CONFIG, FOOTBALL_DIR,
-    TIMEOUT_FOOTBALL_DATA, TIMEOUT_API_FOOTBALL,
+    ESPN_MAX_RETRIES,
+    ESPN_RETRY_DELAY_SECONDS,
+    ESPN_TIMEOUT_SECONDS,
+    ESPN_URL_TEMPLATE,
+    LEAGUE_CONFIG,
+    TIMEOUT_API_FOOTBALL,
+    TIMEOUT_FOOTBALL_DATA,
 )
+from core.data.convert import convert_api_football_to_espn_format, convert_football_data_to_espn_format
 from core.log import logger
-from core.data.convert import convert_football_data_to_espn_format, convert_api_football_to_espn_format
 
 
 # ── 启动时 API Key 预检（P1-2）─────────────────────────────
@@ -317,4 +321,3 @@ def fetch_api_football(dates_str: str, config: dict) -> list:
 
 
 
-   

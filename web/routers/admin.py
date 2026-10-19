@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from core import observability
 from fastapi import APIRouter, Depends, Query
 
-from core import observability
 from web.auth import require_auth
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])

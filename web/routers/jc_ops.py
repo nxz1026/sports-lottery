@@ -56,6 +56,7 @@ def freshness(threshold_hours: float = 24.0, _: None = Depends(require_auth)) ->
     返回 {ok, threshold_hours, stale, all}。store 异常 → 全部为空 + ok=False。
     """
     from store import jc_ops_view
+
     from web.services.freshness import evaluate_topics, format_alert_lines
     try:
         th = max(0.5, min(float(threshold_hours), 168.0))

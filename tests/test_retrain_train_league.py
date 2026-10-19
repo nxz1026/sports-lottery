@@ -25,14 +25,17 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import core.observability as obs  # noqa: E402
 import core.ml_feedback as mlf  # noqa: E402
+import core.observability as obs  # noqa: E402
 from core.retrain_baseline import (  # noqa: E402
-    TrainResult, _common_feature_keys, _build_xy_from_samples, _train_metrics,
-    _events_model_path, _kfold_metrics,
-    train_league_model_from_events, format_train_report,
+    TrainResult,
+    _build_xy_from_samples,
+    _common_feature_keys,
+    _kfold_metrics,
+    _train_metrics,
+    format_train_report,
+    train_league_model_from_events,
 )
-
 
 # ───────────────────────── fixtures ──────────────────────────
 

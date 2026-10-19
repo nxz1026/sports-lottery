@@ -1,9 +1,34 @@
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+# 仓库里混有运行期产物目录（predictions/results/logs）与压测快照，排除以免门禁扫到非受控代码。
+extend-exclude = ["scripts/predictions", "scripts/results", "scripts/logs", "stress_runs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
+# 存量风格债，**显式豁免**而非默默忽略（R46 决策记录）：
+# - E402：见下方 per-file-ignores —— 本仓"模块顶部 sys.path 注入 + 随后 import"是结构性模式。
+# - E501 行宽：存量 96 处（生产 72），集中在长中文注释 / SQL / f-string。
+#   手工折行易改坏语义；`ruff format` 会一次重排 409 个文件，远超本轮范围。
+#   行宽不作门禁项，靠 review 保证。
+# - E701 单行多语句：存量 19 处（生产 14），集中在 ingest/ 与 web/services/lottery.py
+#   的映射表（`"k": v,` 一行式定义），是有意的紧凑写法。
+# - E731 lambda 赋值 / E741 歧义变量名（`l`）：存量 19 处，集中在解析与彩票映射代码，
+#   改名扩大 diff 且无功能收益。
+# 注意：F 类（未用 import / 未用变量 / 重复定义）与 W 类（空白）**不豁免** —— 那是真问题。
+ignore = ["E402", "E501", "E701", "E731", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# 本仓用「模块顶部 sys.path.insert + 随后 import」把 scripts/ 与仓库根挂进 sys.path
+# （脚本既可 `python3 scripts/predict.py` 直跑，也可被 pytest / web import），
+# import 必须出现在路径注入之后。
+"*.py" = ["E402"]
+# 测试里的局部变量多为**有意保留的可读性锚点**：例如
+#   `before = ..._rate_limit_info["last_updated"]` 之后才断言 after，
+#   或把 fixture 注入的 tmp_path 赋给语义化名字再往下用。
+# 删掉它们只会让测试更难读，不改变任何被测行为 —— 因此 tests/ 不做 F841 门禁。
+# 注意：这**只**豁免 tests/；生产代码的未用变量仍会报错（当前生产 F 类已清零）。
+"tests/*" = ["F841"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -134,8 +134,9 @@ def test_line_type_handling_divergence():
     这是契约差异，不是 bug。测试断言：web 接受 float line + scripts 拒绝
     float line，永久锁定行为。
     """
-    from web.services.team_match import poisson_hhad
     from derive.handicap import probs
+
+    from web.services.team_match import poisson_hhad
 
     grid = _scripts_hhad(1.5, 0.8, -1)  # 构造一个合法 grid（line=-1 走一遍）
     # 重做：用 scripts 自己的 dc_grid + 喂 float line

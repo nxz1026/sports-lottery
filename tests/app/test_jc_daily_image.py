@@ -301,7 +301,8 @@ def test_basketball_staleness_hours_set_on_old_file(
 
     让用户明白「数据已过时 N 小时，明日定时任务会重新拉取」，不阻断渲染。
     """
-    from datetime import datetime, timezone, timedelta as _td
+    from datetime import datetime, timezone
+    from datetime import timedelta as _td
 
     today_iso = date(2026, 9, 21)
     # generated_at = 5 天前（远超 48h 阈值）
@@ -329,7 +330,8 @@ def test_basketball_staleness_no_warning_on_fresh_file(
     patch_today, empty_accuracy, monkeypatch
 ):
     """P5：generated_at 距今 ≤48h → 无 note 提示（避免无意义告警）。"""
-    from datetime import datetime, timezone, timedelta as _td
+    from datetime import datetime, timezone
+    from datetime import timedelta as _td
 
     today_iso = date(2026, 9, 21)
     # generated_at = 12 小时前（远低于 48h）

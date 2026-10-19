@@ -29,15 +29,12 @@ import sys
 import types
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for p in (str(REPO_ROOT),):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 from web.routers import combo as combo_mod
-
 
 # ──────────────────────── D-62 fixture helpers (复用 R44-2 套路) ────────────────────────
 

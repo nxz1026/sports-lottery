@@ -12,8 +12,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from config import (SourceDisabled, SourcePolicy, allow_paid_once,  # noqa: E402
-                    describe, flag, source_policy, spend_allowed)
+from config import (  # noqa: E402
+    SourceDisabled,
+    SourcePolicy,
+    allow_paid_once,
+    describe,
+    flag,
+    source_policy,
+    spend_allowed,
+)
 from ingest import api_get, quota, run_backfill  # noqa: E402
 from store import pg  # noqa: E402
 

@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Onside 4+1 signal model: FIFA rankings, league footprint, host advantage, confederation strength."""
+
+from __future__ import annotations
 
 import math
 from typing import Any
@@ -61,7 +61,7 @@ def host_advantage_score(country_name: str, host_country: str | None) -> float:
 
 def _elo_to_approx_rank(elo: float) -> int:
     """ELO 评分 → 近似 FIFA 排名（用于无 FIFA 排名的球队）。
-    
+
     ELO 1500(默认) → rank 200, ELO 1800 → rank ~100, ELO 2100 → rank ~1
     """
     r = 200 - (elo - 1500.0) * (199.0 / 600.0)

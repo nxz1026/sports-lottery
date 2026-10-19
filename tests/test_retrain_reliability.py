@@ -9,9 +9,7 @@
 """
 from __future__ import annotations
 
-import io
 import sys
-from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
@@ -24,8 +22,11 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
             sys.path.insert(0, p)
 
 from core.retrain_baseline import (  # noqa: E402
-    reliability_diagram, format_reliability_report, ReliabilityMetrics,
-    ReliabilityBin, run, _cli, _PROB_KEYS,
+    ReliabilityBin,
+    ReliabilityMetrics,
+    format_reliability_report,
+    reliability_diagram,
+    run,
 )
 
 

@@ -83,7 +83,6 @@ def test_read_job_log_d41_invalid_utf8_uses_replace(jobs_mod):
     与 R32 _failure_hint 同模式: decode bytes with errors="replace" 输出 \ufffd,
     防止客户上传/第三方写入的非法字节让整 log 不可读。
     """
-    import codecs
     jid = "j_bad_utf8"
     log_path = jobs_mod._log_file(jid)
     log_path.parent.mkdir(parents=True, exist_ok=True)

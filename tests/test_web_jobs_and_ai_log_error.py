@@ -10,11 +10,7 @@ external 依赖（subprocess.Popen / ai.llm_client.generate），完整集成测
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
-
-import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

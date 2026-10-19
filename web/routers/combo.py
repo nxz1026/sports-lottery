@@ -37,6 +37,7 @@ def _assemble_legs(selections: list[dict]) -> list[dict]:
     入参每项必含 home/away/side；兼容旧 match_num（按 match_num 反查 home/away）。
     """
     from store import jc_view
+
     from web.services import store as web_store
     try:
         fixtures = jc_view.fixtures_on(None) or []

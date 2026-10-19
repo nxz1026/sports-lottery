@@ -1,16 +1,17 @@
-from __future__ import annotations
-
 """Core prediction engine: Onside 4+1 signal model combined with Dixon-Coles."""
 
-from core.config import ONSIDE_WEIGHTS, MARKET_ODDS_WEIGHT, DC_RHO, THRESHOLDS, LEAGUE_DC_RHO, ML_CONFIG
+from __future__ import annotations
+
+from core.config import DC_RHO, LEAGUE_DC_RHO, MARKET_ODDS_WEIGHT, ML_CONFIG, ONSIDE_WEIGHTS, THRESHOLDS
+from core.elo import DEFAULT_ELO, expected_score
 from core.log import logger
-# 统一从 core.rankings 导入（P1-3：打破循环依赖）
-from core.rankings import fetch_fifa_rankings
-from core.model.onside import compute_onside_signals
-from core.model.poisson import dixon_coles_match_probs, poisson_pmf, poisson_confidence_interval
-from core.elo import expected_score, DEFAULT_ELO
 from core.model.features import extract_features
 from core.model.ml_model import load_league_model
+from core.model.onside import compute_onside_signals
+from core.model.poisson import dixon_coles_match_probs, poisson_confidence_interval, poisson_pmf
+
+# 统一从 core.rankings 导入（P1-3：打破循环依赖）
+from core.rankings import fetch_fifa_rankings
 
 # ── ML 模型缓存（按联赛加载一次）────────────────────
 _ML_MODEL_CACHE: dict[str, object] = {}

@@ -119,8 +119,9 @@ def test_jc_gap_official_probs_match_market_devig():
     构造一条带 had 三项 + algo.probs 的 row，跑 jc_gap，断言 official
     字段三项与 scripts 端 devig 在 1e-9 内一致。
     """
-    from web.services.team_match import jc_gap
     from market.devig import devig
+
+    from web.services.team_match import jc_gap
 
     had = {"h": 1.85, "d": 3.40, "a": 4.20}
     probs = {"主胜": 0.55, "平": 0.25, "客胜": 0.20}
@@ -151,8 +152,9 @@ def test_jc_gap_gap_value_is_tvd_half():
     TVD = max over partitions of |P-Q|；本公式是 1D 离散版的常见定义。
     与 scripts 端 devig + 手算 TVD 对账。
     """
-    from web.services.team_match import jc_gap
     from market.devig import devig
+
+    from web.services.team_match import jc_gap
 
     had = {"h": 2.62, "d": 3.20, "a": 2.62}
     probs = {"主胜": 0.40, "平": 0.35, "客胜": 0.25}
@@ -178,8 +180,9 @@ def test_jc_gap_worst_side_matches_max_abs_diff():
 
     与"手算差异绝对值最大键"对账。
     """
-    from web.services.team_match import jc_gap
     from market.devig import devig
+
+    from web.services.team_match import jc_gap
 
     had = {"h": 1.85, "d": 3.40, "a": 4.20}
     probs = {"主胜": 0.10, "平": 0.50, "客胜": 0.40}  # 主胜差异最大
@@ -208,8 +211,9 @@ def test_jc_gap_filters_invalid_had():
     注："缺 a" 不属于 scripts 端的非法输入（``devig`` 接受 len=2），web 端
     额外要求 ``h/d/a 三项齐``，是 web 的额外约束。脚本侧 len < 2 才抛 ValueError。
     """
-    from web.services.team_match import jc_gap
     from market.devig import devig
+
+    from web.services.team_match import jc_gap
 
     probs = {"主胜": 0.5, "平": 0.3, "客胜": 0.2}
 

@@ -49,7 +49,7 @@ def ai_analyze_get(date_str: str | None = Query(None, alias="date"),
     path = _aa._output_path(target)
     if not path.exists():
         return {"available": False, "date": target,
-                "note": f"no analysis yet（先 POST /api/v1/jobs/ai-analyze）",
+                "note": "no analysis yet（先 POST /api/v1/jobs/ai-analyze）",
                 "classes": {"per_match": [], "banker": "", "lottery": []}}
     try:
         import json as _json

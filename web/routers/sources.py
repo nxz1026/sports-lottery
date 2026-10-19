@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Request
 
 from web.auth import require_auth
 from web.services import jobs
-from web.services.datasource import SOURCE_KEYS, LEAGUES, DEFAULT_SOURCE
+from web.services.datasource import DEFAULT_SOURCE, LEAGUES, SOURCE_KEYS
 from web.services.source_meta import list_timer_runs, recent_job_stats
 
 router = APIRouter(prefix="/api/v1", tags=["sources"])

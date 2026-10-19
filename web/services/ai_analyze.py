@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 logger = logging.getLogger("web.services.ai_analyze")

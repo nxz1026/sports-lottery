@@ -10,8 +10,12 @@ jc_issue 端不需此闸 —— 解析器保证 ins["pk"] 与 _PK_BY_TABLE 对�
 from __future__ import annotations
 
 from ingest._upsert_helper import (
-    build_upsert_sql as _build_sql,
     bind_values,
+)
+from ingest._upsert_helper import (
+    build_upsert_sql as _build_sql,
+)
+from ingest._upsert_helper import (
     validate as _validate_impl,
 )
 

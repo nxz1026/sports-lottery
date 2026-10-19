@@ -1,12 +1,12 @@
-from __future__ import annotations
-
 """Poisson and Dixon-Coles bivariate Poisson models for score prediction."""
+
+from __future__ import annotations
 
 import math
 from typing import Any
 
-from core.log import logger
 from core.config import THRESHOLDS
+from core.log import logger
 
 # 钳位告警去重标记。tau_correction 是热路径：Monte Carlo 每场、每次模拟、
 # 每个比分格点都会调它（实测 3000 次模拟 × 340 场 × 11×11 格点）。逐次 warning

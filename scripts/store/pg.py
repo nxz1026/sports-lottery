@@ -11,7 +11,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 import psycopg
-
 from core import constants  # noqa: F401  # 导入即触发 core/constants.py 的 _load_dotenv()
 
 ROLE_DSN_ENV: dict[str, str] = {"ing": "DSN_ING", "app": "DSN_APP", "ro": "DSN_RO"}

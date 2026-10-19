@@ -20,7 +20,6 @@ for p in (str(REPO_ROOT), str(REPO_ROOT / "scripts")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import pytest  # noqa: E402
 
 from core.predictor import _assemble_result, calculate_prediction  # noqa: E402
 

@@ -35,8 +35,6 @@ import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
-
 
 logger = logging.getLogger("predict")
 
@@ -353,7 +351,7 @@ def _events_model_path(league: str, base_dir) -> Path:
       不一致，因此**两套模型并存、由 predictor 只加载主模型**，events 模型用于
       离线评估 / A/B 实验。
     """
-    from core.config import FOOTBALL_DIR                     # noqa: PLC0415 — runtime
+    from core.config import FOOTBALL_DIR  # noqa: PLC0415 — runtime
     base_root = base_dir or (FOOTBALL_DIR / "references")
     return Path(base_root) / f"ml_model_{league}_from_events.json"
 
@@ -478,7 +476,7 @@ def _kfold_metrics(
     brier_total = 0.0
     n_eval = 0
     fold_size = n // k
-    from core.model.ml_model import MatchMLModel            # noqa: PLC0415
+    from core.model.ml_model import MatchMLModel  # noqa: PLC0415
 
     for fold in range(k):
         lo = fold * fold_size
@@ -543,9 +541,9 @@ def train_league_model_from_events(
         train_accuracy / train_brier / cv_accuracy / cv_brier）。失败时 model 与
         path 都为 None，调用方据此判断是否走 calibration fallback（已有 ``run`` API）。
     """
-    from core import ml_feedback                                # noqa: PLC0415
-    from core.model.ml_model import MatchMLModel                # noqa: PLC0415
-    import core.observability as _obs                            # noqa: PLC0415 — R15a #2 events 锚点
+    import core.observability as _obs  # noqa: PLC0415 — R15a #2 events 锚点
+    from core import ml_feedback  # noqa: PLC0415
+    from core.model.ml_model import MatchMLModel  # noqa: PLC0415
 
     # R15a #2: 重训入口事件 —— grep 时间窗口定位"哪次 retrain 跑过哪些 league / 多少
     # 样本 / 用什么 model 名 / 超时数"。与 B.1 (predict.py 7 处 log_error) 同模板。

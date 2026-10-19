@@ -13,7 +13,6 @@ clv_baseline 的实现现已经委托给 market.*，本测试守住"委托链数
 """
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 

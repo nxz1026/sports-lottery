@@ -1,12 +1,15 @@
 """B1-B7: parse_jclq_result 纯函数契约（零DB、零网络）。内嵌payload源自采集机2026-09-16T09:53:05Z真实探针响应。"""
 from __future__ import annotations
+
 import sys
 from decimal import Decimal
 from pathlib import Path
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from store.parse_misc import parse_jclq_result  # noqa: E402
+
 
 def _blk(gl, wo, co="", cd="", rs="-"):
     return {"combination": co, "combinationDesc": cd, "goalLine": gl,

@@ -24,9 +24,9 @@ def client(monkeypatch):
     monkeypatch.setenv("SESSION_DB_PATH", "/tmp/jcdaily-sessions.db")
     monkeypatch.setenv("AUTH_USERNAME", "unit-jc")
     monkeypatch.setenv("AUTH_PASSWORD", "unit-pass")
+    import web.auth
     import web.config as config
     import web.session_store
-    import web.auth
     for m in (config, web.session_store, web.auth):
         importlib.reload(m)
     from web.api import create_app
@@ -82,8 +82,9 @@ def test_football_with_only_big5_returns_available_true(monkeypatch, client):
 def test_temp_league_only_main_empty_note_with_temp_count(monkeypatch, client):
     """五大联赛空 + 临时赛事有：available=True + note 提示 + 分组正确。"""
     monkeypatch.setenv("LEAGUE_TEMP_LEAGUES", "亚运会女足")
+    import web.auth
     import web.config as config
-    import web.session_store, web.auth
+    import web.session_store
     for m in (config, web.session_store, web.auth):
         importlib.reload(m)
     from web.routers import jc as jc_router2
@@ -113,8 +114,9 @@ def test_temp_league_only_main_empty_note_with_temp_count(monkeypatch, client):
 def test_temp_and_big5_split_into_groups(monkeypatch, client):
     """五大 + 临时同在：rows 是 main+temp 拼接、但 main_rows / temp_rows 已分组。"""
     monkeypatch.setenv("LEAGUE_TEMP_LEAGUES", "亚运会女足,亚运会男足")
+    import web.auth
     import web.config as config
-    import web.session_store, web.auth
+    import web.session_store
     for m in (config, web.session_store, web.auth):
         importlib.reload(m)
     from web.routers import jc as jc_router3

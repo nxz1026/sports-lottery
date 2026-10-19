@@ -3,10 +3,11 @@
 from pathlib import Path
 
 from core.log import logger
-from ingest import jbq_result_write, jc_issue_write, jc_odds_write, jc_write
-from ingest.jc_read import read_lines
 from psycopg.types.json import Json
 from store.parse_collector import parse_line, parse_lines_all
+
+from ingest import jbq_result_write, jc_issue_write, jc_odds_write, jc_write
+from ingest.jc_read import read_lines
 
 WRITE = ("jczq_offer", "jczq_result")
 ISSUE = ("jc_issue", "jc_issue_result", "lottery_draw")

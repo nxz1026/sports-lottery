@@ -16,12 +16,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from store import jc_ops_view  # noqa: E402,F401
-
 
 # R17 #5: ``fake_pg`` fixture 已收敛到 tests/conftest.py（跨文件复用）。
 # 此处只保留本文件特有的 autouse fixture。

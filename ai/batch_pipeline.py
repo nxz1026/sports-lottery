@@ -3,6 +3,7 @@ Batch AI analysis pipeline: split items, enrich via Gemini, return scored items.
 Adapted from ECC community data-scraper-agent skill.
 """
 import json
+
 from ai.llm_client import generate
 
 # 业务评分偏好默认集（P4：改为可配置，避免硬编码在调用方源码中）。

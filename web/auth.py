@@ -17,8 +17,7 @@ import time
 from fastapi import Request, Response
 from fastapi.routing import APIRouter
 
-from web import config
-from web import session_store
+from web import config, session_store
 from web.errors import ApiError
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])

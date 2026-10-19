@@ -8,7 +8,6 @@ delegate 到 ``market.devig.devig``；P5-2 进一步把 lenient 过滤（None / 
 """
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -102,8 +101,9 @@ def test_source_level_devig_integration():
     防止后续有人 PR 把 ``safe_devig(...)`` 改成重新内联（漂移回退）。
     P5-2 起 call 形式从 ``devig(valid)`` 升级到 ``safe_devig(..., allow_single=True)``。
     """
-    from store import jc_view
     import inspect
+
+    from store import jc_view
     src = inspect.getsource(jc_view)
     # 旧实现特征：sum(1/v for ...) 或 (1/nums[k])/s
     assert "sum(1 / v for" not in src, (

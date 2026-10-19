@@ -23,8 +23,8 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import core.observability as obs  # noqa: E402
 import core.ml_feedback as mlf  # noqa: E402
+import core.observability as obs  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -157,7 +157,7 @@ def test_join_keeps_latest_prediction_for_duplicate_match_key(monkeypatch):
     ``ml_feedback._obs.log_event`` 注入递增 ts（避免 datetime.now + freezegun 引入
     新依赖），更稳：每次 ``_fake_log_event`` 返回时 ``_fake_now`` 累加 1ms。
     """
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
 
     base = datetime(2026, 10, 14, 0, 0, 0, tzinfo=timezone.utc)
     counter = {"n": 0}

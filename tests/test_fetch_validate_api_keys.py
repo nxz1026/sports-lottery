@@ -19,7 +19,6 @@ LOCK 范围: validate_api_keys 仅, 不锁 fmt_date (内嵌在 fetch_football_da
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 from pathlib import Path
 

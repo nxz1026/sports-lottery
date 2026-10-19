@@ -18,15 +18,12 @@ import sys
 import types
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for p in (str(REPO_ROOT),):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 from web.routers import combo as combo_mod
-
 
 # ──────────────────────── D-57 fixture helpers ────────────────────────
 
@@ -54,7 +51,7 @@ def _stub_pred_by_pair(monkeypatch, pred_by_pair: dict):
 
 def _stub_teams_match_safe(monkeypatch, matches: list):
     """Mock teams_match_safe fuzzy: matches[i] 决定 teams_match_safe(...).
-    
+
     matches[i] = True/False: 第 i 次调用 teams_match_safe 返回该 bool.
     """
     import web.services.team_match as tm

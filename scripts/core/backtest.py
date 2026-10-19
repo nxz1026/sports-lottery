@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Backtesting: compare predictions against actual results."""
+
+from __future__ import annotations
 
 import json
 import os
@@ -9,8 +9,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from core.config import PREDICTIONS_DIR, LEAGUE_CONFIG, ESPN_TIMEOUT_SECONDS
 from core.calibration import _try_load_json
+from core.config import ESPN_TIMEOUT_SECONDS, LEAGUE_CONFIG, PREDICTIONS_DIR
 
 
 def _bk_parse_window(data_window: str) -> tuple[str, str]:

@@ -29,9 +29,10 @@ def app(tmp_path, monkeypatch):
 
     # 重新加载 config 使 env 生效（模块级常量）。
     import importlib
+
+    import web.auth as auth
     import web.config as config
     import web.session_store as session_store
-    import web.auth as auth
 
     config = importlib.reload(config)
     session_store = importlib.reload(session_store)

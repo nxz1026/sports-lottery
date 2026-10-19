@@ -8,7 +8,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from core.config import LEAGUE_LAMBDA_MULTIPLIER, LEAGUE_DC_RHO
+from core.config import LEAGUE_DC_RHO, LEAGUE_LAMBDA_MULTIPLIER
 from core.predictor import calculate_prediction
 
 

@@ -9,9 +9,10 @@ from __future__ import annotations
 import json
 import uuid
 
+from ingest.collector_pull import run
+
 # ruff: noqa: F401, F811  # conn 必须显式 import 才能被 pytest fixture 发现（无 conftest.py）
 from tests.collector_helpers import FIXTURES, HOST, _drop, _envelope, _q, conn
-from ingest.collector_pull import run
 
 
 def test_dirty_tampered_src_hash_is_rejected(conn, tmp_path):

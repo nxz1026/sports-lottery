@@ -15,15 +15,15 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from bball.config_bball import LEAGUE
     from bball.elo_bball import load_ratings, save_ratings, update_ratings
-    from bball.odds_api import (OddsApiError, fetch_completed_games, fetch_odds_games,
-                                filter_window_games, parse_odds)
-    from bball.predictor import predict_game, _to_cn as _display_name
+    from bball.odds_api import OddsApiError, fetch_completed_games, fetch_odds_games, filter_window_games, parse_odds
+    from bball.predictor import _to_cn as _display_name
+    from bball.predictor import predict_game
 else:
     from .config_bball import LEAGUE
     from .elo_bball import load_ratings, save_ratings, update_ratings
-    from .odds_api import (OddsApiError, fetch_completed_games, fetch_odds_games,
-                           filter_window_games, parse_odds)
-    from .predictor import predict_game, _to_cn as _display_name
+    from .odds_api import OddsApiError, fetch_completed_games, fetch_odds_games, filter_window_games, parse_odds
+    from .predictor import _to_cn as _display_name
+    from .predictor import predict_game
 
 from core.config import PREDICTIONS_DIR
 

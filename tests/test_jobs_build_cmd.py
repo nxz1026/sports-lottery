@@ -11,16 +11,14 @@ from __future__ import annotations
 import sys
 import sys as _sys
 
-import pytest
-
 REPO_ROOT = __import__("pathlib").Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
     if p not in _sys.path:
         _sys.path.insert(0, p)
 
-from web.services import jobs as jobs_mod
 from web import config as web_config
+from web.services import jobs as jobs_mod
 
 
 def test_build_cmd_predict_uses_predict_py_entry():

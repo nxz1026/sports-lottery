@@ -7,9 +7,9 @@
 ```bash
 pip install -r requirements.txt -r requirements-web.txt -r requirements-dev.txt   # 一键四件套（缺任一行 = 新成员 clone 后跑不动测试）
 python -m pytest tests -q                    # 全量测试（测试各自注入 sys.path，无需设 PYTHONPATH）
-ruff check .                                 # lint（E/F/W/I，line-length 120）—— 当前基线非 0，勿期待全绿
-ruff format .                                # 格式化（double quotes）
+ruff check .                                 # lint 门禁 —— 当前**全绿**，新增问题会挡住
 uvicorn web.api:app                          # 启动 web（pyproject [tool.fastapi] entryPoint）
+python tools/check_docs_claims.py            # 文档声明校验（README/AGENTS 与代码一致性）
 ```
 
 预测引擎本体纯 stdlib、零外部依赖；`requests` 只给 AI 富化，`psycopg[binary]` 只给 `scripts/store/`、`scripts/ingest/` 落库取数。
@@ -36,11 +36,11 @@ uvicorn web.api:app                          # 启动 web（pyproject [tool.fast
 - Python 3.11+，ruff `select = ["E","F","W","I"]`，line-length 120，双引号
 - **注释与 docstring 用中文**是项目惯例（生产环境 Oracle `LANG=zh_CN.UTF-8`，UTF-8 全程正常）——不要为"编码安全"把中文日志改英文
 - 日志用 `core.log.logger`（`logger.info/warning/error`），结构化事件用 `core.observability.log_event/log_error`
-- 改动前跑 `ruff check .`（注意：当前有存量告警，非全绿）；提交前跑全量 pytest
+- 改动前跑 `ruff check .`（**当前全绿**，新增 F/W/I 问题会挡住提交）；提交前跑全量 pytest
 
 ## Testing instructions
 
-- 单测：`python -m pytest tests -q`（当前基线 **2428 collected / 2357 passed / 71 skipped / 0 failed**）
+- 单测：`python -m pytest tests -q`（当前基线 **2429 collected / 2358 passed / 71 skipped / 0 failed**）
 - **脚本需 `PYTHONPATH=scripts`**（或 `sys.path` 注入），否则裸 `import core.*` 失败；
   `pytest` 本身不需要 —— 各测试文件自行注入 `sys.path`
 - 新增行为必须补测；沿用现有命名 `tests/test_<module>.py`

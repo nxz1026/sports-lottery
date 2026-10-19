@@ -23,16 +23,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for p in (str(REPO_ROOT),):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from web.services import jobs as jobs_mod
 from web.routers.jobs import _job_view_detail
-
+from web.services import jobs as jobs_mod
 
 # D-31 11-keys 契约: detail 视图必须严格含这 11 个 key
 EXPECTED_KEYS = {

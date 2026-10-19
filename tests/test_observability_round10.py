@@ -200,7 +200,6 @@ class TestIterEventsLaziness:
         """类型是 generator（不是预收集 list）"""
         obs.setup(dir=tmp_path / "logs")
         gen = obs.iter_events()
-        import types as _t
         # Python generator 标识
         assert not isinstance(gen, list)
 

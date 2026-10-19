@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 import uuid
 
-from tests.collector_helpers import HOST, _drop, _envelope, _q, conn
 from ingest.collector_pull import run
+
+from tests.collector_helpers import HOST, _drop, _envelope, _q, conn
 
 
 def test_dirty_file_rejects_bad_lines_and_archives_to_bad(conn, tmp_path):

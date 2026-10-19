@@ -145,7 +145,6 @@ def test_get_or_init_cache_hit_returns_cached(elo_mod):
         init_called["n"] += 1
         return {}
 
-    monkeypatch = type("M", (), {})  # placeholder
     elo_mod.init_ratings_from_fifa = fake_init
 
     out = elo_mod.get_or_init_elo_ratings(fifa_rankings={"Brazil": 1})

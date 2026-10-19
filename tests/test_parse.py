@@ -1,12 +1,19 @@
 """Tests for parse module (P1-5: 补充核心解析逻辑覆盖)"""
 
-import unittest
 import sys
+import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from core.data.parse import remove_vig, form_to_score, record_to_score, parse_american_odds, spread_movement_factor, to_cn
+from core.data.parse import (
+    form_to_score,
+    parse_american_odds,
+    record_to_score,
+    remove_vig,
+    spread_movement_factor,
+    to_cn,
+)
 
 
 class TestRemoveVig(unittest.TestCase):

@@ -121,6 +121,7 @@ def _drain_jobs(timeout: float = 10.0):
     持有 jobs/{jid}.json 未释放）→ 视为 None，继续轮询。
     """
     import time as _time
+
     import web.services.jobs as jobs_mod
     deadline = _time.monotonic() + timeout
     while _time.monotonic() < deadline:
@@ -202,6 +203,7 @@ def test_ai_enrich_spawns_correct_script(client, monkeypatch):
 
 def test_ai_enrich_concurrent_409(client, monkeypatch):
     import time
+
     import web.services.jobs as jobs_mod
     recorded = []
     gate = threading.Event()
@@ -447,6 +449,7 @@ def test_analyse_batch_skips_non_dict_position_fallback(monkeypatch):
 def _load_feedback_loop(tmp_path, monkeypatch):
     """把 ai_scores.json 指到 tmp，返回 feedback_loop 模块。"""
     import importlib
+
     import ai.feedback_loop as fl
     importlib.reload(fl)
     monkeypatch.setattr(fl, "AI_SCORES_FILE", tmp_path / "ai_scores.json")

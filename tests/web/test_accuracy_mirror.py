@@ -11,7 +11,6 @@ actuals + 历史 preds），断言输出 dict 完全相等。
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -87,8 +86,9 @@ def test_outputs_identical_with_same_fixture(monkeypatch):
     _patch_web_loaders(monkeypatch, actuals, preds)
     _patch_scripts_loaders(monkeypatch, actuals, preds)
 
-    from web.services.accuracy import league_accuracy_web
     from core.backtest import league_accuracy
+
+    from web.services.accuracy import league_accuracy_web
 
     web_out = league_accuracy_web("epl", days=7)
     scripts_out = league_accuracy("epl", days=7)
@@ -110,8 +110,9 @@ def test_returns_none_when_no_preds(monkeypatch):
     _patch_web_loaders(monkeypatch, {}, [])
     _patch_scripts_loaders(monkeypatch, {}, [])
 
-    from web.services.accuracy import league_accuracy_web
     from core.backtest import league_accuracy
+
+    from web.services.accuracy import league_accuracy_web
 
     assert league_accuracy_web("epl") is None
     assert league_accuracy("epl") is None
@@ -123,8 +124,9 @@ def test_window_days_propagates(monkeypatch):
     _patch_web_loaders(monkeypatch, actuals, preds)
     _patch_scripts_loaders(monkeypatch, actuals, preds)
 
-    from web.services.accuracy import league_accuracy_web
     from core.backtest import league_accuracy
+
+    from web.services.accuracy import league_accuracy_web
 
     for d in (1, 7, 30, 90):
         w = league_accuracy_web("epl", days=d)
@@ -143,8 +145,9 @@ def test_only_windowed_predictions_count(monkeypatch):
     _patch_web_loaders(monkeypatch, actuals, preds)
     _patch_scripts_loaders(monkeypatch, actuals, preds)
 
-    from web.services.accuracy import league_accuracy_web
     from core.backtest import league_accuracy
+
+    from web.services.accuracy import league_accuracy_web
 
     w = league_accuracy_web("epl", days=7)
     s = league_accuracy("epl", days=7)
@@ -161,8 +164,9 @@ def test_score_only_correct_when_exact_match(monkeypatch):
     _patch_web_loaders(monkeypatch, actuals, preds)
     _patch_scripts_loaders(monkeypatch, actuals, preds)
 
-    from web.services.accuracy import league_accuracy_web
     from core.backtest import league_accuracy
+
+    from web.services.accuracy import league_accuracy_web
 
     w = league_accuracy_web("epl", days=7)
     s = league_accuracy("epl", days=7)

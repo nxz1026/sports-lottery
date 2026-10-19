@@ -12,9 +12,8 @@ Bayern Munich→Bayern München）+ to_cn 按串查词典 ⇒ 同一家俱乐部
 
 from __future__ import annotations
 
-from psycopg.types.json import Jsonb
-
 from core.i18n import to_cn
+from psycopg.types.json import Jsonb
 
 AF_KEY, FD_KEY = "api_football", "football_data"  # aliases 两源键；af_id/fd_id 生成列由它们派生
 TEAM_SQL = ("INSERT INTO ref.team (sport, name_cn, aliases) VALUES (%s, %s, %s) ON CONFLICT (sport, name_cn)"
