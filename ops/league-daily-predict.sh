@@ -18,10 +18,13 @@
 set -uo pipefail
 
 BASE="${LEAGUE_API_BASE:-http://127.0.0.1:8077/api/v1}"
-# 凭据优先取 .env（service 单元用 EnvironmentFile 注入 AUTH_USERNAME/AUTH_PASSWORD），
-# 避免在两处各写一份；LEAGUE_AUTH_* 仅用于临时覆盖。
-AUTH_USER="${LEAGUE_AUTH_USER:-a}"
-AUTH_PASS="${LEAGUE_AUTH_PASS:-a}"
+# 凭据取 .env（service 单元用 EnvironmentFile 注入 AUTH_USERNAME/AUTH_PASSWORD）；
+# LEAGUE_AUTH_* 仅用于临时覆盖。
+# 修复（审计 R45）：旧版只读 LEAGUE_AUTH_*，未注入时兜底 a/a，而 unit 注入的是
+# AUTH_* —— 生产靠 .env 恰好也是 a/a 才没暴露；一旦改密就立刻 401 → exit 2，
+# 整条日管线静默不执行。现在直接读 AUTH_USERNAME/AUTH_PASSWORD，缺则显式失败。
+AUTH_USER="${LEAGUE_AUTH_USER:-${AUTH_USERNAME:-}}"
+AUTH_PASS="${LEAGUE_AUTH_PASS:-${AUTH_PASSWORD:-}}"
 JOB_TIMEOUT="${LEAGUE_JOB_TIMEOUT:-3600}"    # 单个作业等待上限（秒）
 POLL_INTERVAL="${LEAGUE_POLL_INTERVAL:-15}"  # 轮询间隔（秒）
 # 2026-10-01: venv 已迁到 ~/.venvs/league（仓库内 .venv 不再跟踪，994eef4），
@@ -39,6 +42,11 @@ rc=0
 FAILURES=()
 
 log() { printf '[%s] %s\n' "$(date -u '+%F %T UTC')" "$*"; }
+
+# 告警 / 新鲜度 sentinel 日志路径。必须在 flush_alert 之前定义：
+# set -u 下，日志未配置 webhook 的降级分支（flush_alert 内引用 $ALERT_LOG）
+# 若在登录失败等早期路径被触发，未绑定变量会让脚本自身以 shell 错误退出。
+ALERT_LOG="${LEAGUE_FRESHNESS_ALERT_LOG:-/home/ubuntu/logs/dsh-freshness-alerts.log}"
 
 # 失败即报：本机没有任何单元配 OnFailure=，2026-09-30/10-01 连续两天 exit 1 零通知。
 # 同批多个作业失败合并成一张卡片，不逐条发。
@@ -154,6 +162,14 @@ trigger() {
   esac
 }
 
+# 凭据缺失 → 显式失败并告警（而不是拿空串去试登录、把原因藏在 401 里）
+if [ -z "$AUTH_USER" ] || [ -z "$AUTH_PASS" ]; then
+  log "凭据缺失：AUTH_USERNAME/AUTH_PASSWORD 均未提供（检查 unit 的 EnvironmentFile 与 .env）"
+  add_alert "凭据缺失：AUTH_USERNAME/AUTH_PASSWORD 未注入，无法登录 $BASE"
+  flush_alert
+  exit 2
+fi
+
 log "登录 $BASE"
 resp="$(api -X POST "$BASE/login" -H 'Content-Type: application/json' \
         -d "{\"username\":\"$AUTH_USER\",\"password\":\"$AUTH_PASS\"}")"
@@ -176,9 +192,8 @@ trigger "NBA 篮球预测" "jobs/predict-bball" '{"ahead_days":90,"trigger":"tim
 # 3) AI 富化（配额与 predict 共享同一计数器）
 trigger "AI 富化" "jobs/ai-enrich" '{"trigger":"timer"}'
 
-# 4) topic 新鲜度检查：超 24h 落 /home/ubuntu/logs/dsh-freshness-alerts.log
+# 4) topic 新鲜度检查：超 24h 落 $ALERT_LOG（定义见文件上方）
 #    不外推通知、不阻塞主流程。纯 GET，超时 30s。
-ALERT_LOG="${LEAGUE_FRESHNESS_ALERT_LOG:-/home/ubuntu/logs/dsh-freshness-alerts.log}"
 mkdir -p "$(dirname "$ALERT_LOG")"
 resp="$(api "$BASE/jc/freshness?threshold_hours=24" || true)"
 fresh_json="$(sed '$d' <<<"$resp" || true)"

@@ -188,10 +188,12 @@ def _pid_alive(pid: int) -> bool:
         else:
             os.kill(pid, 0)
             return True
+    except PermissionError:
+        # 审计 R45 修复：PermissionError ⊂ OSError，必须排在 OSError 之前，
+        # 否则永不可达。"活进程但非本用户持有" → 视为存活（不删锁）。
+        return True
     except (ProcessLookupError, OSError):
         return False
-    except PermissionError:
-        return True
 
 
 def _drop_stale_lock(lock_path: Path) -> None:
