@@ -5,7 +5,7 @@
 - **审核范围**：`/dashboard/jc/` 全部 section + 侧栏导航
 - **Oracle 状态**：HEAD `84a22ef`（含 Stage A + B），`league-web.service` active，`/health` 200 OK
 - **页面体量**：`pageHeight=22047px / 735 elements / 136 场赛事 / 1 个 user`
-- **登录**：nginx Basic `admin/ndjack` 自动；jc FastAPI session `a/a`
+- **登录**：nginx Basic Auth（账号 `admin`）+ jc FastAPI session（账号见生产 `.env`）——口令不记录，本仓公开
 
 ---
 

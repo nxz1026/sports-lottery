@@ -1,7 +1,7 @@
 # league-v2 完整验收报告
 
 - **验收对象**：`/home/ubuntu/league-v2/repo`（分支 `v2`，起点 `2341f0c`）
-- **线上地址**：https://140.83.62.161/dashboard/jc/ （nginx Basic Auth `admin` + 应用会话 `a`/`a`）
+- **线上地址**：https://140.83.62.161/dashboard/jc/ （nginx Basic Auth 账号 `admin` + 应用会话账号，口令见生产 `.env`，勿写入本仓）
 - **验收时间**：2026-09-17 UTC 14:00 – 17:20（BJT 22:00 – 次日 01:20）
 - **方式**：本人逐端点实测 + 4 名 OMP 队员分工深挖（数据源/配额、AI-LLM 链路、前端、数据库与采集管道），全部结论以真实命令输出为据，未修改仓库外状态。
 - **结论一句话**：**预测主链路真实可用**（`POST /jobs/predict` → 202 → 写预测文件 → `/predictions/today` 有数据）；但**AI 富化链路 100% 失败却被伪装成成功**、**竞彩看板页面在生产上整体不可达**、**竞彩时间显示错 8 小时**——本次已修复其中 12 项，剩余 20 项已定位并给出证据。
@@ -275,11 +275,11 @@ https://140.83.62.161/dashboard/jc/            -> 200   ← 这个才是 dashboa
 # 全量测试
 cd /home/ubuntu/league-v2/repo && /home/ubuntu/.venvs/league/bin/python -m pytest -q   # 502 passed
 
-# 线上登录 + 关键端点
-curl -s -u admin:ndjack -k -X POST https://140.83.62.161/dashboard/jc/api/v1/login \
-  -H 'Content-Type: application/json' -d '{"username":"a","password":"a"}' -c /tmp/c.txt
-curl -s -u admin:ndjack -k -b /tmp/c.txt https://140.83.62.161/dashboard/jc/api/jc/fixtures
-curl -s -u admin:ndjack -k -b /tmp/c.txt https://140.83.62.161/dashboard/jc/api/v1/sources/status
+# 线上登录 + 关键端点（口令从环境变量注入，勿硬编码/勿入库）
+curl -s -u "$BASIC_USER:$BASIC_PASS" -k -X POST https://140.83.62.161/dashboard/jc/api/v1/login \
+  -H 'Content-Type: application/json' -d "{\"username\":\"$APP_USER\",\"password\":\"$APP_PASS\"}" -c /tmp/c.txt
+curl -s -u "$BASIC_USER:$BASIC_PASS" -k -b /tmp/c.txt https://140.83.62.161/dashboard/jc/api/jc/fixtures
+curl -s -u "$BASIC_USER:$BASIC_PASS" -k -b /tmp/c.txt https://140.83.62.161/dashboard/jc/api/v1/sources/status
 
 # 时区验证
 sudo -n -u postgres psql -d league -X -c \

@@ -168,15 +168,15 @@ source `deploy/.env` 后 `fastapi cloud deploy /root/build/league-web`。
 凭据：admin / `deploy/runtime.env`（git 不跟踪）。
 **待用户点头**：GHA prediction cron 下线（M1–M5 全 PASS 前提已凑齐）。
 
-## 2026-09-11 —— 配置变更批：密码 123 + 两把足球数据 key + GHA 下线落地
+## 2026-09-11 —— 配置变更批：改口令 + 两把足球数据 key + GHA 下线落地
 
-- `deploy/runtime.env`：AUTH_PASSWORD=123（用户指定；auth 侧无长度校验，hmac 等值比对）；
-  新增 `FOOTBALL_DATA_API_KEY=3db1…`、`API_FOOTBALL_KEY=9659…`（端点无需配置，
+- `deploy/runtime.env`：`AUTH_PASSWORD=<已改，值不入库>`（用户指定；auth 侧无长度校验，hmac 等值比对）；
+  新增 `FOOTBALL_DATA_API_KEY=<已脱敏>`、`API_FOOTBALL_KEY=<已脱敏>`（端点无需配置，
   `scripts/core/data/fetch.py` 硬编码即 api.football-data.org/v4 + v3.football.api-sports.io）。
   key 经 config.env 注入→`_build_env` 全量透传给 predict 子进程，引擎直接 `os.environ` 消费。
 - **GHA 自动 cron 下线**：main=1b1ba20（schedule 块删除，保留 workflow_dispatch）；
   本机 git remote 切 SSH（HTTPS 无凭据）。
-- deploy9（deployment 118ac606, success）上线 → 线上验收：login 123=200（首两次 401 为
+- deploy9（deployment 118ac606, success）上线 → 线上验收：login 新口令=200（首两次 401 为
   失败计数锁 5/600s + 灰度旧容器噪音，**排查教训：改密后先等锁过期再定罪**）；
   触发 epl 预测 job 2b4e4007a21e → done/exit0/90s，today 出 7 场中文预测（football-data 取数通）。
 - **AI 中文遗留项（未动，待用户决策）**：web job 只跑 predict.py，AI 摘要读缓存
