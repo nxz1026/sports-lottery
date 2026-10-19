@@ -71,12 +71,8 @@ const _PREFIX=location.pathname.slice(0,_idx<0?0:_idx);   // "" 或 "/dashboard/
 const API_BASE=_PREFIX+"/api/jc/";
 async function api(path){
   const r=await fetch(API_BASE+path,{credentials:"same-origin"});
-  // P5：401 不再跳 /login（页面已下线），由 Nginx Basic Auth 接管。
-  if(r.status===401){
-    let b=null;try{b=await r.json()}catch(_){}
-    const msg=(b&&b.message)||"未登录或会话已过期";
-    throw new Error(msg+"（Nginx Basic Auth 把关，浏览器会自动弹窗输入账号密码）");
-  }
+  // R47 恢复独立登录页（P5 删除登录页的前提不成立，见 dashboard.html 同处注释）。
+  if(r.status===401){ location.href=(_PREFIX||"")+"/login"; throw new Error("未登录"); }
   if(!r.ok){ const e=await r.json().catch(()=>({message:r.statusText})); throw new Error(e.message||"请求失败"); }
   return r.json();
 }

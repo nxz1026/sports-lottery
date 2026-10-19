@@ -239,18 +239,17 @@ details>summary{cursor:pointer;color:var(--blue);font-size:11.5px}
 // 一次拉回 100+ 场。默认窗口太宽会让"今日推荐"塞入 13 天后的赛事）。
 // 用户可在「开球时间」chip 切到全部 / 今天 / 明天 / 3 日 / 指定日期。
 // state.dateFilter：YYYY-MM-DD 字符串，与 timeRange 独立（timeRange=all 时仍可指定日期）。
-const API="/dashboard/jc/api/v1", state={pred:null,all:[],playFilter:"all",confidenceStars:0,selected:[],sportFilter:"all",jcTab:"fixtures",jcFixPlay:"all",jcLoaded:{},lotteryLoaded:false,leagueSel:[],timeRange:"24h",dateFilter:"",minConf:0,kw:"",jcFixLeagues:[],jcFixKw:"",lotteryGame:"all",lotteryPer:20,lotteryRows:[],personalized:false};
+const API="/dashboard/jc/api/v1", LOGIN="/dashboard/jc/login", state={pred:null,all:[],playFilter:"all",confidenceStars:0,selected:[],sportFilter:"all",jcTab:"fixtures",jcFixPlay:"all",jcLoaded:{},lotteryLoaded:false,leagueSel:[],timeRange:"24h",dateFilter:"",minConf:0,kw:"",jcFixLeagues:[],jcFixKw:"",lotteryGame:"all",lotteryPer:20,lotteryRows:[],personalized:false};
 // 竞彩/彩票只读 API 基址（与 API 同一 nginx 前缀，同源自动带 cookie）
 const JCAPI="/dashboard/jc/api/jc";
 const $=s=>document.querySelector(s), esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 async function api(path){
   const r=await fetch(API+path,{credentials:"same-origin",headers:{Accept:"application/json"}});
   let b=null;try{b=await r.json()}catch(_){}
-  // P5：401 内联处理（Nginx Basic Auth 是真实守门人，浏览器自带 Basic 弹框，无需 /login 中转）。
-  if(r.status===401){
-    const reason=(b&&b.message)||"未登录或会话已过期";
-    throw Object.assign(new Error(reason),{code:401,hint:"访问由 Nginx Basic Auth 把关，浏览器会自动弹窗输入账号密码"});
-  }
+  // R47 恢复独立登录页：P5（093dafa）删掉登录页时的前提是「Nginx Basic Auth 在反代层把关」，
+  // 但生产 nginx 对 /dashboard/jc/ 是 auth_basic off（免凭据 200），且 require_auth 只认
+  // lp_session cookie、不接受 Basic 头 → 公网看板实际失去了唯一登录入口。401 跳回登录页。
+  if(r.status===401){location.href=LOGIN;throw Error("未登录")}
   if(!r.ok)throw Error((b&&b.message)||`HTTP ${r.status}`);
   return b
 }
@@ -624,11 +623,8 @@ const LOTTERY_ORDER=["85","35","350133","04"];
 async function jcApi(path){
   const r=await fetch(JCAPI+path,{credentials:"same-origin",headers:{Accept:"application/json"}});
   let b=null;try{b=await r.json()}catch(_){}
-  // P5：401/403 不再跳 /login（页面已下线），由 Nginx Basic Auth 接管。
-  if(r.status===401||r.status===403){
-    const m=b&&(typeof b.detail==="string"?b.detail:(typeof b.message==="string"?b.message:null))||"未登录或会话已过期";
-    throw Object.assign(new Error(m),{code:r.status,hint:"访问由 Nginx Basic Auth 把关，浏览器会自动弹窗输入账号密码"});
-  }
+  // R47 恢复独立登录页（同 api()：登录入口已恢复，401/403 跳回 LOGIN）。
+  if(r.status===401||r.status===403){location.href=LOGIN;throw Error("未登录")}
   if(!r.ok){const m=b&&(typeof b.detail==="string"?b.detail:(typeof b.message==="string"?b.message:null));throw Error(m||`HTTP ${r.status}`)}
   return b
 }

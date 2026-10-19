@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2358 passed / 71 skipped / 0 failed**（2429 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2360 passed / 71 skipped / 0 failed**（2431 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -448,9 +448,9 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 
 `/dashboard/jc/` 使用**独立应用认证**，与 Nginx 的 Basic Auth **完全隔离**，避免体彩用户用 Nginx 账号登录后进入其它业务：
 
-- **Nginx 层**：`/dashboard/jc/` 三处 location（`= /dashboard/jc/`、`/dashboard/jc/api/`、`= /dashboard/jc/login`）均 `auth_basic off`，从全局 Basic Auth 剥离。Nginx Basic Auth 只保护 `/` `/dashboard/` `/resume/` `/stock/` `/admin/` 等其它业务。
+- **Nginx 层**：`/dashboard/jc/` 三处 location（`= /dashboard/jc/`、`/dashboard/jc/api/`、`= /dashboard/jc/login`）均 `auth_basic off`，从全局 Basic Auth 剥离。Nginx Basic Auth 只保护其它业务 —— **R47 生产实测**（2026-10-19，公网不带任何凭据）：`/` 401、`/dashboard/` 401、`/cpt/` 401、`/emotion/` 401、`/trade/` 401；而 `/resume/` `/admin/` `/stock/` 已随 2026-10-19 的失效配置清理**一并移除**（现为 404），本节旧清单此前未同步。
 - **体彩应用层**：`web/auth.py::require_auth` 强制校验 `lp_session` cookie（单账号 session）。登录账号来自 `AUTH_USERNAME` / `AUTH_PASSWORD`（在 `.env`，已 gitignore 不入库），签发 `lp_session` cookie，前端遇 `401` 自动跳 `/dashboard/jc/login`。
-- **生产验证**：体彩账号登录后只能访问 `/dashboard/jc/`；`/` `/dashboard/` `/resume/` `/admin/` 对体彩用户一律 `401`（仍由 Nginx Basic Auth 保护）。
+- **生产验证**（R47 实测，2026-10-19）：`/dashboard/jc/` **免凭据即 200**（`auth_basic off`）；其 API 未登录返回 401 —— 那是**应用层 session** 拒绝，**不是** Nginx Basic Auth。`/` `/dashboard/` 对未带 Basic 凭据的请求才返回 401（这才是 Nginx 层）。`/resume/` `/admin/` 现为 404。
 
 > ⚠️ 体彩账号是单账号，生产 `.env` 里 `AUTH_USERNAME`/`AUTH_PASSWORD` 仍是弱口令（占位值，见 `.env.example`）。**正式对外前务必改为强口令**（改后重启 `league-web.service`）；若 8077 直连端口对外暴露，则绕过 Nginx 后只剩应用层单账号保护。具体口令不写入本文件——本仓是公开仓库。
 
@@ -489,7 +489,7 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 |---|---|
 | 线上地址 | https://140.83.62.161/dashboard/jc/ |
 | 进程 | `league-web.service`（systemd `127.0.0.1:8077`，`Restart=on-failure`） |
-| 公网入口 | 本机 Nginx（`/dashboard/jc/` → 静态入口 + `/dashboard/jc/api/` → `league-api /api/`，走 Nginx Basic Auth） |
+| 公网入口 | 本机 Nginx（`/dashboard/jc/` → 静态入口 + `/dashboard/jc/api/` → `league-api /api/`；该路径 `auth_basic off`，鉴权由应用层 session 负责） |
 
 **nginx location → 后端路径速查（P3-D1）**：
 
@@ -501,21 +501,23 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 | `/dashboard/jc/api/...` | `proxy_pass http://127.0.0.1:8077/api/...;` | `/api/v1/...` |
 | `/dashboard` | `http://127.0.0.1:8099/` | —（旧门户，Basic Auth 保护） |
 
-**前端 API 基址**（`static/dashboard.html:242`）：`const API="/dashboard/jc/api/v1"`。所有 fetch 均同源（credentials:"same-origin"），浏览器自动带 cookie + Basic Auth 头。
+**前端 API 基址**（`static/dashboard.html:242`）：`const API="/dashboard/jc/api/v1"`。所有 fetch 均同源（credentials:"same-origin"），浏览器自动带 session cookie（该路径 `auth_basic off`，**不涉及** Basic Auth 头）。
 
 **调试命令**：
 
 ```bash
-# 公网入口冒烟（凭据从 Nginx Basic Auth 口令文件取，勿写入本文件——本仓是公开仓库）
-curl -kI https://140.83.62.161/dashboard/jc/          # 401 / Basic 触发
-curl -kI -u "$BASIC_USER:$BASIC_PASS" https://140.83.62.161/dashboard/jc/api/v1/health
-# 直接打后端（绕过 nginx）
-curl -sS http://127.0.0.1:8077/api/v1/health           # 必须本机
+# 公网入口冒烟（/dashboard/jc/ 已 auth_basic off —— 免凭据 200，不涉及 Nginx Basic Auth）
+curl -kI https://140.83.62.161/dashboard/jc/          # 200
+# 应用层鉴权（401 来自 session 层，不是 Nginx Basic Auth）
+curl -kI https://140.83.62.161/dashboard/jc/api/v1/me  # 401（未登录）
+# 健康检查：真实路径是 /health，**不在 /api/ 下** → 公网无对应入口，只能本机打
+# （旧写法 http://127.0.0.1:8077/api/v1/health 实测 404）
+curl -sS http://127.0.0.1:8077/health                   # 200，必须本机
 # nginx 实时错误
 sudo tail -F /var/log/nginx/error.log
 ```
 | App ID | ——（本机部署，无云端 App ID） |
-| 看板鉴权 | 用户名 `admin`（Nginx Basic） + 页面 `a`（league-api session） |
+| 看板鉴权 | 页面单账号（league-api session，取自 `.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）；`/dashboard/jc/` 不走 Nginx Basic Auth |
 
 **临时赛事白名单（亚运 / 欧冠 / 世界杯 / 奥运 等）**：
 - 通过 `.env` 的 `LEAGUE_TEMP_LEAGUES`（CSV）控制，五大联赛 + 临时白名单一并出现在每日一图 / dashboard 今日推荐。
@@ -527,7 +529,7 @@ sudo tail -F /var/log/nginx/error.log
 **部署链路（本机）**：
 1. `/home/ubuntu/DSH/sports-lottery/.env`（gitignore）存凭据：`AUTH_USERNAME/PASSWORD`、`API_FOOTBALL_KEY`、`FOOTBALL_DATA_API_KEY`、`ODDS_API_KEY`/`NBA_API_KEY`、`LEAGUE_*`、`LLM_*` 等。systemd 通过 `EnvironmentFile=` 注入；不要提交该文件。
 2. 代码 push 到 `origin/main`，本机直接 `git pull` 即拿到最新代码；systemd `Restart=on-failure` 会自动重启加载新代码（仅 Python/前端；`.env` 改动需手动 restart 加载）。
-3. 核验：`curl -kI https://140.83.62.161/dashboard/jc/` 返回 200（过 Basic Auth 后），`/dashboard/jc/api/v1/me` 过应用层账号（`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）登录后 200。
+3. 核验：`curl -kI https://140.83.62.161/dashboard/jc/` 返回 200（该路径 `auth_basic off`，无需 Basic 凭据），`/dashboard/jc/api/v1/me` 过应用层账号（`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）登录后 200。
 
 **运行时预测/富化**（在 Web 界面触发，或 API）：
 - `POST /api/v1/jobs/predict`（选联赛/数据源/蒙特卡洛）跑 `scripts/predict.py`。**不传参数时只跑英超**（`--league` 默认值 `epl`）；要跑全部 5 个足球联赛须显式传 `{"all": true}`，或传 `{"league": "laliga"}` 等指定单个联赛。
@@ -847,7 +849,7 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 
 ### v2.4 (2026-10-18 ~ 10-19) R62-R64 生产修复 + AGENTS.md + R43 策略收回
 
-v2.3 之后跨入"测试基线饱和、生产修复优先"阶段。本段记录 e280a3b 之后的 **10 个 commit**（审计 R45 校正，此前误写 7），测试基线 R61 2346 → **R66 2358 passed**（2429 collected）：
+v2.3 之后跨入"测试基线饱和、生产修复优先"阶段。本段记录 e280a3b 之后的 **10 个 commit**（审计 R45 校正，此前误写 7），测试基线 R61 2346 → **R66 2358 passed**（2429 collected）→ **R47 2360 passed**（2431 collected，见下 R47 段）：
 
 **Dashboard 三连发（4aea03d / 093dafa / f78aa40）**：
 - `4aea03d` 比赛详情面板人话翻译（取代 ML 术语）+ 三级 `modelProbs` 回退修复（`model.probs` → `prediction.probs` → 推导）
@@ -978,6 +980,63 @@ pytest 须 PYTHONPATH vs 实际不需要）。本脚本把可机械校验的部�
 ruff 门禁退出码、dashboard.html 行号、`DEFAULT_N_SIMULATIONS` / `DEFAULT_PAST_DAYS` /
 `FEATURE_COLUMNS` 三处常量、仓库无明文凭据。首次运行即查出 8 处漂移（含
 `2428 collected` 已随 R46 变为 2429、AGENTS.md 仍称"ruff 非全绿"），修正后 **17/17 通过**。
+
+### v2.5 (2026-10-19) R47 生产流程实测：登录入口缺陷 + 5 类文档漂移
+
+R46 只在**开发机**验证过。本轮按**生产流程**实测（Oracle 上真跑 `league-daily-predict.service`
++ 逐条打公网入口），查出 1 个真缺陷 + 5 类文档漂移。
+
+**生产流程实测（全部实测，非推演）**
+
+| 环节 | 实测结果 |
+|---|---|
+| 触发 | `sudo systemctl start league-daily-predict.service`（与 timer 同一条路径） |
+| 登录 | `登录成功` —— **R45 改的 `AUTH_USERNAME`/`AUTH_PASSWORD` 读取在生产 `.env` 上真能跑通** |
+| 三作业 | 足球全联赛 5m15s（`720b2abd96f5` done）/ NBA 15s（`d184831fd2e5` done）/ AI 富化 5m16s（`3f0dbb9bbc01` done） |
+| 退出码 | **0**（`Result=success`，`ExecMainStatus=0`），总耗时 10m46s |
+| 产物 | 5 个 `ml_model_*.json` 全部刷新到 11:28–11:32 |
+| 告警 | 无 sentinel 日志（webhook 已配置，`ALERT_LOG` 降级分支不可达） |
+
+**真缺陷：公网体彩看板没有可用登录入口（P5 / `093dafa` 引入，非本仓 R45-R46 造成）**
+
+2026-10-18 的 `093dafa` 以「取消登录页面（**Nginx auth 保留**）」为由删掉
+`static/login.html`、`static/dashboard-login.html`、`web/api.py` 的 `/login` 路由与
+「未登录跳登录页」判定。但该前提在生产**不成立**，实测三证：
+
+1. 生产 nginx（`/etc/nginx/sites-enabled/dsh-web`）对 `/dashboard/jc/` 三处 location
+   是 **`auth_basic off`**（2026-09-18 起剥离）→ 公网免凭据 200，Basic 框**永不弹出**；
+2. `web/auth.py::require_auth` 只认 `lp_session` cookie，**不接受 Basic 头** →
+   就算给该路径开 Basic Auth，API 仍是 401；
+3. nginx 的 `location = /dashboard/jc/login` 仍 proxy 到已被删的
+   `static/dashboard-login.html` → 实测 **404**。
+
+结果：页面 200、数据 API 全 401、前端提示「浏览器会自动弹窗输入账号密码」——那个框
+永远不会出现。**已修复**（用户选定方案）：取回两个登录页、恢复 `/login` 路由与
+「未登录 → 302 /login」、前端 401/403 跳回登录页（`dashboard.html` + `dailyimage.html`），
+`web/api.py` 与测试同步更新。
+
+**5 类文档漂移（全部实测订正）**
+
+| 原文 | 实际 | 处置 |
+|---|---|---|
+| README 冒烟 `http://127.0.0.1:8077/api/v1/health` | **404** —— 真实路径是 `/health`（不在 `/api/` 下，公网无对应入口） | README + `ops/README.md` + `DASHBOARD_DEPLOY.md` 订正 |
+| README 冒烟 `curl -kI .../dashboard/jc/  # 401 / Basic 触发` | **200**（`auth_basic off`） | 订正 |
+| README 表「公网入口 …… 走 Nginx Basic Auth」 | 该路径 `auth_basic off`，鉴权是应用层 session | 订正（与同文档「认证与隔离」段自相矛盾） |
+| README「Basic Auth 只保护 `/` `/dashboard/` `/resume/` `/stock/` `/admin/`」 | 实测 `/resume/` `/admin/` `/stock/` 已 **404**（2026-10-19 清理失效配置时移除）；实际受保护的是 `/` `/dashboard/` `/cpt/` `/emotion/` `/trade/` | 订正 |
+| `DASHBOARD_DEPLOY.md`「systemd：`league-dashboard.service`」+「提供 HTTPS 和 Basic Auth」 | 单元名是 `league-web.service`（R45 漏改此处）；该路径无 Basic Auth | 订正 |
+
+历史验收/审计文档（`docs/acceptance-2026-09-17.md`、`docs/web-ux-audit-2026-10-11.md`）
+加**后记**说明「当时的形态」与现状差异，**不改写历史记录**。
+
+**校验器加严**：`tools/check_docs_claims.py` 增 11 项断言（17 → 28），把本轮全部
+已知错误写法固化为负向精确串（health 旧路径、`/dashboard/jc/` 的 Basic Auth 误述、
+Basic 触发注释、退役单元名、前端「Basic Auth 把关」提示…），并断言登录入口已恢复。
+判定改为**行级**：命中错误写法的行若带订正/否定标记（订正/误写/此前/旧写法…）即放行，
+避免"订正记录本身"被误判为违规（R46 的触发时刻规则已踩过这个坑）。
+改动文档后重跑即发现新的漂移。
+
+测试基线 2358 → **2360 passed / 71 skipped / 0 failed**（2431 collected；登录相关
+测试从 3 个「已下线」断言改为 5 个「已恢复」断言）。
 
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性

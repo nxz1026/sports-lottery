@@ -75,27 +75,48 @@ def test_health_no_auth(client, monkeypatch):
     assert "checks" in body
 
 
-def test_root_redirects_to_dashboard_when_anonymous(client):
-    """P5：登录页下线后，GET / 直接 302 到 dashboard.html。
+def test_root_redirects_to_login_when_anonymous(client):
+    """R47：未登录 GET / → 302 /login（独立登录页已恢复）。
 
-    鉴权由 Nginx Basic Auth 在反代层把关；web 进程只管渲染 SPA，
-    不再持有「未登录跳登录页」的概念。
+    P5 曾删掉这条跳转，前提是「Nginx Basic Auth 在反代层把关」；但生产 nginx 对
+    /dashboard/jc/ 是 auth_basic off，且 require_auth 只认 lp_session cookie
+    → 公网看板失去唯一登录入口。R47 恢复。
     """
+    res = client.get("/", follow_redirects=False)
+    assert res.status_code == 302
+    assert res.headers["location"] == "/login"
+
+
+def test_root_redirects_to_dashboard_when_logged_in(client):
+    """已登录 GET / → 302 /static/dashboard.html。"""
+    _login(client)
     res = client.get("/", follow_redirects=False)
     assert res.status_code == 302
     assert res.headers["location"] == "/static/dashboard.html"
 
 
-def test_login_route_removed(client):
-    """P5：/login 路由已移除（页面下线，避免运维误以为还存在）。"""
+def test_login_route_restored(client):
+    """R47：/login 路由已恢复 → 302 到独立登录页 static/login.html。
+
+    login.html 会从当前 URL 推导 API 基址，后端直连与经 nginx 两种场景都能提交登录。
+    """
     res = client.get("/login", follow_redirects=False)
-    assert res.status_code == 404
+    assert res.status_code == 302
+    assert res.headers["location"] == "/static/login.html"
 
 
-def test_static_login_html_removed(client):
-    """P5：static/login.html 已下线 → 静态挂载返回 404。"""
+def test_dashboard_login_page_served(client):
+    """R47：static/dashboard-login.html 可访问（公网 nginx 直接 proxy 这一份）。"""
+    res = client.get("/static/dashboard-login.html")
+    assert res.status_code == 200
+    assert "login-form" in res.text
+
+
+def test_static_login_page_served(client):
+    """R47：static/login.html 可访问（/login 路由的目标页）。"""
     res = client.get("/static/login.html")
-    assert res.status_code == 404
+    assert res.status_code == 200
+    assert "login-form" in res.text
 
 
 def test_me_unauthorized_uniform_error(client):

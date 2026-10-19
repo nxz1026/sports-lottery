@@ -6,11 +6,13 @@
 原有门户：`https://140.83.62.161/dashboard/`
 体彩 Dashboard：`https://140.83.62.161/dashboard/jc/`
 
-公网入口由本机 Nginx 提供 HTTPS 和 Basic Auth；页面自身继续使用 league-v2 的 session 登录。
+公网入口由本机 Nginx 提供 HTTPS。`/dashboard/jc/` 路径**未启用 Nginx Basic Auth**（`auth_basic off`，2026-09-18 起从全局 Basic Auth 剥离），其鉴权由应用层 session（`lp_session` cookie）负责；Nginx Basic Auth 只保护 `/` `/dashboard/` `/cpt/` `/emotion/` `/trade/` 等其它业务。页面自身使用 league-v2 的 session 登录。
+
+> ⚠️ **R47 生产实测（2026-10-19）**：独立登录页 `static/dashboard-login.html` 已于 2026-10-18（`093dafa`）下线，nginx 的 `location = /dashboard/jc/login` 仍指向它 → 现返回 **404**；前端 401 改为内联提示，不再跳登录页。因此**公网体彩看板当前缺少可用的登录入口**（详见 README「认证与隔离」段与 R47 记录）。
 
 ## 服务
 
-- systemd：`league-dashboard.service`
+- systemd：`league-web.service`（**不是** `league-dashboard.service`——后者已不存在，实测 2026-10-19）
 - FastAPI：`127.0.0.1:8077`
 - 静态入口：`/static/dashboard.html`
 - Dashboard API 代理：公网 `/dashboard/jc/api/` → FastAPI `/api/`
@@ -43,11 +45,12 @@ FastAPI 原生路由不包含 `/dashboard/jc` 前缀：
 ## 验证
 
 ```bash
-sudo systemctl status league-dashboard.service
+sudo systemctl status league-web.service
 sudo nginx -t
-curl -kI https://140.83.62.161/dashboard/
-curl -kI https://140.83.62.161/dashboard/jc/
-curl -kI https://140.83.62.161/dashboard/jc/login
+curl -kI https://140.83.62.161/dashboard/         # 401（Nginx Basic Auth 保护）
+curl -kI https://140.83.62.161/dashboard/jc/     # 200（该路径 auth_basic off）
+curl -kI https://140.83.62.161/dashboard/jc/login  # 404（登录页已下线，R47 实测）
+curl -s http://127.0.0.1:8077/health | jq .ok     # true（健康检查真实路径，不带 /api/v1）
 ```
 
-无 Nginx Basic Auth 凭据时返回 `401` 是预期行为。通过 Basic Auth 后，再使用应用登录 session 验证 `/dashboard/jc/api/v1/me`、登录后的 `/dashboard/jc/api/v1/predictions/today`。Hobby/scale-to-zero 或进程重启环境可能丢失生成文件与 session，除非 `LP_OUTPUT_DIR`、`SESSION_DB_PATH` 使用外部持久化。
+`/dashboard/jc/` 未启用 Nginx Basic Auth，因此**不带凭据即 200**；其 API 未登录返回的 `401` 来自**应用层 session**（不是 Basic Auth）。要验证应用层登录，用 `.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD` 走 `POST /api/v1/login` 拿 `lp_session` cookie，再验 `/dashboard/jc/api/v1/me`、登录后的 `/dashboard/jc/api/v1/predictions/today`。Hobby/scale-to-zero 或进程重启环境可能丢失生成文件与 session，除非 `LP_OUTPUT_DIR`、`SESSION_DB_PATH` 使用外部持久化。

@@ -6,6 +6,7 @@
 - **Oracle 状态**：HEAD `84a22ef`（含 Stage A + B），`league-web.service` active，`/health` 200 OK
 - **页面体量**：`pageHeight=22047px / 735 elements / 136 场赛事 / 1 个 user`
 - **登录**：nginx Basic Auth（账号 `admin`）+ jc FastAPI session（账号见生产 `.env`）——口令不记录，本仓公开
+- **后记（R47，2026-10-19）**：上行的 nginx Basic Auth 是**审核当时**的形态；`/dashboard/jc/` 的 `auth_basic` 其后已关闭（2026-09-18 起 `auth_basic off`），2026-10-18 独立登录页亦已下线，当前公网该路径**缺少可用登录入口**。本报告其余内容为当时审核记录，不随后续变更改写。
 
 ---
 

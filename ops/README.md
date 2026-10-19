@@ -20,7 +20,9 @@ curl -s http://127.0.0.1:8077/health | jq .ok      # 应为 true
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8077/health  # 200
 
 # 4. 装到 Nginx（参考 docs/acceptance-2026-09-17.md）
-#   location /dashboard/jc/api/v1/ { proxy_pass http://127.0.0.1:8077/api/v1/; }
+#   location /dashboard/jc/api/ { proxy_pass http://127.0.0.1:8077/api/; }
+#   注意：生产实测是 /dashboard/jc/api/ → /api/（去前缀），不是 /api/v1/；
+#   health 在 /health（不在 /api/ 下），公网没有对应入口，只能本机打。
 ```
 
 ### 关键设计
@@ -54,6 +56,10 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8077/health  # 200
 
 - `league-daily-predict.service`：oneshot，跑完即退出
 - `league-daily-predict.timer`：每日触发，可独立 `systemctl start ...timer`
-- `league-daily-predict.sh`：实际拉起 `predict.py` + `predict_bball.py` 的脚本
+- `league-daily-predict.sh`：**走 HTTP API** 触发三个作业（足球全联赛 / NBA / AI 富化），不直调 CLI
+  —— 配额守卫（`PREDICT_DAILY_LIMIT`，默认 80）与并发守卫（`active_job`）都在
+  `web/services/jobs.py`，直调 `scripts/predict.py` 会绕过它们。退出码：**0** 全部成功 /
+  **1** 有作业失败 / **2** 登录失败 / **3** 配额耗尽。
 
-P2-10 待办：webhook 缺失时 `exit 1` 让 systemd `OnFailure=` 接住。
+webhook 缺失时 `exit 1` 让 systemd `OnFailure=` 接住的行为**已实现**（`ALERT_FAIL_ON_NO_WEBHOOK`
+默认 1），并已在脚本中生效。
