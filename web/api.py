@@ -9,11 +9,25 @@
 """
 from __future__ import annotations
 
+import sys as _sys
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+
+# scripts/（core 纯函数，如 core.backtest.league_accuracy）供 web 复用：
+# 追加到 sys.path 末尾（不前置），避免 scripts/ 下同名包遮蔽 web/、store/。
+#
+# ⚠️ 必须位于**所有 web.routers.* 导入之前**：web/routers/admin.py 在模块级
+# `from core import observability`。R47 实测事故：R46 的 isort 把 admin 的导入
+# 按字母序排到了 jc 之前，而此前 jc.py 的模块级 sys.path.insert 恰好先把
+# scripts/ 加了进来 —— admin 的可导入性**依赖导入顺序**。一旦 isort 重排，
+# `import web.api` 直接 ModuleNotFoundError: No module named 'core'，
+# 生产 league-web.service 无限重启（本轮已在 Oracle 实测复现并修复）。
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent / "scripts")
+if _SCRIPTS_DIR not in _sys.path:
+    _sys.path.append(_SCRIPTS_DIR)
 
 from web import config, errors
 from web.auth import router as auth_router
@@ -40,14 +54,6 @@ from web.routers.ticket import router as ticket_router
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 APP_TITLE = "league-api"
 APP_VERSION = "0.1.0"
-
-# scripts/（core 纯函数，如 core.backtest.league_accuracy）供 web 复用：
-# 追加到 sys.path 末尾（不前置），避免 scripts/ 下同名包遮蔽 web/、store/。
-import sys as _sys
-
-_SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent / "scripts")
-if _SCRIPTS_DIR not in _sys.path:
-    _sys.path.append(_SCRIPTS_DIR)
 
 
 # ── observability 装挂（Round 9 H3 + H9）────────────────────

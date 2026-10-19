@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2360 passed / 71 skipped / 0 failed**（2431 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2363 passed / 71 skipped / 0 failed**（2434 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1037,6 +1037,43 @@ Basic 触发注释、退役单元名、前端「Basic Auth 把关」提示…）
 
 测试基线 2358 → **2360 passed / 71 skipped / 0 failed**（2431 collected；登录相关
 测试从 3 个「已下线」断言改为 5 个「已恢复」断言）。
+
+### v2.6 (2026-10-19) R47 续：R46 的 isort 引爆生产启动失败（已修复 + 加守门）
+
+**事故**：`cc64d15`（R46 的 ruff 门禁）上线后，**生产 `league-web.service` 一旦重启即
+无限失败**：`ModuleNotFoundError: No module named 'core'` → `Restart=on-failure` 循环。
+本轮 19:55 重启 web 服务时才暴露（此前该进程是 10-17 16:10 启动的旧代码，一直没重启过）。
+
+**根因**（导入顺序依赖）：
+
+- `web/routers/admin.py` 在**模块级** `from core import observability`（`core` 在 `scripts/` 下）；
+- 此前只有 `web/routers/jc.py` 会在模块级把 `scripts/` 加进 `sys.path`，
+  而 `admin` 恰好排在 `jc` **之后** → admin 的可导入性**依赖导入顺序**；
+- R46 的 isort（I001）把 `admin` 按字母序排到了 `jc` **之前** → `scripts/` 还没进
+  `sys.path`，`import web.api` 直接失败。
+
+本地 2358 个测试全绿也照样漏掉：pytest 进程自身的 `sys.path` 已含 `scripts/`，
+**根本复现不了生产的启动条件**。
+
+**修复（双保险）**：
+
+1. `web/api.py`：把 `scripts/` 注入 `sys.path` 的代码块提到**所有 `web.routers.*`
+   导入之前**（根因修复，任何后续 router 依赖 `core` 都自动成立）；
+2. `web/routers/admin.py`：模块内**自举** `sys.path`（与 `web/services/haf.py`、
+   `web/routers/jc.py`、`jc_ops.py` 同模式）→ 与导入顺序彻底解耦；
+3. **新增守门测试** `tests/web/test_import_contract.py`（3 例）：用**全新子进程 +
+   清空 PYTHONPATH** 执行 `import web.api` / `import web.routers.admin`，复现生产启动条件。
+   已负例验证：把两个文件回退到 R46 状态，这 3 例**全部失败**且报错与生产完全一致。
+
+**教训**：ruff 的自动排序不只是格式问题 —— 它会改变**导入顺序**，而本仓存在
+「靠导入顺序传递副作用（sys.path 注入）」的隐式耦合。**任何 import 重排都必须
+在干净子进程里验证可导入性**，这正是本地测试全绿却上线即挂的原因。
+
+顺带记录：生产实际运行的 unit（`/etc/systemd/system/league-web.service`）与仓库模板
+`ops/league-web.service` **并不相同**（生产无 `--workers 2`、Description 不同、
+且**没有** `PYTHONPATH=scripts` —— 代码侧自举因此是必需项，不是冗余）。
+
+测试基线 2360 → **2363 passed / 71 skipped / 0 failed**（2434 collected）。
 
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性

@@ -11,7 +11,20 @@ R15b:
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
+
+# 让 from core import observability 在本模块被导入时即可解析（仅一次）。
+# R47：本模块**不能**依赖 web/api.py 的导入顺序 —— R46 的 isort 把 admin 排到
+# jc 之前，而此前只有 jc.py 会先把 scripts/ 加进 sys.path，顺序一变就
+# ModuleNotFoundError: No module named 'core'（生产 league-web.service 无限重启）。
+# 自举后本模块与导入顺序无关（同 web/services/haf.py 的模式）。
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SCRIPTS = _REPO_ROOT / "scripts"
+for _p in (str(_REPO_ROOT), str(_SCRIPTS)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from core import observability
 from fastapi import APIRouter, Depends, Query
