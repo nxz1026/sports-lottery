@@ -37,7 +37,7 @@ uvicorn web.api:app                          # 启动 web（pyproject [tool.fast
 
 ## Testing instructions
 
-- 单测：`python -m pytest tests -q`（当前基线 **2428 collected / 2362 passed / 71 skipped**）
+- 单测：`python -m pytest tests -q`（当前基线 **2428 collected / 2357 passed / 71 skipped / 0 failed**）
 - **必须 `PYTHONPATH=scripts`**（或 `sys.path` 注入 `scripts/`），否则 `import core.*` 失败
 - 新增行为必须补测；沿用现有命名 `tests/test_<module>.py`
 - `tests/web_ui/` 浏览器级测试缺 playwright 时自动 skip（marker `web_ui`）
