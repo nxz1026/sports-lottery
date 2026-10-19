@@ -489,11 +489,11 @@ def _annotate_monte_carlo(predictions: list, run_monte_carlo: bool, n_simulation
                       league=league_key, data_source=data_source)
         except Exception:
             pass
-        logger.warning(f"整季赛程取数失败，回退窗口内赛程: {exc}")
+        logger.warning(f"full-season fixture fetch failed, fallback to in-window fixtures: {exc}")
 
     if not fixtures:
         # 回退：窗口内赛程（覆盖球队少，仅供降级展示）
-        logger.warning("整季剩余赛程为空，回退为窗口内赛程（冠军概率语义较弱）")
+        logger.warning("full-season fixtures empty, fallback to in-window fixtures (champion probability semantics weak)")
         for p in predictions:
             home, away = p.get("home", ""), p.get("away", "")
             if not (home and away):
@@ -507,7 +507,7 @@ def _annotate_monte_carlo(predictions: list, run_monte_carlo: bool, n_simulation
         initial_standings = {}
 
     if not fixtures:
-        logger.warning("蒙特卡洛无可用赛程，跳过")
+        logger.warning("monte carlo: no fixtures available, skipped")
         return None
 
     monte_carlo_result = monte_carlo_champion(

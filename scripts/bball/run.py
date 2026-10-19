@@ -117,14 +117,14 @@ def _window(now: datetime) -> str:
 def run(args: argparse.Namespace) -> dict:
     key = os.environ.get("ODDS_API_KEY", "")
     if not key:
-        LOGGER.error("ODDS_API_KEY 未设置")
+        LOGGER.error("ODDS_API_KEY not set")
         raise SystemExit(2)
     now = datetime.now(timezone.utc)
     ratings = load_ratings()
     if args.backtest:
         completed = fetch_completed_games(key, LEAGUE["odds_sport"], args.backtest)
         if not completed:
-            LOGGER.warning("odds api free tier 无历史比分，休赛期请用 --ahead-days 90 前瞻揭幕战")
+            LOGGER.warning("odds api free tier has no historical scores; use --ahead-days 90 for season opener forecast")
         update_ratings(ratings, completed)
         save_ratings(ratings)
         details = [_past_detail(g, _prediction(g, ratings, now)) for g in completed]
@@ -160,7 +160,7 @@ def main() -> None:
         result = run(_parser().parse_args())
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except (OddsApiError, json.JSONDecodeError, ValueError) as error:
-        LOGGER.error("NBA 预测失败: %s", error)
+        LOGGER.error("NBA prediction failed: %s", error)
         raise SystemExit(3) from None
 
 

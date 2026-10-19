@@ -556,7 +556,7 @@ def train_league_model_from_events(
             events_path=Path(events_path) if events_path is not None else None,
         )
     except FileNotFoundError as e:
-        logger.warning("train_league %s: events.jsonl 未找到 -- %s", league, e)
+        logger.warning("train_league %s: events.jsonl not found -- %s", league, e)
         try:
             _obs.log_event("retrain_fail", league=league, reason="no_joined_samples",
                            detail=f"events.jsonl 未找到: {e}")
@@ -565,7 +565,7 @@ def train_league_model_from_events(
         return TrainResult(reason="no joined samples", detail=f"events.jsonl 未找到: {e}")
 
     if not samples:
-        logger.warning("train_league %s: events.jsonl 中无 prediction/outcome 配对", league)
+        logger.warning("train_league %s: no prediction/outcome pairs in events.jsonl", league)
         try:
             _obs.log_event("retrain_fail", league=league, reason="no_joined_samples",
                            detail=f"league={league} 无配对 prediction/outcome")
@@ -576,8 +576,8 @@ def train_league_model_from_events(
     feature_cols = _common_feature_keys(samples)
     if len(feature_cols) < min_feature_keys:
         logger.warning(
-            "train_league %s: features_snapshot 公共 key 仅 %d < min_feature_keys=%d，"
-            "需先在 predictor._debug_fields 中扩展 reasoning_factors 覆盖",
+            "train_league %s: features_snapshot common keys only %d < min_feature_keys=%d; "
+            "expand reasoning_factors in predictor._debug_fields first",
             league, len(feature_cols), min_feature_keys,
         )
         try:
@@ -598,7 +598,7 @@ def train_league_model_from_events(
     X, y = _build_xy_from_samples(samples, feature_cols)
     if len(X) < min_train_samples:
         logger.warning(
-            "train_league %s: 有效训练样本 %d < min_train_samples=%d",
+            "train_league %s: valid training samples %d < min_train_samples=%d",
             league, len(X), min_train_samples,
         )
         try:
@@ -618,7 +618,7 @@ def train_league_model_from_events(
     try:
         model = MatchMLModel(n_features=len(feature_cols)).fit(X, y)
     except ValueError as e:
-        logger.warning("train_league %s: MatchMLModel.fit 抛 ValueError -- %s", league, e)
+        logger.warning("train_league %s: MatchMLModel.fit raised ValueError -- %s", league, e)
         try:
             _obs.log_event("retrain_fail", league=league, reason="training_failed",
                            n_samples=len(X), n_features=len(feature_cols),
@@ -642,7 +642,7 @@ def train_league_model_from_events(
         with open(path, "w", encoding="utf-8") as f:
             json.dump(model.to_dict(), f, ensure_ascii=False, indent=2)
     except OSError as e:
-        logger.warning("train_league %s: 落盘 %s 失败 -- %s", league, path, e)
+        logger.warning("train_league %s: write to %s failed -- %s", league, path, e)
         try:
             _obs.log_event("retrain_fail", league=league, reason="training_failed",
                            n_samples=len(X), n_features=len(feature_cols),
@@ -668,7 +668,7 @@ def train_league_model_from_events(
     else:
         cv_summary = " cv_*=None(n<50)"
     logger.info(
-        "train_league %s: 训练完成 n_samples=%d n_features=%d train_acc=%.4f train_brier=%.4f"
+        "train_league %s: training done n_samples=%d n_features=%d train_acc=%.4f train_brier=%.4f"
         "%s -> %s",
         league, len(X), len(feature_cols), train_acc, train_brier, cv_summary, path,
     )

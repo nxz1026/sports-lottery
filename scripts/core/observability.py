@@ -262,9 +262,9 @@ def _warn_unwritable_events_once(reason: str) -> None:
         return
     _UNWRITABLE_EVENTS_WARNED = True
     logger.warning(
-        "events.jsonl unavailable —— 所有 log_event 静默丢；"
-        "原因：%s。检查 FOOTBALL_DIR/logs 是否可写（pytest tmp_path / "
-        "只读 mount / setup 失败 都是常见诱因）", reason)
+        "events.jsonl unavailable -- all log_event silently dropped; "
+        "reason: %s. check FOOTBALL_DIR/logs writable (pytest tmp_path / "
+        "read-only mount / setup failure are common causes)", reason)
 
 
 def log_event(kind: str, **fields: Any) -> None:
