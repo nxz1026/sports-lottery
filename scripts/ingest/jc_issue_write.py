@@ -63,8 +63,8 @@ def upsert_issue_instruction(cur, ins: dict, src_hash: str, src_file: str) -> in
     返回受影响行数(0/1)。不开事务、不 commit、不 catch 一切异常（连接归调用方，§9-83）。
     jsonb 列 dict/list 须 Json(...) 包裹（psycopg3 不自动适配 dict，实测 ProgrammingError）；
     timestamp/date/text 直接绑参数，不 str() 强转。
-    P0-COLLECT2 续：fact.jc_issue_prize 是 append-only（无 first/last_seen_at，is_current 翻版）⇒ 走
-    纯 INSERT；PK 撞同 tier ⇒ IntegrityError 上抛（不静默吞、不 upsert、不静默改 is_current）。"""
+    P0-COLLECT2 续：fact.jc_issue_prize 是 append-only（无 first/last_seen_at，is_current 翻版）
+    ⇒ 走 _insert_prize：同 hash 幂等跳过、异 hash 旧行置 false + 新行插入（R48 实测修，见其 docstring）。"""
     table = ins["table"]
     row = _validate(table, ins["row"])
     if table == "fact.jc_issue_prize":
@@ -75,17 +75,48 @@ def upsert_issue_instruction(cur, ins: dict, src_hash: str, src_file: str) -> in
 
 
 def _insert_prize(cur, row: dict, src_hash: str, src_file: str) -> int:
-    """fact.jc_issue_prize 纯 INSERT（无 first/last_seen_at，无 on conflict）。
+    """fact.jc_issue_prize：同 hash 幂等跳过 + 异 hash 翻版（is_current 语义）。
 
-    走纯 INSERT 而非 UPSERT：append-only 表，PK 撞同 tier ⇒ IntegrityError
-    上抛（不静默吞、不 upsert 改写历史）。
+    R48（生产实测根因）：原实现是**纯 INSERT**，PK 撞同 tier ⇒ IntegrityError 上抛
+    → ``jc_load.load_batch`` 捕获后 ``conn.rollback()`` ⇒ **整批 7 个 topic 全部回滚**。
+    实测 2026-10-01T14:30Z 起每批必撞（采集机把当期在售期次在**每一批**里反复推送），
+    2580 批里 1805 批（70%）回滚 ⇒ 队尾新批次永远落不了库（fact.jc_offer 新鲜度落后 17h）。
+
+    撞 PK 的两批内容实测**逐字相同**：``src_hash`` 是 payload 内容哈希（不含 snap_ts /
+    fetched_at，实测同内容跨批同 hash）⇒ 这不是"数据变更"，是**同一期被反复推送**的幂等问题。
+
+    修法（对齐 DDL v1.2 的 is_current 设计：官方开奖前后 prizeLevelList 会整体换形，
+    重刷同一期时旧下标行只能置 false、不许假删）：
+
+    · 同 ``(tier, src_hash)`` 已在表里 ⇒ **幂等跳过**（不新增行、不动 is_current）；
+    · 同 tier 但 src_hash 不同（真换形）⇒ 旧行 ``is_current=false``，新行 ``is_current=true``
+      插入（append-only 保留历史行）。
+
+    PK 已放宽为 ``(game_num, issue_no, tier_no, src_hash)``（src_hash 即版本标识）
+    —— 见 ``docs/db/infra_p0_8_jc_tables.sql`` 与同目录的 R48 迁移脚本。
     """
     schema, name = "fact", "jc_issue_prize"
     cols, vals = bind_values(row, _JSONB, src_hash, src_file)
-    sql_obj = sql.SQL("insert into {t} ({c}) values ({p})").format(
+    insert_sql = sql.SQL(
+        "insert into {t} ({c}) values ({p}) on conflict ({k}) do nothing"
+    ).format(
         t=sql.Identifier(schema, name),
         c=sql.SQL(", ").join(map(sql.Identifier, cols)),
         p=sql.SQL(", ").join([sql.Placeholder()] * len(cols)),
+        k=sql.SQL(", ").join(map(sql.Identifier, _PK_BY_TABLE["fact.jc_issue_prize"] + ("src_hash",))),
     )
-    cur.execute(sql_obj, vals)
-    return cur.rowcount or 0
+    cur.execute(insert_sql, vals)
+    if not cur.rowcount:
+        return 0        # 同内容已在表里 ⇒ 幂等跳过（不新增版本、不改 is_current）
+    # 新版本入库 ⇒ 同 tier 的旧当前版本置 false（历史行保留，符合 append-only 语义）
+    cur.execute(
+        sql.SQL("update {t} set is_current=false where {c1}={v1} and {c2}={v2} "
+                "and {c3}={v3} and is_current and src_hash <> {v4}").format(
+            t=sql.Identifier(schema, name),
+            c1=sql.Identifier("game_num"), c2=sql.Identifier("issue_no"),
+            c3=sql.Identifier("tier_no"),
+            v1=sql.Placeholder(), v2=sql.Placeholder(),
+            v3=sql.Placeholder(), v4=sql.Placeholder()),
+        (row["game_num"], row["issue_no"], row["tier_no"], src_hash),
+    )
+    return 1

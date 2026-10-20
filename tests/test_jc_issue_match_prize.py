@@ -171,7 +171,7 @@ def test_upsert_issue_match_sql_shape():
 
 
 def test_upsert_issue_prize_sql_shape():
-    """jc_issue_prize 是 append-only（无 last_seen_at）⇒ 走纯 INSERT。"""
+    """R48：jc_issue_prize 走「同 hash 幂等跳过 + 异 hash 翻版」（append-only 保留历史行）。"""
     ins = {"table": "fact.jc_issue_prize",
            "pk": {"game_num": "90", "issue_no": "26T02", "tier_no": 1},
            "row": {"game_num": "90", "issue_no": "26T02", "tier_no": 1,
@@ -187,9 +187,13 @@ def test_upsert_issue_prize_sql_shape():
     txt = _sql(cur.calls[0][0])
     assert '"fact"."jc_issue_prize"' in txt
     assert "tier_no" in txt
-    # 不应是 UPSERT
-    assert "on conflict" not in txt
+    # 冲突探测用 on conflict ... do nothing（不抛异常掀翻事务）
+    assert "on conflict" in txt
+    assert "do nothing" in txt
     assert "last_seen_at" not in txt
+    # 翻版：同 tier 的旧当前版本置 false
+    assert len(cur.calls) == 2
+    assert "is_current=false" in _sql(cur.calls[1][0])
 
 
 def test_upsert_issue_match_pk_missing_seq_raises():

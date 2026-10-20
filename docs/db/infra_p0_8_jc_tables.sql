@@ -137,7 +137,11 @@ CREATE TABLE IF NOT EXISTS fact.jc_issue_prize (
     total_prizeamount text, award_type integer, grp text, sort_no integer,
     is_rj boolean NOT NULL DEFAULT false,       -- true = 任九孪生（prizeLevelList 里混进来的那批）
     raw jsonb NOT NULL, src_hash text NOT NULL, src_file text NOT NULL,
-    PRIMARY KEY (game_num, issue_no, tier_no),
+    -- R48：PK 放宽到含 src_hash。旧 PK (game_num,issue_no,tier_no) 让上面 is_current 的
+    -- 「重刷同一期时旧下标行置 false、不许假删」在结构上**无法实现**（同 tier 只能一行
+    -- ⇒ is_current 恒 true，实测 167 行全是 true，是死列）。src_hash 是 payload 内容哈希
+    -- （不含 snap_ts/fetched_at，实测同内容跨批同 hash）⇒ 天然就是版本标识。
+    PRIMARY KEY (game_num, issue_no, tier_no, src_hash),
     FOREIGN KEY (game_num, issue_no) REFERENCES fact.jc_issue (game_num, issue_no)
 );
 COMMENT ON TABLE fact.jc_issue_prize IS '传统足彩奖级（源：jc_issue_result.*Detail.prizeLevelList，条数不固定：实测 sfc 3 条 / jqc 1 条）';

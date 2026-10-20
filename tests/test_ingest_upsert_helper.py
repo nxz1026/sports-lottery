@@ -213,8 +213,12 @@ def test_jbq_upsert_emits_same_sql_pattern_as_before():
     assert vals[-2:] == ["sh1", "f.jsonl"]
 
 
-def test_jc_upsert_prize_uses_pure_insert():
-    """jc_issue_prize append-only：走纯 INSERT 而非 UPSERT（无 on conflict）。"""
+def test_jc_upsert_prize_uses_idempotent_insert_plus_flip():
+    """R48：jc_issue_prize 改成「同 hash 幂等跳过 + 异 hash 翻版」。
+
+    旧实现是纯 INSERT（无 on conflict）⇒ PK 撞同 tier 抛 IntegrityError ⇒
+    整批事务回滚（实测 70% 批次回滚 ⇒ 队尾新批次永远落不了库）。
+    """
     from ingest import jc_issue_write as w
 
     cur = FakeCur(rowcount=1)
@@ -228,8 +232,33 @@ def test_jc_upsert_prize_uses_pure_insert():
         "sh", "f.jsonl",
     )
     assert out == 1
-    (q, vals), = cur.calls
-    txt = _sql_text(q)
-    assert "insert into" in txt
-    assert "on conflict" not in txt  # append-only：无冲突处理
-    assert "last_seen_at = now()" not in txt  # append-only：也无 last_seen_at
+    # ① 插入语句带 on conflict ... do nothing（探测冲突，不抛异常、不掀翻事务）
+    insert_txt = _sql_text(cur.calls[0][0])
+    assert "insert into" in insert_txt
+    assert "on conflict" in insert_txt
+    assert "do nothing" in insert_txt
+    assert "src_hash" in insert_txt          # 冲突键含 src_hash（版本标识）
+    assert "last_seen_at = now()" not in insert_txt
+    # ② 随后把同 tier 的旧当前版本置 false（历史行保留）
+    assert len(cur.calls) == 2
+    flip_txt = _sql_text(cur.calls[1][0])
+    assert "update" in flip_txt and "is_current=false" in flip_txt
+    assert cur.calls[1][1] == ("X", "Y", 1, "sh")   # 排除本行自己的 src_hash
+
+
+def test_jc_upsert_prize_same_hash_skips_without_flip():
+    """R48：同 (tier, src_hash) 已在表里 ⇒ 幂等跳过（不新增行、不动 is_current）。"""
+    from ingest import jc_issue_write as w
+
+    cur = FakeCur(rowcount=0)     # ON CONFLICT DO NOTHING ⇒ rowcount 0
+    out = w.upsert_issue_instruction(
+        cur,
+        {"table": "fact.jc_issue_prize", "pk": {"game_num": "X", "issue_no": "Y",
+                                                  "tier_no": 1},
+         "notes": [],
+         "row": {"game_num": "X", "issue_no": "Y", "tier_no": 1,
+                 "prize_level": "一等奖", "stake_count": 1}},
+        "sh", "f.jsonl",
+    )
+    assert out == 0
+    assert len(cur.calls) == 1                   # 只插了一次，没有翻版 UPDATE

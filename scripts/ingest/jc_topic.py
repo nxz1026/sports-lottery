@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from core.log import logger
+from psycopg import errors as pg_errors
 from psycopg.types.json import Json
 from store.parse_collector import parse_line, parse_lines_all
 
@@ -59,6 +60,16 @@ def _load_saved(cur, topic: str, rel: str, lines: list, rej: list, writer) -> in
                 rej.append({"line": i, "reason": f"{ins['table']}:{str(e)[:80]}"})
                 logger.warning("%s topic=%s 文件=%s %s=%s err=%s",
                                kind, topic, rel, label, ins.get("pk"), str(e)[:80])
+            except pg_errors.IntegrityError as e:
+                # R48：约束冲突（如唯一键撞车）也是**单行**问题，不是整批问题。
+                # 原实现只 catch ValueError ⇒ IntegrityError 直接掀翻整个批事务
+                # （实测 2026-10-01 起 70% 批次 rollback ⇒ 队尾新批次永远落不了库）。
+                # 这里同样走保存点回滚：只回滚这一行，记进 rejected，批次继续。
+                cur.execute(_SAVEPOINT_SQL[sp]["rollback to"])
+                reason = f"{ins['table']}:{type(e).__name__}:{str(e)[:80]}"
+                rej.append({"line": i, "reason": reason})
+                logger.warning("%s topic=%s 文件=%s %s=%s err=%s",
+                               kind, topic, rel, label, ins.get("pk"), reason)
     return ups
 
 

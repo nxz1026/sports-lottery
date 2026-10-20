@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2363 passed / 71 skipped / 0 failed**（2434 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2371 passed / 71 skipped / 0 failed**（2442 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48 +8**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1074,6 +1074,48 @@ Basic 触发注释、退役单元名、前端「Basic Auth 把关」提示…）
 且**没有** `PYTHONPATH=scripts` —— 代码侧自举因此是必需项，不是冗余）。
 
 测试基线 2360 → **2363 passed / 71 skipped / 0 failed**（2434 collected）。
+
+### v2.7 (2026-10-20) R48 体彩装载器 `rc=124` 根因修复（数据新鲜度停滞 17h）
+
+告警：`⚠ 体彩装载（cron */10）⚠ 装载器非零退出（124）——去 ops.ingest_log 看 errors，不要盲重试`。
+
+**先说告警指的那张表**：`ops.ingest_log` 里的 `ok=false` 确实有（`parse_none` 14.8 万行，
+自 09-29，每文件固定 2 行），但**真正的元凶不在那张表里** —— 撞唯一键的批次在写
+`ingest_log` **之前**就 `rollback` 了，错误只落在装载器 stdout（`logs/ingest-cron.log`）。
+
+**根因（Oracle 逐条实测，非推演）**：
+
+| # | 根因 | 证据 |
+|---|---|---|
+| A | `fact.jc_issue_prize` 撞唯一键 → **整批 7 个 topic 全部回滚** | 首次出现 **2026-10-01T14:30:28Z**；最近一轮 2580 批中 **1805 批（70%）**带 `UniqueViolation: jc_issue_prize_pkey (90,26144,1)`；**最新批单独试跑也撞**（`(90,26145,1)`）⇒ 补跑无效 |
+| B | 装载器**无增量水位** → 每轮全量重扫 2602 个 `.done`，420s 装不完 → **队尾永远补不上** | 每轮实跑 **2580/2601**（差 21 个 = 10-19 当天批次）；`fact.jc_offer` 最新 snap_ts 停在 **10-19 06:56**（落后 17h）且缺口随积压自我放大 |
+| C | orphan 阶段每轮**重装 15,816 个老文件**（98% 冗余 IO 的大头） | 单批试跑输出 `orphan 装载 n=15816` |
+
+**关键实测澄清**（决定了修法）：撞 PK 的两批内容**逐字相同**
+（`stakeAmount "38,715"` / `totalPrizeamount "9,562,605"`），且 `src_hash` 是 **payload 内容
+哈希**（不含 `snap_ts`/`fetched_at`，实测同内容跨批同 hash `37929ad2…`）⇒ 这是「同一期被
+反复推送」的**幂等问题**，不是数据变更。
+
+**修法**（用户选定：is_current 翻版，治本）：
+
+1. **A 幂等 + 翻版**（`scripts/ingest/jc_issue_write.py::_insert_prize`）：
+   同 `(tier, src_hash)` 已在表里 ⇒ `ON CONFLICT DO NOTHING` **幂等跳过**（不抛异常、不掀翻事务）；
+   同 tier 但 hash 不同（官方开奖前后换形）⇒ 旧行 `is_current=false` + 新行插入（append-only 保留历史）。
+   为此把 `fact.jc_issue_prize` 的 **PK 放宽为含 `src_hash`** —— 旧 PK `(game_num,issue_no,tier_no)`
+   让 DDL 注释里 v1.2 的「旧下标行置 false、不许假删」**在结构上无法实现**（同 tier 只能一行 ⇒
+   `is_current` 恒 true，实测 167 行全是 true，是**死列**）。迁移脚本：`docs/db/r48_ingest_fix.sql`。
+2. **A' 兜底**（`scripts/ingest/jc_topic.py::_load_saved`）：逐条 savepoint 原本只 catch
+   `ValueError` ⇒ `IntegrityError` 直接掀翻整批；现在**约束冲突也走保存点隔离**（只废这一行）。
+3. **B 水位**（`scripts/ingest/jc_load.py`）：新增 `ops.ingest_marker` 批级台账 ⇒ 每轮只处理
+   新到港的批次；**已装载 marker 不再重扫**（`iter_markers` 全量返回是 420s 超时的主因）。
+4. **C 跳过已装载**（同上）：orphan 判定加一道「`ops.file_arrival` 里有没有」⇒ 老文件不再重装。
+5. **孤儿前置**：孤儿（可能是老数据）先装、marker 批（更新的数据）后装 ⇒ `is_current` 指针单调向新。
+
+**不是本轮引入**：首个 `rc=124` 在 **10-03**（早三轮）；R46 对 `scripts/ingest/` 的改动仅是
+import 排序（无逻辑变更）。数据**没丢**（文件都在 `incoming/`，幂等由 `src_hash` 保证），只是延迟。
+
+测试基线 2363 → **2371 passed / 71 skipped / 0 failed**（2442 collected；新增 8 例：水位跳过、
+已装载跳过、台账写入、保存点隔离 ×3、prize 幂等/翻版 ×2）。
 
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性

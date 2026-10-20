@@ -166,25 +166,16 @@ def test_main_logs_marker_count_and_errors():
 
 
 def test_main_orphan_scan_skipped_logs_warning():
-    """files_for_batch 在 orphan-scan 阶段抛错 → logger.warning，main 不崩。"""
+    """files_for_batch 在认领扫描阶段抛错 → logger.warning，main 不崩。"""
     fake_conn = MagicMock()
     fake_cursor = MagicMock()
     fake_cursor.execute.return_value.fetchone.return_value = [0]
     fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
 
-    call_count = {"n": 0}
-
-    def fake_files(*a, **kw):
-        call_count["n"] += 1
-        # 第一次成功（main batch），第二次抛错（orphan-scan）
-        if call_count["n"] == 1:
-            return {}
-        raise OSError("scan dir vanished")
-
     with patch.object(jc_load.pg, "connect", return_value=fake_conn), \
          patch.object(jc_load, "iter_markers",
                       return_value=[Path("/tmp/.done_w")]), \
-         patch.object(jc_load, "files_for_batch", side_effect=fake_files), \
+         patch.object(jc_load, "files_for_batch", side_effect=OSError("scan dir vanished")), \
          patch.object(jc_load, "load_topic",
                       return_value={"ups": 0, "topic": "x"}):
         with patch.object(jc_load, "logger", MagicMock()) as fake_logger:
@@ -217,3 +208,63 @@ def test_main_orphan_glob_skipped_logs_warning():
     assert rc == 0
     warns = [str(call) for call in fake_logger.warning.call_args_list]
     assert any("orphan-glob" in m for m in warns), f"未记 orphan-glob warning: {warns!r}"
+
+
+# ---------- R48：增量水位 + 已装载跳过 ----------
+
+def test_pending_markers_skips_done_ones():
+    """水位：已在 ops.ingest_marker 的 marker 不再处理（每轮只跑新到港的批次）。"""
+    ms = [Path("/tmp/a.done"), Path("/tmp/b.done"), Path("/tmp/c.done")]
+    with patch.object(jc_load, "iter_markers", return_value=ms):
+        pending = jc_load._pending_markers(Path("/tmp"), None, {"a.done", "c.done"})
+    assert [m.name for m in pending] == ["b.done"]
+
+
+def test_orphan_files_skips_already_loaded():
+    """已装载文件（ops.file_arrival 有记录）不再当孤儿重装 —— 98% 冗余 IO 的根。"""
+    root = Path("/tmp/incoming")
+    p = root / "jczq_offer" / "old.jsonl"
+
+    def fake_glob(self, pattern):
+        # 只在 jczq_offer 目录下有这个文件
+        return [p] if self.name == "jczq_offer" else []
+
+    with patch.object(Path, "glob", new=fake_glob):
+        orph = jc_load._orphan_files(root, set(), {("jczq_offer", "jczq_offer/old.jsonl")})
+    assert orph == []
+    # 未装载的仍在孤儿集里
+    with patch.object(Path, "glob", new=fake_glob):
+        orph2 = jc_load._orphan_files(root, set(), set())
+    assert orph2 == [p]
+
+
+def test_orphan_files_skips_claimed_files():
+    """被待处理 marker 认领的文件不算孤儿（由 marker 批装载）。"""
+    root = Path("/tmp/incoming")
+    p = root / "jczq_offer" / "x.jsonl"
+
+    def fake_glob(self, pattern):
+        return [p] if self.name == "jczq_offer" else []
+
+    with patch.object(Path, "glob", new=fake_glob):
+        orph = jc_load._orphan_files(root, {p}, set())
+    assert orph == []
+
+
+def test_main_records_marker_watermark():
+    """处理完的 marker 写进 ops.ingest_marker 台账（失败批次 ok=false ⇒ 下轮重试）。"""
+    fake_conn = MagicMock()
+    fake_cursor = MagicMock()
+    fake_cursor.execute.return_value.fetchone.return_value = [0]
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+
+    with patch.object(jc_load.pg, "connect", return_value=fake_conn), \
+         patch.object(jc_load, "iter_markers", return_value=[Path("/tmp/m.done")]), \
+         patch.object(jc_load, "files_for_batch", return_value={}), \
+         patch.object(jc_load, "load_topic", return_value={"ups": 7, "topic": "x"}):
+        jc_load.main(["--dir", "/tmp/incoming"])
+
+    upserts = [c for c in fake_cursor.execute.call_args_list
+               if "insert into ops.ingest_marker" in str(c[0])]
+    assert upserts, "未写 ingest_marker 台账"
+    assert upserts[0][0][1] == ("m.done", 0, True)   # files_for_batch 返空 ⇒ ups=0，ok=True

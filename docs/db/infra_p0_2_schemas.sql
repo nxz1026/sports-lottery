@@ -83,6 +83,17 @@ CREATE TABLE IF NOT EXISTS ops.file_arrival (
   topic text NOT NULL, src_file text NOT NULL, arrived_at timestamptz NOT NULL DEFAULT now(),
   bytes bigint, rows int, done_marker boolean NOT NULL DEFAULT false, PRIMARY KEY (topic, src_file)
 );
+-- R48：marker 处理水位台账（装载器增量水位）。
+-- 为什么需要：ingest_log / file_arrival 记的是「文件级」留痕，但**批级**是否已处理没有台账
+--   ⇒ 装载器每轮只能全量重扫全部 .done（实测 2601 个，越滚越大），单轮耗时超 timeout 420
+--   ⇒ 每轮被砍在队尾前，新批次永远补不上（实测 fact.jc_offer 新鲜度落后 17h）。
+-- 口径：marker 名（.done 文件名）为主键；ok=false 的批次不记 ⇒ 下轮会重试。
+CREATE TABLE IF NOT EXISTS ops.ingest_marker (
+  marker text PRIMARY KEY,
+  processed_at timestamptz NOT NULL DEFAULT now(),
+  ups int NOT NULL DEFAULT 0,
+  ok boolean NOT NULL DEFAULT true
+);
 
 -- ---------- 存量补授（首次执行时上面默认权限已覆盖；重跑/历史对象靠这段）----------
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA ref TO league_ing;
