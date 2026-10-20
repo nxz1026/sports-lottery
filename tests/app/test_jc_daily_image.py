@@ -127,7 +127,7 @@ def test_football_temp_only_with_note(patch_today, empty_accuracy, monkeypatch):
     assert d["stats"]["main_on_sale"] == 0
     assert d["stats"]["temp_on_sale"] == 1
     assert d["note"] is not None
-    assert "五大联赛无在售" in d["note"]
+    assert "五大联赛与欧冠均无在售" in d["note"]
     assert "1 场临时赛事" in d["note"]
     assert "亚运会女足" in d["note"]
 
@@ -377,12 +377,12 @@ def test_basketball_staleness_none_when_no_generated_at(
 # ---------- Step 7：stats.hit 透传 ------------------------------------
 
 def test_football_hit_stats_reflects_accuracy(patch_today, filled_accuracy, monkeypatch):
-    """填了 accuracy 100×0.5 → 5 大联赛各贡献 100/50，累计 n=500, hit=250。"""
+    """填了 accuracy 100×0.5 → 模型覆盖的 6 个联赛各贡献 100/50，累计 n=600, hit=300。"""
     monkeypatch.setattr("store.jc_view.fixtures_on", lambda d: [])
     monkeypatch.setattr("web.services.team_match.build_rows", lambda fs, pl: [])
 
     from web.app.jc import daily_image_vm
     d = daily_image_vm(sport="football")
     assert d["stats"]["hit"]["available"] is True
-    assert d["stats"]["hit"]["n"] == 500
-    assert d["stats"]["hit"]["hit"] == 250
+    assert d["stats"]["hit"]["n"] == 600
+    assert d["stats"]["hit"]["hit"] == 300

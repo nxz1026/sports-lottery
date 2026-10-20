@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import date as _date
 
 from web.config import BIG5 as _BIG5  # noqa: F401 — 保留旧符号供 router / VM 复用
+from web.config import MAIN_LEAGUES as _MAIN_LEAGUES  # noqa: F401 — 主面板联赛集合
 
 # ---------------------------------------------------------------------------
 # 白名单常量 —— 单一真源在 web.config.BIG5，web.app.jc + web.routers.jc
@@ -23,13 +24,20 @@ from web.config import BIG5 as _BIG5  # noqa: F401 — 保留旧符号供 router
 
 # league_cn 全名 → 预测文件名里的联赛键，供命中率对账（accuracy service）。
 # web/app 独有，accuracy / router 不需要。
-_BIG5_KEYS: dict[str, str] = {
+#
+# 必须覆盖 scripts.core.leagues.LEAGUE_CONFIG 的**全部足球联赛 key**：
+# 缺一个 ⇒ 该联赛的命中率在 web 侧被静默跳过（面板永远 0% 且无报错）。
+# 2026-10-20 起加入欧冠（路线图《建议 1》）。
+LEAGUE_KEYS: dict[str, str] = {
     "英格兰超级联赛": "epl",
     "西班牙甲级联赛": "laliga",
     "意大利甲级联赛": "seriea",
     "德国甲级联赛": "bundesliga",
     "法国甲级联赛": "ligue1",
+    "欧洲冠军联赛": "ucl",
 }
+# 旧名保留（历史 import 兼容）：语义已扩展为「模型覆盖联赛」而非「五大联赛」。
+_BIG5_KEYS: dict[str, str] = LEAGUE_KEYS
 
 
 def _big5_with_temp() -> set[str]:
@@ -48,7 +56,7 @@ def _big5_with_temp() -> set[str]:
 
 
 def _hit_stats() -> dict:
-    """五大联赛真实方向命中率：从历史预测文件实时对账已结算赛果。
+    """模型覆盖联赛的真实方向命中率：从历史预测文件实时对账已结算赛果。
 
     ``reconciled=0``（无已结算样本）→ ``available=False``，页面显示"数据积累中"，
     绝不编数。优先 30d 窗口（样本更大），空则退回 7d。算法与 keys 见
@@ -57,7 +65,7 @@ def _hit_stats() -> dict:
     """
     from web.services.accuracy import league_accuracy_web
     n = hit = 0
-    for lk in _BIG5_KEYS.values():
+    for lk in LEAGUE_KEYS.values():
         for days in (30, 7):
             acc = league_accuracy_web(lk, days=days)
             if acc and acc.get("reconciled"):
@@ -208,46 +216,47 @@ def daily_image_vm(sport: str = "football", today: _date | None = None) -> dict:
     # 白名单 = 五大联赛硬编码 ∪ env LEAGUE_TEMP_LEAGUES；临时赛事无训练样本 → algo/hhad/haf 不会计算（仅 odd 盘口层）。
     rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
 
-    # 分组：五大联赛主面板 + 临时赛事附面板（仅盘口层）。
-    main_rows = [r for r in rows if (r.get("league_cn") or "") in _BIG5]
-    temp_rows = [r for r in rows if (r.get("league_cn") or "") not in _BIG5]
+    # 分组：主面板联赛（五大联赛 + 欧冠，模型有预测产出 → 有算法层）+
+    # 临时赛事附面板（仅盘口层）。
+    main_rows = [r for r in rows if (r.get("league_cn") or "") in _MAIN_LEAGUES]
+    temp_rows = [r for r in rows if (r.get("league_cn") or "") not in _MAIN_LEAGUES]
     main_matched = [r for r in main_rows if r.get("matched")]
 
     from web.config import LEAGUE_TEMP_LEAGUES
     if not rows:
-        # 五大联赛 + 临时赛事都没有：彻底空态
+        # 主面板联赛 + 临时赛事都没有：彻底空态
         return {
             "sport": "football", "available": False, "rows": [], "main_rows": [], "temp_rows": [],
             "date": today.isoformat(),
-            "note": (f"今日（{today.isoformat()}）五大联赛无在售赛事。"
+            "note": (f"今日（{today.isoformat()}）五大联赛与欧冠均无在售赛事。"
                       "五大联赛通常在周末/周中分散开赛，请到「竞彩盘口」视图选其他日期查看历史图，"
                       "或查看 [NBA 篮球] 每日一图。"),
-            "stats": {"scope": "五大联赛", "main_on_sale": 0, "main_recommend": 0,
+            "stats": {"scope": "五大联赛+欧冠", "main_on_sale": 0, "main_recommend": 0,
                       "temp_on_sale": 0, "nba": 0, "hit": _hit_stats()},
-            "match_note": ("范围：NBA + 五大联赛。推荐列为官方盘口(odd)与模型算法层的合并；"
+            "match_note": ("范围：NBA + 五大联赛 + 欧冠。推荐列为官方盘口(odd)与模型算法层的合并；"
                            "让球线取官方 hhad 盘口；命中率待实际结算数据积累后如实展示。"),
         }
-    # available 条件：五大联赛有赛事（用户主面板）或临时赛事有赛事（值得展示，但提示主面板空）
+    # available 条件：主面板联赛有赛事（用户主面板）或临时赛事有赛事（值得展示，但提示主面板空）
     available = bool(main_rows) or bool(temp_rows)
     note = None
     if not main_rows and temp_rows:
-        note = (f"今日（{today.isoformat()}）五大联赛无在售赛事；附 "
+        note = (f"今日（{today.isoformat()}）五大联赛与欧冠均无在售赛事；附 "
                 f"{len(temp_rows)} 场临时赛事（{ ' / '.join(LEAGUE_TEMP_LEAGUES) }，盘口层，无模型预判）。")
     return {
         "sport": "football", "available": available,
-        "rows": main_rows,    # 主面板（五大联赛）；temp_rows 单独暴露，避免前端同场重复
+        "rows": main_rows,    # 主面板（五大联赛+欧冠）；temp_rows 单独暴露，避免前端同场重复
         "main_rows": main_rows,
         "temp_rows": temp_rows,
         "date": today.isoformat(),
         "note": note,
         "stats": {
-            "scope": "五大联赛+临时赛事", "on_sale": len(rows),
+            "scope": "五大联赛+欧冠+临时赛事", "on_sale": len(rows),
             "main_on_sale": len(main_rows), "main_recommend": len(main_matched),
             "temp_on_sale": len(temp_rows),
             "nba": 0,
             "hit": _hit_stats(),
         },
-        "match_note": ("范围：NBA + 五大联赛 + 临时赛事（env LEAGUE_TEMP_LEAGUES）。"
+        "match_note": ("范围：NBA + 五大联赛 + 欧冠 + 临时赛事（env LEAGUE_TEMP_LEAGUES）。"
                        "临时赛事无模型预判，仅显示官方盘口；让球线取官方 hhad 盘口；"
-                       "命中率仅统计五大联赛。"),
+                       "命中率统计五大联赛与欧冠（欧冠为冷启动，样本积累中）。"),
     }

@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2374 passed / 71 skipped / 0 failed**（2445 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2394 passed / 71 skipped / 0 failed**（2465 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -712,6 +712,22 @@ sports-lottery/
 | bundesliga | Bundesliga | football-data | 78 | 0.19 | 3.2 |
 | seriea | Serie A | football-data | 135 | 0.28 | 2.5 |
 | ligue1 | Ligue 1 | football-data | 61 | 0.21 | 2.7 |
+| **ucl** | **UEFA Champions League（欧冠）** | **espn** | 2 | **0.08** | **3.7** |
+
+**欧冠（`ucl`，2026-10-20 新增，路线图《建议 1》）的三点特殊**：
+
+1. **数据源 = ESPN**：football-data.org 没有欧冠 ⇒ 配置里**故意不设 `league_id`**（设了回填器会拼出无效 URL）。
+   ESPN scoreboard 的 `dates` **只吃单日**（区间实测 HTTP 400）⇒ 整季取数走 `dates=<日历年>` 通道
+   （`core/data/fetch.py::fetch_espn_season`，抓三个自然年、按 `season.year` 保留最近两个赛季）。
+2. **冷启动 ⇒ 低置信**：俱乐部不在 FIFA 国家队排名里（`core/rankings.py`），ELO 靠整季历史滚出来
+   （实测 111 支队全部脱离 `DEFAULT_ELO`）。预测行的 `confidence_note` 含「冷启动」、
+   置信度钳到 **0.5** ⇒ 星级最高 **2-star**、带 `low_confidence=true`，**不与五大联赛同档展示**。
+3. **不做夺冠模拟**：欧冠是两阶段赛制，积分榜式蒙特卡洛不适用（实测会给出「利物浦 42.1%」这种
+   与赛制无关的数）⇒ `LEAGUE_CONFIG["ucl"]["monte_carlo"] = False`。
+
+队名链：模型产出的中文名 = **竞彩官方中文名**（`scripts/references/team_cn_official.json`，109 条，
+人工核对；依据与逐条核验见 `docs/project/待审-竞彩官方队名表-20261020.md`）——
+竞彩↔预测是按中文名 join 的，通用叫法（曼城/曼联/热刺/巴黎圣日耳曼）会逐字对不上。
 
 ## Dashboard AI 日报与分数榜
 
@@ -1209,6 +1225,36 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 `ref.team.aliases` 是 jsonb 且存的是**外部数据源 id**（不是中文别名）。
 
 **不做**：多用户方案 · 半全场/总进球独立模型（无概率源）· 铺开 34 联赛 · 体彩收益承诺 · 动 core 零依赖。
+
+### v2.9 (2026-10-20) 建议 1 落地：模型补欧冠（`ucl` 进 `LEAGUE_CONFIG` + 队名链 + 低置信降档）
+
+**路线图 `docs/project/产品路线图-竞彩闭环-20261020.md` §建议 1 的代码侧已落地**；
+订正与落地清单见该文档 **§6.3**（含 6 条推翻路线图自身判断的实测证据）。本段只给结论。
+
+**结果**：模型现在覆盖**欧冠**（`LEAGUE_CONFIG["ucl"]`），且产出的中文名**逐字等于竞彩官方名**
+⇒ `/api/v1/ticket/sfc` 的 `n_with_probs`、`/api/jc/gap` 的错位榜，第一次有欧冠的行。
+
+| 改动 | 落点 |
+|---|---|
+| 欧冠联赛配置 + 差异化参数 | `scripts/core/leagues.py`（`LEAGUE_CONFIG["ucl"]`、`LEAGUE_DC_RHO=0.08`、`LEAGUE_LAMBDA_MULTIPLIER=3.7`） |
+| ESPN 整季取数通道 | `scripts/core/data/fetch.py::fetch_espn_season`（`dates` 不吃区间 ⇒ 按日历年抓；`limit` 必须放大，50 会静默截断 189 场） |
+| 完赛状态修正 | `scripts/core/data/parse.py::FINISHED_STATUSES`（补 ESPN 的 `STATUS_FINAL_AET`，原白名单只有 AF 的 `STATUS_FINAL_ET` ⇒ 欧冠 2 场加时赛被误判 in_progress） |
+| **队名链（路线图没提、但同样阻塞）** | `scripts/references/team_cn_official.json`（109 条，人工核对）+ `core/i18n.py::to_cn` 把它**前置**到 `COUNTRY_CN`/LLM 缓存之前 |
+| 冷启动低置信降档 | `scripts/core/predictor.py::_apply_league_confidence_cap`（置信度钳 0.5 ⇒ 最高 2-star；`confidence_note` 含「冷启动」；预测行带 `low_confidence`） |
+| 夺冠模拟按赛制关掉 | `scripts/predict.py::_setup_league_run`（`LEAGUE_CONFIG["ucl"]["monte_carlo"]=False`） |
+| web 侧主面板纳入欧冠 | `web/config.py`（`MODEL_LEAGUES`/`MAIN_LEAGUES`）、`web/app/jc.py`（`LEAGUE_KEYS`）、`web/routers/jc.py`（scope 文案）、`web/services/datasource.py` |
+
+**本地实跑 `python scripts/predict.py --league ucl`（2026-10-20）**：产出 **18 场**；
+18/18 场 `low_confidence=true`、星级 ≤ 2-star、`confidence_note` 含「冷启动」；
+队名逐字对齐竞彩（费内巴切/萨巴赫/罗马/波尔图/曼彻斯特城/曼彻斯特联/巴黎圣日尔曼/国际米兰…）；
+`home_en`/`away_en` 保留 ESPN 原名作稳定键；赔率信号 18/18 场可用（ESPN 自带 moneyline/让球/大小球）。
+
+**ELO 冷启动靠历史而非 FIFA**（路线图原判断被实测推翻）：FIFA 排名是**国家队**排名，俱乐部不在其中；
+真正的路径是 ESPN 整季历史滚 ELO —— 实测落地后 **111 支队全部脱离 `DEFAULT_ELO`**、107 个不同取值
+（巴黎 1637.5 / 皇马 1569.4 / 利物浦 1557.7 / 阿贾克斯 1440.5）⇒ 有区分度。
+
+**DB 侧两件未执行（待用户点头）**：① `ref.league` 增补 `ucl` 行（`docs/db/ucl_league_seed.sql`，幂等；
+不插则 AF 回填的数据会在 `upsert_fixtures` 被丢弃）；② AF 回填 UCL 2022/2023/2024 三季（3 次请求）。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 

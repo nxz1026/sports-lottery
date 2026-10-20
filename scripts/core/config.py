@@ -37,6 +37,8 @@ from core.constants import (  # noqa: F401
 
 # ── 从 leagues 重新导出所有符号 ────────────────────
 from core.leagues import (  # noqa: F401
+    LEAGUE_CONFIDENCE_CAP,
+    LEAGUE_CONFIDENCE_NOTES,
     LEAGUE_CONFIG,
     LEAGUE_DC_RHO,
     LEAGUE_LAMBDA_MULTIPLIER,

@@ -586,7 +586,6 @@ def _setup_league_run(league_key: str, args, now_utc, dates_str):
     """第一阶段：参数解包、获取并解析赛事数据、ELO 初始化。返回后续阶段所需全部数据。
     """
     data_source = args.data_source
-    run_monte_carlo = args.monte_carlo
     n_simulations = args.n_simulations
     run_backtest = args.backtest
     use_dc = not args.no_dc
@@ -595,6 +594,19 @@ def _setup_league_run(league_key: str, args, now_utc, dates_str):
     _t_start = time.time()
 
     league_config = LEAGUE_CONFIG.get(league_key, LEAGUE_CONFIG["epl"])
+    # 联赛级开关：某些赛制的「夺冠模拟」不适用，必须由配置关掉而不是算出一个错数。
+    #
+    # 欧冠（路线图《建议 1》）：``monte_carlo_champion`` 的 league 模式是
+    # **积分榜模型**（build_league_standings 播种 + 剩余赛程模拟），
+    # 而欧冠是两阶段（36 队联赛阶段 8 轮轮换 + 淘汰赛 bracket），没有「积分第一即夺冠」；
+    # 且欧冠的取数窗口跨两个自然年（ESPN dates=<日历年>，实测 414 场 → 保留 2 个赛季 333 场），
+    # 两个赛季的完赛混在一起播种 ⇒ 积分榜是错的 ⇒ 夺冠概率是错的。
+    # 实测（本地实跑 2026-10-20）：MC 给出「利物浦 42.1% / 阿森纳 35.9% / 曼城 21.4%」，
+    # 与欧冠赛制毫无关系 ⇒ 宁可不给，也不给错数。
+    # 欧冠夺冠模拟属**可选增量**（参照 core/model/monte_carlo_worldcup.py 的 bracket 实现），不在建议 1 范围。
+    run_monte_carlo = args.monte_carlo and bool(league_config.get("monte_carlo", True))
+    if args.monte_carlo and not run_monte_carlo:
+        logger.info(f"League {league_key}: Monte Carlo disabled by league config (赛制不适用)")
     host_country = league_config.get("host_country")
     tournament_type = league_config.get("tournament_type", "league")
 

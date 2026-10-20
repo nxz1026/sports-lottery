@@ -20,11 +20,16 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 
 def test_af_leagues_matches_historical():
-    """AF_LEAGUES 与 P2-22 迁移前硬编码值一致（向后兼容）。"""
+    """AF_LEAGUES = 历史五联赛硬编码值 + 欧冠（2026-10-20 加，路线图《建议 1》）。
+
+    欧冠只有 AF 源（``api_football_id=2``）；football-data.org 没有欧冠 ⇒
+    ``ucl`` **不出现**在 FD_LEAGUES 里。
+    """
     from store import parse_api
 
     assert parse_api.AF_LEAGUES == {
         39: "epl", 140: "laliga", 78: "bundesliga", 135: "seriea", 61: "ligue1",
+        2: "ucl",
     }
 
 
@@ -50,21 +55,35 @@ def test_nba_excluded_from_both():
 
 
 def test_af_fd_keys_pair_with_league_config_football():
-    """每个足球联赛 key（去 nba）都同时出现在 AF + FD 两张表里。"""
+    """AF / FD 两张表分别覆盖 LEAGUE_CONFIG 里对应字段齐全的联赛。
+
+    - AF：所有有 ``api_football_id`` 的足球联赛（欧冠 ``ucl``/2 也在内）。
+    - FD：所有有 ``league_id`` 的足球联赛（**欧冠没有** —— football-data.org
+      不覆盖欧冠，``ucl`` 配置里故意不设 ``league_id``，否则回填器会拿它拼出
+      无效的 football-data URL）。
+    - FD ⊆ AF：有 FD 的联赛必然也有 AF（AF 是 ``fact.fixture`` 的权威锚）。
+    """
     from core.leagues import LEAGUE_CONFIG
     from store import parse_api
 
-    football_keys = {
+    af_expected = {
         k for k, v in LEAGUE_CONFIG.items()
-        if isinstance(v.get("api_football_id"), int) and isinstance(v.get("league_id"), str)
+        if isinstance(v.get("api_football_id"), int)
+    }
+    fd_expected = {
+        k for k, v in LEAGUE_CONFIG.items()
+        if isinstance(v.get("league_id"), str)
     }
     af_keys = set(parse_api.AF_LEAGUES.values())
     fd_keys = set(parse_api.FD_LEAGUES.values())
 
-    assert football_keys == af_keys == fd_keys, (
-        f"足球联赛 key 三处等势破裂：LEAGUE_CONFIG={football_keys} "
-        f"AF={af_keys} FD={fd_keys}"
+    assert af_keys == af_expected, (
+        f"AF_LEAGUES={af_keys} ≠ LEAGUE_CONFIG 有 api_football_id 的联赛={af_expected}"
     )
+    assert fd_keys == fd_expected, (
+        f"FD_LEAGUES={fd_keys} ≠ LEAGUE_CONFIG 有 league_id 的联赛={fd_expected}"
+    )
+    assert fd_keys <= af_keys, f"FD 联赛 {fd_keys - af_keys} 没有对应的 AF 源"
 
 
 def test_backfill_validate_leagues_api_id_matches_league_config():

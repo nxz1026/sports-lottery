@@ -19,6 +19,8 @@ LEAGUES: dict[str, dict] = {
     "bundesliga": {"name": "Bundesliga", "data_source": "football-data"},
     "seriea": {"name": "Serie A", "data_source": "football-data"},
     "ligue1": {"name": "Ligue 1", "data_source": "football-data"},
+    # 欧冠：引擎侧 data_source 是 ESPN（football-data 没有欧冠）。
+    "ucl": {"name": "UEFA Champions League", "data_source": "espn"},
     "nba": {"name": "NBA", "data_source": "the-odds", "active": False},
 }
 

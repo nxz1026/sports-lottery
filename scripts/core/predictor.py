@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from core.config import DC_RHO, LEAGUE_DC_RHO, MARKET_ODDS_WEIGHT, ML_CONFIG, ONSIDE_WEIGHTS, THRESHOLDS
+from core.config import (
+    DC_RHO,
+    LEAGUE_CONFIDENCE_CAP,
+    LEAGUE_CONFIDENCE_NOTES,
+    LEAGUE_DC_RHO,
+    MARKET_ODDS_WEIGHT,
+    ML_CONFIG,
+    ONSIDE_WEIGHTS,
+    THRESHOLDS,
+)
 from core.elo import DEFAULT_ELO, expected_score
 from core.log import logger
 from core.model.features import extract_features
@@ -60,6 +69,41 @@ def _blend_ml_probs(home_prob: float, draw_prob: float, away_prob: float,
     return home_prob, draw_prob, away_prob, ml_proba
 
 
+def stars_for_confidence(confidence_raw: float) -> str:
+    """置信度 → 星级。纯函数（``_decide_direction_and_stars`` 与冷启动降档共用）。"""
+    if confidence_raw >= THRESHOLDS["star_5"]:
+        return "5-star"
+    if confidence_raw >= THRESHOLDS["star_4"]:
+        return "4-star"
+    if confidence_raw >= THRESHOLDS["star_3"]:
+        return "3-star"
+    if confidence_raw >= THRESHOLDS["star_2"]:
+        return "2-star"
+    return "1-star"
+
+
+def _apply_league_confidence_cap(league_key: str, confidence_raw: float,
+                                 confidence_note: str | None,
+                                 stars: str) -> tuple[float, str | None, str]:
+    """冷启动联赛降档：钳置信度 + 改写 note + 重算星级。纯函数。
+
+    路线图《建议 1》验收 ③：冷启动联赛的 ``confidence_note`` 必须含「冷启动」字样，
+    且「不许与英超同档展示」⇒ 星级按钳位后的置信度重算
+    （``LEAGUE_CONFIDENCE_CAP['ucl']=0.5`` < ``star_3`` 门槛 0.55 ⇒ 最高 2-star）。
+    """
+    cap = LEAGUE_CONFIDENCE_CAP.get(league_key)
+    note = LEAGUE_CONFIDENCE_NOTES.get(league_key)
+    if cap is None and note is None:
+        return confidence_raw, confidence_note, stars
+    if cap is not None:
+        confidence_raw = min(float(confidence_raw), float(cap))
+    if note:
+        # 冷启动原因**覆盖**「无盘口数据」那条 —— 前者是联赛级根因，后者是单场现象，
+        # 并列会让人误以为只是这场没盘口。两条都成立时取更根本的那条。
+        confidence_note = note
+    return confidence_raw, confidence_note, stars_for_confidence(confidence_raw)
+
+
 def _decide_direction_and_stars(home_prob: float, draw_prob: float,
                                 away_prob: float, match: dict) -> tuple[str, float, str | None, str]:
     """方向判断 + 置信度钳位 + 无盘口降级 + 星级映射。纯函数。"""
@@ -92,16 +136,7 @@ def _decide_direction_and_stars(home_prob: float, draw_prob: float,
     else:
         confidence_note = None
 
-    if confidence_raw >= THRESHOLDS["star_5"]:
-        stars = "5-star"
-    elif confidence_raw >= THRESHOLDS["star_4"]:
-        stars = "4-star"
-    elif confidence_raw >= THRESHOLDS["star_3"]:
-        stars = "3-star"
-    elif confidence_raw >= THRESHOLDS["star_2"]:
-        stars = "2-star"
-    else:
-        stars = "1-star"
+    stars = stars_for_confidence(confidence_raw)
     return direction, confidence_raw, confidence_note, stars
 
 
@@ -438,6 +473,9 @@ def _assemble_result(
         "dixon_coles_league_rho": LEAGUE_DC_RHO.get(league_key, DC_RHO),  # P0-3: 报告使用的 ρ 来源
         "onside_signals": onside, "confidence_note": confidence_note,
         "odds_data_available": odds_available,
+        # 冷启动联赛标记（路线图《建议 1》）：UCL 俱乐部无 FIFA/ELO 播种，
+        # 置信度已钳位、星级已降档；这个 flag 让下游/页面能显式区分展示。
+        "low_confidence": league_key in LEAGUE_CONFIDENCE_NOTES,
     }
     # ── ML feedback 必需字段（避免 prediction_*.json 缺 probs / model / goal_line，导致
     #    events.jsonl 写入 "default"/0 概率塌方）──
@@ -610,6 +648,12 @@ def calculate_prediction(
     # ── 方向判断 ──
     direction, confidence_raw, confidence_note, stars = _decide_direction_and_stars(
         home_prob, draw_prob_calc, away_prob, match)
+
+    # ── 冷启动联赛降档（路线图《建议 1》验收 ③）──
+    # 俱乐部不在 FIFA 国家队排名里 ⇒ 无播种；ELO 冷启动 ⇒ 信号主要来自市场赔率。
+    # 置信度钳位 + note 改写 + 星级重算，不与五大联赛同档展示。
+    confidence_raw, confidence_note, stars = _apply_league_confidence_cap(
+        league_key, confidence_raw, confidence_note, stars)
 
     lambda_home, lambda_away, raw_home, raw_away, predicted_score, top3, btts_prob, over_25_prob, all_scores = _derive_lambdas_and_grid(
         league_key, hp, ap, home_onside, away_onside, sm_capped, onside_weight,

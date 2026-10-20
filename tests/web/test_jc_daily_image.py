@@ -106,7 +106,7 @@ def test_temp_league_only_main_empty_note_with_temp_count(monkeypatch, client):
     assert d["stats"]["temp_on_sale"] == 1
     # note 必须提示五大联赛空 + 临时赛事数量
     assert d["note"] is not None
-    assert "五大联赛无在售" in d["note"]
+    assert "五大联赛与欧冠均无在售" in d["note"]
     assert "1 场临时赛事" in d["note"]
     assert "亚运会女足" in d["note"]
 

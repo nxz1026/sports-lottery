@@ -8,6 +8,14 @@ from datetime import datetime, timezone
 from core.i18n import to_cn
 from core.log import logger
 
+# 已完赛状态集合（ESPN + API-Football 两套命名都要认）。
+#
+# ESPN 用 ``STATUS_FINAL_AET``（加时赛终场）—— 实测欧冠 2026 日历年 189 场里
+# 有 2 场是这个状态；API-Football 侧 ``core/data/convert.py`` 映射成
+# ``STATUS_FINAL_ET``。原先只列了 ET，**ESPN 的加时赛会被判成 in_progress**：
+# 既不进 past（无比分 ⇒ form/record/校准/对账全丢），又会混进 in_progress 列表。
+FINISHED_STATUSES = ("STATUS_FULL_TIME", "STATUS_FINAL_PEN", "STATUS_FINAL_ET", "STATUS_FINAL_AET")
+
 
 def parse_american_odds(odds_str: str | None) -> float | None:
     """解析美式赔率 → 隐含概率 (含 vig)"""
@@ -357,7 +365,7 @@ def _build_match_record(ev: dict, now_utc: datetime) -> tuple[str | None, dict |
         "home_en": _b["home"]["team"]["displayName"] if _b["home"] else "",
         "away_en": _b["away"]["team"]["displayName"] if _b["away"] else "",
         "home_abbr": _b["home_abbr"], "away_abbr": _b["away_abbr"],
-        "score": f"{_b['home_score']}-{_b['away_score']}" if _b["status"] in ("STATUS_FULL_TIME", "STATUS_FINAL_PEN", "STATUS_FINAL_ET") else "",
+        "score": f"{_b['home_score']}-{_b['away_score']}" if _b["status"] in FINISHED_STATUSES else "",
         "home_form": _b["home_form"], "away_form": _b["away_form"],
         "home_form_score": round(_od["h_fs"], 3), "away_form_score": round(_od["a_fs"], 3),
         "home_record": _b["home_records"][0].get("summary","") if _b["home_records"] else "",
@@ -374,7 +382,7 @@ def _build_match_record(ev: dict, now_utc: datetime) -> tuple[str | None, dict |
         "total_over_close": _od["tot_o_close"].get("line",""), "total_under_close": _od["tot_u_close"].get("line",""),
         "odds_data_available": bool(_od["odds"].get("details") or _od["odds"].get("drawOdds") or _od["odds"].get("pointSpread") or _od["odds"].get("total")),
     }
-    if _b["status"] in ("STATUS_FULL_TIME", "STATUS_FINAL_PEN", "STATUS_FINAL_ET"):
+    if _b["status"] in FINISHED_STATUSES:
         return "past", rec
     elif _b["status"] == "STATUS_SCHEDULED":
         return "future", rec

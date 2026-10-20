@@ -380,7 +380,7 @@ def pick_latest_for_league(league):
 
 ### 7.1 引擎内部联赛 key（`LEAGUE_CONFIG` 的 key，`--league`/`--all` 参数取值域）
 
-来源：`scripts/core/leagues.py:36-91`（`LEAGUE_CONFIG`）。**这是 web 层 `/{league}` 路由的参数取值域**。
+来源：`scripts/core/leagues.py:43-131`（`LEAGUE_CONFIG`）。**这是 web 层 `/{league}` 路由的参数取值域**。
 
 | 引擎 key | 中文名 | 英文名（配置 `name`） | football-data `league_id` | api-football `api_football_id` | ESPN `espn_slug` | host_country |
 |---|---|---|---|---|---|---|
@@ -389,20 +389,29 @@ def pick_latest_for_league(league):
 | `bundesliga` | 德甲 | Bundesliga | `BL1` | 78 | `ger.1` | Germany |
 | `seriea` | 意甲 | Serie A | `SA` | 135 | `ita.1` | Italy |
 | `ligue1` | 法甲 | Ligue 1 | `FL1` | 61 | `fra.1` | France |
+| `ucl` | 欧冠 | UEFA Champions League | —（football-data 无欧冠） | 2 | `uefa.champions` | World |
 
-证据：leagues.py:37-90（每个 key 的 dict：`name`/`data_source`/`league_id`/`api_football_id`/`espn_slug`/`host_country`/`groups`/`knockout`）。
+证据：leagues.py:44-131（每个 key 的 dict：`name`/`name_cn`/`data_source`/`league_id`/`api_football_id`/`espn_slug`/`host_country`/`groups`/`knockout`）。
 
 注意：
 - `epl` 配置**缺 `tournament_type` 字段**（其余四联赛均有 `"tournament_type": "league"`，leagues.py:49,59,71,82），predict.py:245 缺省补 `"league"` → 输出 JSON 顶层 `tournament_type` 仍为 `league`，但 schema 上 epl 的配置字典不完整。
 - 全部 5 个联赛 `data_source` 默认均为 `"football-data"`（leagues.py:39,51,62,73,84），`groups=False`、`knockout=False`（无分组/淘汰赛结构；世界杯等杯赛若加入需另配，见 PLAN 未覆盖）。
 - 中文名不在 `LEAGUE_CONFIG` 中，为本文档按惯例标注（`country-codes.md`/i18n 见 §8）；引擎内联赛级中文显示名**未定义**（疑点 §9-10）。
+- **`ucl`（欧冠，2026-10-20 新增，路线图《建议 1》）**：① `data_source="espn"`（football-data.org 没有欧冠 ⇒ **故意不设 `league_id`**，设了回填器会拿它拼出无效 URL）；② `espn_season_fetch=True` ⇒ 走 `fetch_espn_season`（leagues.py:118-131、fetch.py:209-243）：ESPN scoreboard 的 `dates` 只吃单日（区间实测 HTTP 400），`dates=<日历年>` 才能取整季（实测 `dates=2026&limit=200` → 189 场，`limit=50` 会被截断）；③ `groups=True`/`knockout=True` 是**死字段**（全仓无人读取，纯语义标记）；④ `host_country="World"` ⇒ 主场优势信号不生效。
 
 ### 7.2 联赛差异化参数（同 key 域）
 
-`LEAGUE_DC_RHO`（leagues.py:12-18）：`epl 0.17 / laliga 0.22 / bundesliga 0.19 / seriea 0.28 / ligue1 0.21`——Dixon-Coles ρ（低分平局校正强度，意甲平局率最高故最大）。
-`LEAGUE_LAMBDA_MULTIPLIER`（leagues.py:25-31）：`epl 2.8 / laliga 2.7 / bundesliga 3.2 / seriea 2.5 / ligue1 2.7`——每场期望进球基线（λ 乘数，用于泊松分布）。
+`LEAGUE_DC_RHO`（leagues.py:12-20）：`epl 0.17 / laliga 0.22 / bundesliga 0.19 / seriea 0.28 / ligue1 0.21 / ucl 0.08`——Dixon-Coles ρ（低分平局校正强度，意甲平局率最高故最大；**欧冠 0.08** 的依据是实测联赛阶段平局率仅 9.7%，远低于五大联赛 23%~28%）。
+`LEAGUE_LAMBDA_MULTIPLIER`（leagues.py:28-38）：`epl 2.8 / laliga 2.7 / bundesliga 3.2 / seriea 2.5 / ligue1 2.7 / ucl 3.7`——每场期望进球基线（λ 乘数，用于泊松分布）。**`ucl 3.7`** 的依据是 ESPN 实测欧冠联赛阶段 72 场场均 3.736 球（主 2.236 / 客 1.500）。
 
 两套映射**与上游 id 一一对应、无差异冲突**：同一引擎 key 下三个上游 id 互不重叠（各上游用自己的命名空间，football-data `PL` 与 api-football `39` 是同一联赛的不同上游标识，非翻译关系）。
+
+### 7.2.1 冷启动联赛的低置信钳位（2026-10-20 新增）
+
+`LEAGUE_CONFIDENCE_NOTES`（leagues.py:134-138）+ `LEAGUE_CONFIDENCE_CAP`（leagues.py:140-143）：`ucl` 的 note 含「冷启动」字样、置信度上限 0.5。
+落地位置：`core/predictor.py::_apply_league_confidence_cap` → 钳置信度 → 改写 `confidence_note` → **重算星级**（`star_3` 门槛 0.55 ⇒ 冷启动联赛最高 2-star），并给预测行打 `low_confidence=True`。
+
+> 路线图《建议 1》原文说「FIFA 排名是现成冷启动路径」——**实测推翻**：`core/rankings.py::fetch_fifa_rankings` 返回的是**国家队**排名（Argentina/France/…），俱乐部不在其中 ⇒ 欧冠队拿不到 FIFA 播种；`core/elo.py` 的全局评级文件里也没有这些队 ⇒ 全部回落 `DEFAULT_ELO`（无区分度）。⇒ 欧冠预测的第一信号其实是**市场赔率**（ESPN 自带 moneyline/让球/大小球），note 里如实写明这一点，不谎称已用 FIFA 播种。
 
 ### 7.3 上游 id 的用途与验证
 
@@ -412,26 +421,41 @@ def pick_latest_for_league(league):
 
 ## 8. i18n
 
-### 8.1 两级名称体系
+### 8.1 三级名称体系（2026-10-20 起为三级）
 
-引擎用「国名/队名」两级处理中文，**没有联赛级中文名**（见 §7.1 与疑点 §9-10）：
+引擎用「国名/队名」多级处理中文，**没有联赛级中文名**（见 §7.1 与疑点 §9-10）：
 
 | 对象 | 机制 | 存储 | 证据 |
 |---|---|---|---|
-| 国家名 | 静态表 `COUNTRY_CN`（constants.py:143-254，硬编码约 110 条：英格兰/法国/…/中国） | 代码内 dict | constants.py:143-163（样本） |
-| 俱乐部/队名 | **LLM 翻译 + JSON 缓存**（首次出现翻译，落盘复用） | `references/team_translations.json` | i18n.py:3-8,18,48-100 |
-| 联赛名 | **无** | — | leagues.py:36-91 仅英文 `name` |
+| **竞彩官方队名** | **人工核对表，最高优先级** | `references/team_cn_official.json` | i18n.py:23,43-62,130-152 |
+| 国家名 | 静态表 `COUNTRY_CN`（constants.py:143-254，硬编码约 110 条：英格兰/法国/…/中国）+ 兼容的旧俱乐部叫法 | 代码内 dict | constants.py:143-163（样本） |
+| 俱乐部/队名 | **LLM 翻译 + JSON 缓存**（首次出现翻译，落盘复用） | `references/team_translations.json` | i18n.py:11-12,22,28-41,75-108 |
+| 联赛名 | **无** | — | leagues.py:43-131 仅英文 `name` |
 
-`to_cn(name)` 逻辑（i18n.py:103-110）：国名先查 `COUNTRY_CN`（core/data/parse.py:38-41 的 `to_cn` 是 core.i18n.to_cn 的转发）；队名查翻译缓存；**都查不到返回原英文**。COUNTRY_CN 与翻译缓存**不合并**——`COUNTRY_CN` 只查国家名，队名不走它（i18n.py:104-108）。
+`to_cn(name)` 逻辑（i18n.py:130-152）：① 先查 `team_cn_official.json`（竞彩官方队名）→ ② 再查 `COUNTRY_CN`（国名 + 旧俱乐部叫法）→ ③ 再查 LLM 翻译缓存 → ④ 都查不到返回原英文。
+
+> **为什么 ① 必须排在 ② 前面**：竞彩↔模型是**按中文名 join** 的（`web/routers/ticket.py` 用 `fact.jc_issue_match.home_cn` ↔ 预测 entry 的 `home`/`away`；`web/services/team_match.py::build_rows` 同理）。`COUNTRY_CN` 里写的是球迷通用叫法，与竞彩官方叫法逐字不同：
+
+| 数据源 displayName | 通用叫法（COUNTRY_CN） | 竞彩官方叫法 | 不一致后果 |
+|---|---|---|---|
+| `Manchester City` | 曼城 | **曼彻斯特城** | join miss |
+| `Manchester United` | 曼联 | **曼彻斯特联** | join miss |
+| `Paris Saint-Germain` | 巴黎圣日耳曼 | **巴黎圣日尔曼** | join miss |
+| `Tottenham Hotspur` | 热刺 | **托特纳姆热刺** | join miss |
+| `Newcastle United` | 纽卡斯尔 | **纽卡斯尔联** | join miss |
+| `Celta Vigo` | 塞尔塔 | **维戈塞尔塔** | join miss |
+
+取值的唯一依据 = 生产库 `fact.jc_match` 的 396 个去重竞彩队名（人工逐支核对）。完整清单见 `docs/project/待审-竞彩官方队名表-20261020.md`。
 
 ### 8.2 翻译缓存文件
 
-`references/team_translations.json`（`TRANSLATION_CACHE_FILE = FOOTBALL_DIR/references/team_translations.json`，i18n.py:18）——样本 99 条（Fulham FC→富勒姆、Arsenal FC→阿森纳、FC Bayern München→拜仁慕尼黑 等，team_translations.json:1-99）。写入时 `ensure_ascii=False`（i18n.py:43）。
+`references/team_translations.json`（`TRANSLATION_CACHE_FILE = FOOTBALL_DIR/references/team_translations.json`，i18n.py:22）——样本 99 条（Fulham FC→富勒姆、Arsenal FC→阿森纳、FC Bayern München→拜仁慕尼黑 等，team_translations.json:1-99）。写入时 `ensure_ascii=False`（i18n.py:71）。
 
 关键事实：
-- **键是上游英文全名**（`"Manchester City FC"` 与 `"Manchester City"` 两条并存、同为「曼城」，team_translations.json:15,22）——`to_cn` 是**精确匹配**，上游队名形态不同会生成重复条目。web 层若按中文名聚合需自行去重。
-- LLM 提示词要求用球迷通用短名（'Fulham'→'富勒姆'，省略 FC 后缀，i18n.py:54-64）。
-- 翻译失败（LLM 不可用）→ 不写缓存、`to_cn` 回退英文（i18n.py:79-81,110）→ **预测 JSON 中 `match`/`home`/`away` 保持英文**（core/data/parse.py:258,280-281）。样本 13 的 `match` 为 `"Qingdao Hainiu vs Tianjin Jinmen Tiger"` 混排（英文为主）即此现象（预测样本:88）。
+- **键是上游英文全名**（`"Manchester City FC"` 与 `"Manchester City"` 两条并存，team_translations.json:15,22）——`to_cn` 是**精确匹配**，上游队名形态不同会生成重复条目。web 层若按中文名聚合需自行去重。
+- LLM 提示词要求用球迷通用短名（'Fulham'→'富勒姆'，省略 FC 后缀，i18n.py:83-93）——**这正是通用叫法与竞彩叫法不一致的根源**，故 §8.1 的 ① 层必须存在。
+- 翻译失败（LLM 不可用）→ 不写缓存、`to_cn` 回退英文（i18n.py:108-110）→ **预测 JSON 中 `match`/`home`/`away` 保持英文**（core/data/parse.py:266,288-289）。样本 13 的 `match` 为 `"Qingdao Hainiu vs Tianjin Jinmen Tiger"` 混排（英文为主）即此现象（预测样本:88）。
+- **不要把人工核对表并进本文件**：`save_translations()` 整文件重写（i18n.py:64-72），混进去会被 LLM 预热冲掉 ⇒ 独立文件 `team_cn_official.json`。
 
 ### 8.3 预测 JSON 的双语情况（逐字段）
 

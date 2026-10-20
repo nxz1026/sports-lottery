@@ -54,13 +54,17 @@ def tap(monkeypatch) -> SimpleNamespace:
 
 
 def test_plan_rows_shape_endpoints_and_id_screen():
-    """E+F：AF 15 + FD 15（五联赛 × 三赛季）、端点与 params 形态逐字；无源 id 的联赛（nba）不进计划。"""
+    """E+F：AF 18 + FD 15（六联赛 × 三赛季 − 欧冠无 FD 源）、端点与 params 形态逐字；
+    无源 id 的联赛（nba）不进计划。"""
     rows = run_backfill.plan_rows()
     af, fd = [r for r in rows if r["table"] == "af_raw"], [r for r in rows if r["table"] == "fd_raw"]
-    assert (len(rows), len(af), len(fd)) == (30, 15, 15)
+    # 欧冠（ucl）只有 AF 源（football-data.org 没有欧冠 ⇒ 无 league_id）⇒ AF 6 联赛 × 3 季 = 18，
+    # FD 仍 5 联赛 × 3 季 = 15。
+    assert (len(rows), len(af), len(fd)) == (33, 18, 15)
     assert {r["node"].split()[1] for r in rows} == set(LEAGUE_CONFIG) - {"nba"}  # nba 在配置里但无源 id
     assert {r["node"].split()[2] for r in rows} == set(run_backfill.SEASONS)
-    assert {r["endpoint"] for r in af} == {AF_EP} and {r["params"]["league"] for r in af} == {39, 140, 78, 135, 61}
+    assert {r["endpoint"] for r in af} == {AF_EP}
+    assert {r["params"]["league"] for r in af} == {39, 140, 78, 135, 61, 2}
     assert {r["endpoint"].rsplit("/", 2)[1] for r in fd} == {"PL", "PD", "BL1", "SA", "FL1"}
     assert all(set(r["params"]) == {"season"} for r in fd)
 

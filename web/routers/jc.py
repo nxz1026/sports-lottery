@@ -184,7 +184,7 @@ def gap(top: int = 10, _: None = Depends(require_auth)) -> dict:
     """官方 SP 隐含概率 vs 模型三向概率的错位榜（每日一报）。
 
     基线=官方让利价隐含概率（The Odds API 按 D9 默认关闭，不含国际收盘）。
-    只列五大联赛在售、官方 had 三项齐、模型有胜平负概率的场次；
+    只列主面板联赛在售（五大联赛 + 欧冠）、官方 had 三项齐、模型有胜平负概率的场次；
     按错位分降序，最多 top 条。
     """
     from store import jc_view
@@ -207,7 +207,7 @@ def gap(top: int = 10, _: None = Depends(require_auth)) -> dict:
     rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
     items = _jc_gap(rows, top_n=min(max(int(top), 1), 30))
     return {
-        "sport": "football", "scope": "五大联赛", "count": len(items),
+        "sport": "football", "scope": "五大联赛+欧冠", "count": len(items),
         "items": items,
         "note": "基线=官方让利价隐含概率 vs 模型概率；The Odds API 默认关闭，国际收盘不纳入。",
     }
@@ -218,14 +218,14 @@ def movement(day: str | None = None, _: None = Depends(require_auth)) -> dict:
     """两时点盘口快照链：开盘(first) vs 临场(last) 赔率与隐含概率变动。
 
     数据源=竞彩官方 10 分钟采集在 fact.jc_offer 累积的多时点 snap_ts（D9 口径，
-    不含 The Odds API）。只列五大联赛在售场次；day 缺省 → 最新 business_date。
+    不含 The Odds API）。只列主面板联赛在售场次（五大联赛 + 欧冠）；day 缺省 → 最新 business_date。
     """
     from store import jc_view
 
     rows = jc_view.jc_movement(day=day)
     rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
     return {
-        "sport": "football", "scope": "五大联赛", "day": day or "latest",
+        "sport": "football", "scope": "五大联赛+欧冠", "day": day or "latest",
         "count": len(rows), "items": rows,
     }
 

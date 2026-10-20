@@ -194,7 +194,7 @@ def test_gap_default_top_10(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["sport"] == "football"
-    assert body["scope"] == "五大联赛"
+    assert body["scope"] == "五大联赛+欧冠"
     assert "items" in body
     assert "note" in body
     assert "count" in body
@@ -257,7 +257,7 @@ def test_movement_default_latest(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["sport"] == "football"
-    assert body["scope"] == "五大联赛"
+    assert body["scope"] == "五大联赛+欧冠"
     assert body["day"] == "latest"
     assert isinstance(body["items"], list)
 

@@ -66,10 +66,12 @@ def test_extract_event_basics_at_separator(parse_mod, now_utc):
     out = parse_mod._extract_event_basics(ev, now_utc)
     # 验证 name 含 " vs " 分隔符
     assert " vs " in out["name"]
-    # i18n.to_cn 翻译："Manchester United" → "曼联"，"Liverpool" → "利物浦"
+    # i18n.to_cn 翻译："Manchester United" → "曼彻斯特联"，"Liverpool" → "利物浦"
+    # （"曼彻斯特联" 是竞彩官方叫法；通用叫法"曼联"会让竞彩↔预测 join 必然 miss，
+    #   见 scripts/references/team_cn_official.json）
     # 用 bytes 比较避免控制台编码错位
     name_bytes = out["name"].encode("utf-8")
-    assert ("曼联" in name_bytes.decode("utf-8")
+    assert ("曼彻斯特联" in name_bytes.decode("utf-8")
             or "Manchester United" in name_bytes.decode("utf-8"))
     assert ("利物浦" in name_bytes.decode("utf-8")
             or "Liverpool" in name_bytes.decode("utf-8"))

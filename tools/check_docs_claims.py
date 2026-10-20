@@ -27,8 +27,14 @@ results: list[tuple[str, str, str]] = []   # (状态, 声明, 实测)
 
 
 def check(name: str, expected, actual) -> None:
+    """登记一条断言。
+
+    ``expected`` = 从**代码/仓库**实测出来的真值；``actual`` = 从**文档**里读出来的声明值。
+    失败时按「声明 vs 实际」打印 ⇒ 声明在前、实测在后（R49 修：原先两个标签印反了，
+    排障时会照着反的提示去改错地方）。
+    """
     ok = expected == actual
-    results.append(("PASS" if ok else "FAIL", name, f"声明={expected!r} 实际={actual!r}"))
+    results.append(("PASS" if ok else "FAIL", name, f"声明={actual!r} 实际={expected!r}"))
 
 
 def read(p: Path) -> str:
@@ -246,6 +252,36 @@ def main() -> int:
           "已落库" in read(ROOT / "docs" / "project" / jc_e_p01)
           and "一行未入库" in read(ROOT / "docs" / "project" / jc_e_p01))
     check("产品路线图引用了 E 档待审清单", True, jc_e_p01 in roadmap_text)
+
+    # ---- 15. 建议 1（模型补欧冠）的队名链与落地状态 ----
+    # 竞彩↔模型按**中文名** join ⇒ 模型产出的中文名必须逐字等于竞彩官方叫法。
+    # 人工核对表是这条契约的载体；它若被删或被 LLM 缓存冲掉，join 立刻静默失效
+    # （症状是 sfc 的 n_with_probs 归零、错位榜只剩五大联赛那几行）。
+    # 只查「存在 + 被引用 + 规模」，不查表里的具体队名（那是逐次人工核对的产物）。
+    jc_names_doc = "待审-竞彩官方队名表-20261020.md"
+    official_json = SCRIPTS / "references" / "team_cn_official.json"
+    check("竞彩官方队名表文件存在（scripts/references/）", True, official_json.is_file())
+    check("竞彩官方队名表被 core/i18n.py 引用", True,
+          "team_cn_official.json" in read(SCRIPTS / "core" / "i18n.py"))
+    check("竞彩官方队名表清单存在（docs/project/）", True,
+          (ROOT / "docs" / "project" / jc_names_doc).is_file())
+    check("产品路线图引用了竞彩官方队名表清单", True, jc_names_doc in roadmap_text)
+    if official_json.is_file():
+        import json as _json
+        _raw = _json.loads(official_json.read_text(encoding="utf-8"))
+        _teams = {k: v for k, v in _raw.items() if not k.startswith("_")}
+        check("竞彩官方队名表条目数 ≥ 100（防清空/误删）", True, len(_teams) >= 100)
+        check("竞彩官方队名表取值都是非空字符串", [],
+              [k for k, v in _teams.items() if not isinstance(v, str) or not v.strip()])
+    # 路线图必须写明建议 1 的落地状态（含 DB 侧「未执行、待点头」），
+    # 否则下一个人会以为训练集回填已经做过了。
+    check("路线图记录了建议 1 的落地状态", True,
+          "建议 1（模型补欧冠）代码落地" in roadmap_text)
+    check("路线图写明 DB 侧未执行（待用户点头）", True,
+          "未执行" in roadmap_text and "待用户点头" in roadmap_text)
+    # ref.league 增补脚本必须在仓库里（DB 侧落地时直接用，不手搓 SQL）
+    check("ref.league 增补 ucl 行的 SQL 存在（docs/db/）", True,
+          (ROOT / "docs" / "db" / "ucl_league_seed.sql").is_file())
 
     # ---- 输出 ----
     width = 78

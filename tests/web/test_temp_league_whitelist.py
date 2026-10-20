@@ -41,7 +41,7 @@ def test_parse_skips_empty_tokens():
 # ---------- _big5_with_temp() 集成测试（re-import config + jc router）----------
 
 def test_helper_includes_hardcoded_big5_when_env_empty(monkeypatch):
-    """env 未配临时联赛时，helper 仅含硬编码五大联赛。
+    """env 未配临时联赛时，helper 含硬编码五大联赛 + 欧冠（模型正式覆盖）。
     注意：web.config 重载会 load_dotenv() 把 .env 重新读入 os.environ；
     所以设 "" (而非 delenv) 才能让 reload 后 LEAGUE_TEMP_LEAGUES 真的为空。
     """
@@ -53,7 +53,8 @@ def test_helper_includes_hardcoded_big5_when_env_empty(monkeypatch):
     s = jc_router._big5_with_temp()
     assert "英格兰超级联赛" in s
     assert "西班牙甲级联赛" in s
-    assert len(s) == 5  # 仅硬编码五大
+    assert "欧洲冠军联赛" in s
+    assert len(s) == 6  # 五大联赛 + 欧冠
 
 
 def test_helper_unions_env_into_big5(monkeypatch):
@@ -63,21 +64,21 @@ def test_helper_unions_env_into_big5(monkeypatch):
     from web.routers import jc as jc_router
     importlib.reload(jc_router)
     s = jc_router._big5_with_temp()
-    # 硬编码五大联赛 + 3 个临时 = 8
-    assert len(s) == 8
+    # 硬编码五大联赛 + 欧冠 + 3 个临时 = 9
+    assert len(s) == 9
     assert "亚运会男足" in s and "亚运会女足" in s and "欧罗巴联赛" in s
     assert "英格兰超级联赛" in s  # 五大仍在
 
 
 def test_helper_no_duplicate_when_env_repeats_big5(monkeypatch):
-    """临时赛事里重复五大联赛名 → set 去重，长度仍为 5。"""
+    """临时赛事里重复五大联赛名 → set 去重，长度仍为 6。"""
     monkeypatch.setenv("LEAGUE_TEMP_LEAGUES", "英格兰超级联赛,亚运会男足,英格兰超级联赛")
     import web.config as config
     importlib.reload(config)
     from web.routers import jc as jc_router
     importlib.reload(jc_router)
     s = jc_router._big5_with_temp()
-    assert len(s) == 6  # 5 五大 + 1 亚运（去重后）
+    assert len(s) == 7  # 5 五大 + 欧冠 + 1 亚运（去重后）
     assert "亚运会男足" in s
 
 

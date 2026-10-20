@@ -90,7 +90,8 @@ def test_429_stops_the_round_after_first_request(monkeypatch, caplog):
     """C：429 → run 第一轮就正常收工（rc=0），剩余计划条一条都不再发（假 transport 计数 == 1）。"""
     calls = _install(monkeypatch, [(429, {})])
     assert run_backfill.run(_FakeConn(), ROWS, dry=False, limit=5) == 0
-    assert (len(calls), len(ROWS)) == (1, 5) and "限流，本轮到此为止（10 req/min）" in caplog.text
+    # ROWS = AF 源单赛季计划条 = 6 个有 api_football_id 的联赛（2026-10-20 起含欧冠）
+    assert (len(calls), len(ROWS)) == (1, 6) and "限流，本轮到此为止（10 req/min）" in caplog.text
 
 def test_pacing_sleeps_only_between_requests(monkeypatch):
     """D：两条之间 sleep(7) 恰一次；第一条之前不 sleep（假 sleep 只记序列，绝不真等）。"""

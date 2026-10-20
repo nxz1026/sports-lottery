@@ -125,11 +125,11 @@ async function drawFootball(rows,date,qr,qrurl,stats,news,pickReason){
   ctx.font="bold 40px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif";
   ctx.fillText("竞彩智荐 · 每日赛事分析", W/2, 44);
   ctx.font="17px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.link;
-  ctx.fillText(`五大联赛在售 ${stats.on_sale||0} · 可推荐 ${stats.recommend||0} · 命中率：${hitTxt(stats)}`, W/2, 72);
+  ctx.fillText(`五大联赛+欧冠在售 ${stats.on_sale||0} · 可推荐 ${stats.recommend||0} · 命中率：${hitTxt(stats)}`, W/2, 72);
   ctx.font="14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.muted;
   ctx.fillText(`${date} · 模型多维度预测 · 不构成投注建议`, W/2, 100);
   ctx.font="13px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans CJK SC',sans-serif"; ctx.fillStyle=PAL.muted;
-  ctx.fillText("范围：NBA + 五大联赛 · 非五大联赛场次不纳入每日推荐", W/2, 124);
+  ctx.fillText("范围：NBA + 五大联赛 + 欧冠 · 其他赛事场次不纳入每日推荐", W/2, 124);
   let y=HEAD;
   // 实时要闻条：固定 3 行（NB=104，label 独占第 1 行 + 3 news × 22px 行高 = 4 行槽位），
   // 原文 \n 分隔行渲染；标题与首条资讯不再同基线。

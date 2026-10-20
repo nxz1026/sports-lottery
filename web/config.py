@@ -144,14 +144,28 @@ BIG5: frozenset[str] = frozenset({
     "法国甲级联赛",
 })
 
+# --- 模型正式覆盖的联赛 ---------------------------------------------------
+# 欧冠自 2026-10-20 起由引擎**正式覆盖**（``scripts/core/leagues.py::LEAGUE_CONFIG["ucl"]``，
+# 路线图《建议 1》），不再是"临时赛事"⇒ 进硬编码白名单而不是靠 env 临时开关。
+# 语义与 ``LEAGUE_TEMP_LEAGUES`` 区分开：这里的联赛**模型有预测产出**，
+# 临时赛事只是白名单放行（模型仍可能没有预测）。
+MODEL_LEAGUES: frozenset[str] = frozenset({
+    "欧洲冠军联赛",
+})
+
+# 主面板联赛 = 五大联赛 ∪ 模型正式覆盖联赛。
+# 主面板的行会算算法层（algo / hhad / haf）—— 即**模型有预测产出**的联赛；
+# 临时赛事（env LEAGUE_TEMP_LEAGUES）只进附面板，仅显示官方盘口层。
+MAIN_LEAGUES: frozenset[str] = BIG5 | MODEL_LEAGUES
+
 
 def big5_with_temp() -> set[str]:
-    """白名单全集 = 硬编码五大联赛 ∪ env ``LEAGUE_TEMP_LEAGUES``（去重）。
+    """白名单全集 = 主面板联赛（五大联赛 ∪ 模型覆盖联赛）∪ env ``LEAGUE_TEMP_LEAGUES``（去重）。
 
     端点（daily-image / jc_gap / movement / ai_analyze）过滤统一使用本函数。
     返回 ``set`` 而非 ``frozenset`` 是为了 caller 用 set comprehension 时方便。
     """
-    return set(BIG5) | set(LEAGUE_TEMP_LEAGUES)
+    return set(MAIN_LEAGUES) | set(LEAGUE_TEMP_LEAGUES)
 
 
 def env_summary() -> dict:

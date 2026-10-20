@@ -27,7 +27,7 @@ def test_big5_is_frozenset_with_five_leagues():
 
 
 def test_big5_with_temp_returns_set_with_at_least_five(monkeypatch):
-    """默认（env 空）→ 集合含 5 大联赛，返回 set 类型。"""
+    """默认（env 空）→ 集合含 5 大联赛 + 欧冠（模型正式覆盖），返回 set 类型。"""
     monkeypatch.setenv("LEAGUE_TEMP_LEAGUES", "")
     import web.config as config
     importlib.reload(config)
@@ -35,11 +35,12 @@ def test_big5_with_temp_returns_set_with_at_least_five(monkeypatch):
     s = config.big5_with_temp()
     assert isinstance(s, set)
     assert config.BIG5.issubset(s)
-    assert len(s) == 5
+    assert config.MODEL_LEAGUES.issubset(s)
+    assert len(s) == 6  # 五大联赛 + 欧冠
 
 
 def test_big5_with_temp_unions_env_csv(monkeypatch):
-    """env CSV 配临时赛事 → 集合 = 5 大 + 临时（去重）。"""
+    """env CSV 配临时赛事 → 集合 = 5 大 + 欧冠 + 临时（去重）。"""
     monkeypatch.setenv("LEAGUE_TEMP_LEAGUES", "亚运会男足,亚运会女足,欧罗巴联赛")
     import web.config as config
     importlib.reload(config)
@@ -47,17 +48,17 @@ def test_big5_with_temp_unions_env_csv(monkeypatch):
     s = config.big5_with_temp()
     assert "亚运会男足" in s and "亚运会女足" in s and "欧罗巴联赛" in s
     assert config.BIG5.issubset(s)
-    assert len(s) == 8  # 5 大 + 3 临时
+    assert len(s) == 9  # 5 大 + 欧冠 + 3 临时
 
 
 def test_big5_with_temp_dedup_repeated_env_value(monkeypatch):
-    """env 里重复五大联赛名 → set 去重，长度 = 5 + 临时数 - 重复数。"""
+    """env 里重复五大联赛名 → set 去重，长度 = 5 + 欧冠 + 临时数 - 重复数。"""
     monkeypatch.setenv("LEAGUE_TEMP_LEAGUES", "英格兰超级联赛,亚运会男足,英格兰超级联赛")
     import web.config as config
     importlib.reload(config)
 
     s = config.big5_with_temp()
-    assert len(s) == 6  # 5 大（含 1 重复） + 1 亚运
+    assert len(s) == 7  # 5 大（含 1 重复）+ 欧冠 + 1 亚运
 
 
 def test_app_jc_and_router_jc_share_same_helper(monkeypatch):

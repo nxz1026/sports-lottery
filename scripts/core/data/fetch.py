@@ -133,9 +133,14 @@ def fetch_events(dates_str: str, league_key: str = "epl", data_source: str = "",
     effective_source = data_source or config["data_source"]
 
     if effective_source == "espn":
+        espn_slug = config.get("espn_slug", "epl")
+        if config.get("espn_season_fetch"):
+            # 整季通道（欧冠）：ESPN scoreboard 的 dates 不吃区间（实测 400），
+            # 只能按日历年抓。dates_str 在此模式下被忽略。
+            return fetch_espn_season(espn_slug)
         if whole_season:
             logger.warning("espn 数据源不支持整季取数，退回日期区间")
-        return fetch_espn(dates_str, config.get("espn_slug", "epl"))
+        return fetch_espn(dates_str, espn_slug)
     elif effective_source == "football-data":
         return fetch_football_data(dates_str, config, whole_season=whole_season)
     elif effective_source == "api-football":
@@ -157,9 +162,16 @@ def fetch_events(dates_str: str, league_key: str = "epl", data_source: str = "",
         return fetch_espn(dates_str, config.get("espn_slug", "epl"))
 
 
-def fetch_espn(dates_str: str, league_slug: str = "epl") -> list:
-    """抓取 ESPN 数据（带重试机制）, 返回 parsed events"""
+def fetch_espn(dates_str: str, league_slug: str = "epl", limit: int = 50) -> list:
+    """抓取 ESPN 数据（带重试机制）, 返回 parsed events
+
+    ``limit`` 覆盖 URL 模板里的默认 50。ESPN 的 scoreboard 对欧冠这类
+    赛事一自然年就有 180+ 场（实测 ``dates=2026`` → 189 场），limit=50 会静默截断
+    ⇒ 取整季时必须显式放大（实测 limit=200 可取全 189 场）。
+    """
     url = ESPN_URL_TEMPLATE.format(dates=dates_str, league_slug=league_slug)
+    if limit and limit != 50:
+        url = url.replace("limit=50", f"limit={limit}")
 
     for attempt in range(1, ESPN_MAX_RETRIES + 1):
         try:
@@ -183,6 +195,51 @@ def fetch_espn(dates_str: str, league_slug: str = "epl") -> list:
             else:
                 logger.error(f"All {ESPN_MAX_RETRIES} attempts failed for ESPN")
                 raise
+
+
+# ESPN scoreboard 的 dates 参数只接受单日 YYYYMMDD：区间会 400
+# （实测 uefa.champions ``dates=20261020-20261024`` → HTTP 400；
+#   其他联赛是返回 0 场，见 predict.py 里的既有注释）。
+# ``dates=<日历年>`` 是唯一能一次拿到整季赛程的通道：
+# 实测 uefa.champions ``dates=2026&limit=200`` → 189 场（2026-01-20 ~ 2026-12-09），
+# 其中 league-phase 144 场 + 淘汰赛 45 场。
+ESPN_SEASON_LIMIT = 400  # 一年 189 场，400 留足余量（实测 limit=50 会被截断）
+
+
+def fetch_espn_season(league_slug: str, now_utc=None) -> list:
+    """ESPN 整季取数：按 ``dates=<日历年>`` 抓三个自然年，按 ``season.year`` 收口。
+
+    为什么需要三条自然年：欧冠赛季跨自然年（2025-26 赛季的淘汰赛在 2026 年
+    1~6 月，2026-27 赛季的联赛阶段从 2026 年 9 月开始）。只抓本年的话，
+    1 月初会漏掉上赛季 11~12 月的比赛，form/ELO 历史被削薄。
+
+    为什么保留「当前赛季 + 上一赛季」：当前赛季给预测与校准；上一赛季给
+    **ELO 冷启动补历史** —— 俱乐部不在 FIFA 国家队排名里（``core.rankings``），
+    没有播种就只能靠真实比赛滚出 ELO（``core/elo.py`` 的全局评级文件）。
+    """
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    now = now_utc or _dt.now(_tz.utc)
+    y = now.year
+    events: dict[str, dict] = {}
+    for year in (y - 1, y, y + 1):
+        try:
+            for ev in fetch_espn(str(year), league_slug, limit=ESPN_SEASON_LIMIT):
+                eid = ev.get("id")
+                if eid:
+                    events[str(eid)] = ev
+        except Exception as e:  # noqa: BLE001 - 单年失败不拖垮整季
+            logger.warning(f"ESPN season fetch failed for {league_slug} {year}: {e}")
+    if not events:
+        return []
+    season_years = sorted({(e.get("season") or {}).get("year") for e in events.values()
+                           if (e.get("season") or {}).get("year")})
+    keep = set(season_years[-2:])  # 当前赛季 + 上一赛季
+    out = [e for e in events.values() if (e.get("season") or {}).get("year") in keep]
+    logger.info(f"ESPN season fetch {league_slug}: {len(events)} raw -> {len(out)} kept "
+                f"(season years {sorted(keep)})")
+    return out
 
 
 def fetch_football_data(dates_str: str, config: dict, whole_season: bool = False) -> list:
