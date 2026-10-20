@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
 import subprocess
 import sys
@@ -35,6 +36,27 @@ def check(name: str, expected, actual) -> None:
     """
     ok = expected == actual
     results.append(("PASS" if ok else "FAIL", name, f"声明={actual!r} 实际={expected!r}"))
+
+
+def check_rc(name: str, expected_rc: int, actual_rc: int) -> None:
+    """登记一条**代码侧**二值断言（没有「文档声明」可对照时用）。
+
+    别套用 check() 的「声明 vs 实际」措辞：那边 expected=实测真值、actual=文档声明，
+    而这里两个数**都是代码侧** ⇒ 直接写「期望退出码 / 实测退出码」。
+    （R49 修：ruff 那条曾把 实测 rc=1 印成「声明=1 实际=0」，排障时会被引到错的方向。）
+    """
+    ok = expected_rc == actual_rc
+    results.append(("PASS" if ok else "FAIL", name,
+                    f"期望退出码={expected_rc!r} 实测退出码={actual_rc!r}"))
+
+
+def skip(name: str, why: str) -> None:
+    """登记一条「本次未检查」。
+
+    环境缺工具 **≠** 检查不通过：生产机 venv 里没装 ruff 时，「没检查」不能印成「ruff 不绿」
+    （R49 修：Oracle 上因此平白报 1 项 FAIL）。
+    """
+    results.append(("SKIP", name, why))
 
 
 def read(p: Path) -> str:
@@ -122,9 +144,13 @@ def main() -> int:
               int(m2.group(1)) if m2 else "MISSING")
 
     # ---- 6. ruff 门禁 ----
-    rc = subprocess.run([sys.executable, "-m", "ruff", "check", "."],
-                        cwd=ROOT, capture_output=True, text=True).returncode
-    check("ruff check . 退出码为 0（门禁已绿）", 0, rc)
+    # ruff 没装（生产机 venv / Oracle）⇒ 本项**未检查**，不是「检查不通过」⇒ 记 SKIP，不阻断。
+    if importlib.util.find_spec("ruff") is None:
+        skip("ruff check . 退出码为 0（门禁已绿）", "当前环境未安装 ruff ⇒ 本项未检查（非失败）")
+    else:
+        rc = subprocess.run([sys.executable, "-m", "ruff", "check", "."],
+                            cwd=ROOT, capture_output=True, text=True).returncode
+        check_rc("ruff check . 退出码为 0（门禁已绿）", 0, rc)
     check("AGENTS.md 不再声称 ruff 非全绿", 0, agents.count("勿期待全绿") + agents.count("当前基线非 0"))
 
     # ---- 7. 前端 API 基址行号 ----
@@ -301,20 +327,25 @@ def main() -> int:
     # ref.league 增补脚本必须在仓库里（DB 侧落地时直接用，不手搓 SQL）
     check("ref.league 增补 ucl 行的 SQL 存在（docs/db/）", True,
           (ROOT / "docs" / "db" / "ucl_league_seed.sql").is_file())
+    # 物化入口的缺口必须留在文档里（raw→fact 没有生产 CLI ⇒ 下次回填仍要手工跑一次）
+    check("路线图记录了物化入口的缺口（生产无 CLI）", True,
+          "生产没有 CLI 入口" in roadmap_text)
 
     # ---- 输出 ----
     width = 78
     print("=" * width)
     print("文档声明校验（R46）")
     print("=" * width)
+    marks = {"PASS": "OK  ", "FAIL": "FAIL", "SKIP": "SKIP"}
     for status, name, detail in results:
-        mark = "OK  " if status == "PASS" else "FAIL"
-        print(f"[{mark}] {name}")
-        if status == "FAIL":
+        print(f"[{marks[status]}] {name}")
+        if status in ("FAIL", "SKIP"):
             print(f"        {detail}")
     fails = [r for r in results if r[0] == "FAIL"]
+    skips = [r for r in results if r[0] == "SKIP"]
     print("-" * width)
-    print(f"合计 {len(results)} 项，通过 {len(results) - len(fails)}，失败 {len(fails)}")
+    print(f"合计 {len(results)} 项，通过 {len(results) - len(fails) - len(skips)}，"
+          f"跳过 {len(skips)}，失败 {len(fails)}")
     return 1 if fails else 0
 
 
