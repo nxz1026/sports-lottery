@@ -214,6 +214,17 @@ def main() -> int:
     check("README 记录了登录入口缺陷与修复", True,
           "没有可用登录入口" in readme and "已修复" in readme)
 
+    # ---- 13. R48b 追加：产品路线图存在且被 README/AGENTS 引用 ----
+    # 路线图是竞彩链路的总纲（诊断 + 度量基线 + 硬约束）。它若被删而 README/AGENTS
+    # 还在指路，读者会点到一个不存在的文件；反之只留一份孤儿文件也没人看。
+    # 断言只查「存在 + 被引用」这种稳定事实，**不查里面的数字**（那些是生产实测值，
+    # 会随运营变化，由路线图自己的「度量基线」表负责逐次更新）。
+    roadmap_name = "产品路线图-竞彩闭环-20261020.md"
+    roadmap_path = ROOT / "docs" / "project" / roadmap_name
+    check("产品路线图文件存在（docs/project/）", True, roadmap_path.is_file())
+    check("README 引用了产品路线图", True, roadmap_name in readme)
+    check("AGENTS 引用了产品路线图", True, roadmap_name in read(ROOT / "AGENTS.md"))
+
     # ---- 输出 ----
     width = 78
     print("=" * width)

@@ -31,6 +31,9 @@ python tools/check_docs_claims.py            # 文档声明校验（README/AGENT
 
 分层依赖方向是接口基线：**业务层 → 接口层 → 算法层**，web 层顶层禁止 import `scripts.*`（lazy-in-try 是文档化例外）。
 
+**产品侧总纲**：`docs/project/产品路线图-竞彩闭环-20261020.md` —— 诊断（实测基线）+ 六项建议 + 度量基线 + 硬约束。
+动竞彩链路的任何代码前先读它；改完按里面的「度量基线」表复测并更新该表。
+
 ## Code style
 
 - Python 3.11+，ruff `select = ["E","F","W","I"]`，line-length 120，双引号
