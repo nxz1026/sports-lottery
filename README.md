@@ -1253,8 +1253,21 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 真正的路径是 ESPN 整季历史滚 ELO —— 实测落地后 **111 支队全部脱离 `DEFAULT_ELO`**、107 个不同取值
 （巴黎 1637.5 / 皇马 1569.4 / 利物浦 1557.7 / 阿贾克斯 1440.5）⇒ 有区分度。
 
-**DB 侧两件未执行（待用户点头）**：① `ref.league` 增补 `ucl` 行（`docs/db/ucl_league_seed.sql`，幂等；
-不插则 AF 回填的数据会在 `upsert_fixtures` 被丢弃）；② AF 回填 UCL 2022/2023/2024 三季（3 次请求）。
+**DB 侧两件已落库**（2026-10-20，用户点头；明细见路线图 **§6.4**）：
+① `ref.league` 增补 `ucl` 行（`docs/db/ucl_league_seed.sql`，幂等）⇒ `ref.league` 5 → **6** 行；
+② AF 回填 UCL 2022/2023/2024 三季（3 次请求，配额 100 → 97）⇒ `raw.af_raw` 22 → **25** 块
+→ 物化后 `fact.fixture` 5341 → **6048**（ucl **707** 场：2022=214 / 2023=214 / 2024=279）、
+`fact.fixture_result` +707、`ref.team` 179 → **267**（+88 新建队行）。
+落库自检全绿：af_id 重复 0 组、name_cn 重复 0 组、两队悬挂 0、赛果覆盖 707/707、老行 `name_cn` 被回改 0。
+
+**两条顺带查实的事实**（避免下一个人走弯路）：
+
+1. **物化入口全仓只在 `tests/` 里** —— `upsert_fixtures.run` / `upsert_results.run` 没有生产 CLI
+   （`ops/league-daily-predict.sh` 只跑预测；Oracle 的 `~/bin/jc-ingest-run.sh` 走 `jc_load.py`，是竞彩官方通道，
+   与 AF/FD 的 raw→fact 无关）⇒ **每次回填后要手工跑一次物化**。
+2. **`ref.team.name_cn` 不参与任何 join** —— 竞彩↔`ref.team` 的 join 键是 `aliases->>'sporttery'`
+   （竞彩官方 team id），面板展示名来自 `fact.jc_match.home_cn/away_cn`，`web/` 零处读 `ref.team`
+   ⇒ **回改 `name_cn` 不提升映射率、也不改用户可见内容**。想解锁映射只能**新建行 + 填 `sporttery` 键**。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 

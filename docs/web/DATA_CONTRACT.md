@@ -419,6 +419,14 @@ def pick_latest_for_league(league):
 - api-football `api_football_id`：`api-football.com/v3/fixtures?league={id}` 查询参数（fetch 层证据见 §6）。
 - ESPN `espn_slug`：`ESPN_URL_TEMPLATE` 中 `{league_slug}` 占位（constants.py:44 `.../soccer/{league_slug}/scoreboard?...`）。
 
+**DB 侧联赛真相源 = `ref.league.ids`**（`scripts/store/upsert_fixtures.py::league_maps` 是唯一读它的地方）：
+`ids->>'api_football'` → `league_key` 的映射**只在 `ref.league` 里存在**，代码不复制第二份。
+不在 `ref.league` 的 league_key 会在 `af_anchors()` 里被**直接丢掉**（`dropped`）⇒ 训练集永远为空。
+2026-10-20 实测：`ref.league` **6 行**（`epl`/`laliga`/`bundesliga`/`seriea`/`ligue1` + **`ucl`**），
+其中 `ucl` 的 `ids` 只有 `{"api_football": 2}`（**故意不写 `football_data`** —— football-data.org 没有欧冠，
+写一个假 code 会让回填器拼出无效 URL 并 403；`parse_api.py::FD_LEAGUES` 派生自 `league_id` 字段 ⇒ FD 源自动跳过）。
+`window_from`/`window_to` 留空（既有 5 行也都是 NULL，占位列）。
+
 ## 8. i18n
 
 ### 8.1 三级名称体系（2026-10-20 起为三级）
@@ -446,6 +454,24 @@ def pick_latest_for_league(league):
 | `Celta Vigo` | 塞尔塔 | **维戈塞尔塔** | join miss |
 
 取值的唯一依据 = 生产库 `fact.jc_match` 的 396 个去重竞彩队名（人工逐支核对）。完整清单见 `docs/project/待审-竞彩官方队名表-20261020.md`。
+
+#### 8.1.1 `ref.team.name_cn` **不参与任何 join**（2026-10-20 实测，别去"修"它）
+
+`scripts/references/team_cn_official.json` 管的是**预测侧**产出的中文名。**DB 侧 `ref.team.name_cn` 是另一套东西**，
+它既不参与竞彩↔模型的 join、也不是面板展示名：
+
+| 环节 | 真正的键 / 来源 | 证据 |
+|---|---|---|
+| 竞彩场次 ↔ `ref.team` 的映射 | **`aliases->>'sporttery'`**（竞彩官方 team id） | `scripts/ingest/jc_write.py:32-41` `resolve_jc_teams()`；`scripts/ingest/jc_topic.py:88-92`（曾是死代码，现已每 10 分钟接上） |
+| 竞彩面板的队名展示 | **`fact.jc_match.home_cn` / `away_cn`**（竞彩官方中文名直存） | 生产抽样：`ref.team` 里曼城行 `name_cn='曼城'`，但 `jc_match.home_cn='曼彻斯特城'` |
+| web 层是否读 `ref.team` / `name_cn` | **零处**（`grep -rn "ref\.team\|name_cn" web/` ⇒ 0 命中） | — |
+| `name_cn` 的唯一实际用途 | `scripts/model/walk.py` 的 λ 拟合**队名 identity 键**（`TRAIN_SQL`/`TARGET_SQL` 两侧都取 `ref.team.name_cn` ⇒ 库内自洽） | walk.py:29-30 |
+
+⇒ **回改 `ref.team.name_cn` 既不提升映射率、也不改用户可见内容**，且违反
+`scripts/store/team_identity.py` 的明文纪律（「命中**只并 aliases**，绝不回改 name_cn」）。
+想解锁更多竞彩↔球队映射，只能**新建 `ref.team` 行 + 填 `sporttery` 键**（别名键，不是改名）。
+实测：未映射的 444 个「侧」**全部有 `sporttery` id**，但 `ref.team` 里**一个都查不到**（0/444）⇒ 缺的是行，不是名。
+路由图与逐条清单见 `docs/project/产品路线图-竞彩闭环-20261020.md` §6.4。
 
 ### 8.2 翻译缓存文件
 

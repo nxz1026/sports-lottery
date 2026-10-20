@@ -273,12 +273,31 @@ def main() -> int:
         check("竞彩官方队名表条目数 ≥ 100（防清空/误删）", True, len(_teams) >= 100)
         check("竞彩官方队名表取值都是非空字符串", [],
               [k for k, v in _teams.items() if not isinstance(v, str) or not v.strip()])
-    # 路线图必须写明建议 1 的落地状态（含 DB 侧「未执行、待点头」），
-    # 否则下一个人会以为训练集回填已经做过了。
+        # 文档写「109 条」而 JSON 有 112 个 key（3 个是 _comment/_source/_generated 元数据）
+        # ⇒ 清单文档与数据表的条目数必须对得上，否则下一个人会以为少了两条。
+        check("官方队名表清单与数据表条目数一致（109）", True,
+              f"{len(_teams)} 条" in read(ROOT / "docs" / "project" / jc_names_doc))
+    # 路线图必须写明建议 1 的落地状态（代码侧 + DB 侧都要写明），
+    # 否则下一个人会以为训练集回填还没做（重复花配额），或以为做了却其实没做。
     check("路线图记录了建议 1 的落地状态", True,
           "建议 1（模型补欧冠）代码落地" in roadmap_text)
-    check("路线图写明 DB 侧未执行（待用户点头）", True,
-          "未执行" in roadmap_text and "待用户点头" in roadmap_text)
+    check("路线图写明建议 1 的 DB 侧已落库", True,
+          "建议 1 的 DB 侧已落库" in roadmap_text)
+    # DB 侧落库的关键数字必须落在路线图里（§3 基线表 + §6.4），否则下一轮回归无从对照。
+    check("路线图记录了 DB 侧落库后的 fact.fixture 总数（6048）与 ucl 行数（707）", True,
+          "6048" in roadmap_text and "707" in roadmap_text)
+    check("路线图记录了 DB 侧落库后的 ref.team 支数（267）", True, "267" in roadmap_text)
+    check("路线图记录了新建 ref.team 行数（88）", True, "88" in roadmap_text)
+    # 队名链契约：ref.team.name_cn 不参与任何 join —— 这条必须写明，
+    # 否则下一个人看到「曼城 / Inter / 阿贾克斯」这些旧名会想去"修" name_cn，
+    # 而那既不提升映射率（join 键是 aliases->>'sporttery'）、也不改展示（走 jc_match.home_cn）。
+    check("路线图写明 ref.team.name_cn 不参与任何 join", True,
+          "不参与任何 join" in roadmap_text)
+    contract_text = read(ROOT / "docs" / "web" / "DATA_CONTRACT.md")
+    check("DATA_CONTRACT 写明 name_cn 不参与 join（§8.1.1）", True,
+          "8.1.1" in contract_text and "不参与任何 join" in contract_text)
+    check("DATA_CONTRACT 写明 ref.league 是联赛真相源且含 ucl 行", True,
+          "ref.league.ids" in contract_text and "ucl" in contract_text)
     # ref.league 增补脚本必须在仓库里（DB 侧落地时直接用，不手搓 SQL）
     check("ref.league 增补 ucl 行的 SQL 存在（docs/db/）", True,
           (ROOT / "docs" / "db" / "ucl_league_seed.sql").is_file())
