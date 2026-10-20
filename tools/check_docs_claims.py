@@ -230,12 +230,21 @@ def main() -> int:
     # 《建议 2》两处都指向它；只查「存在 + 被引用」，不查里面的队数/比例
     # （那是逐次实测更新的生产数字，由清单自己的度量表负责）。
     jc_alias_v2 = "待审-竞彩球队对照-v2-20261020.md"
+    jc_e_p01 = "待审-竞彩E档建行-P0P1-20261020.md"
     roadmap_text = read(roadmap_path)
     check("竞彩球队对照 v2 清单存在（docs/project/）", True,
           (ROOT / "docs" / "project" / jc_alias_v2).is_file())
     check("产品路线图引用了竞彩球队对照 v2 清单", True, jc_alias_v2 in roadmap_text)
-    check("v2 清单标注为「一行未入库」（待审状态）", True,
-          "一行未入库" in read(ROOT / "docs" / "project" / jc_alias_v2))
+    # v2 清单里 A+B+C+D 已落库、E 档未落库 —— 两段状态都要写明，
+    # 否则下一个人会照着「一行未入库」重新执行已做过的落库。
+    v2_text = read(ROOT / "docs" / "project" / jc_alias_v2)
+    check("v2 清单记录了 A+B+C+D 的落库结果", True,
+          "已按本清单落库" in v2_text and "待审-竞彩E档建行-P0P1" in v2_text)
+    check("E 档 P0∪P1 待审清单存在（docs/project/）", True,
+          (ROOT / "docs" / "project" / jc_e_p01).is_file())
+    check("E 档待审清单标注为「一行未入库」", True,
+          "一行未入库" in read(ROOT / "docs" / "project" / jc_e_p01))
+    check("产品路线图引用了 E 档待审清单", True, jc_e_p01 in roadmap_text)
 
     # ---- 输出 ----
     width = 78
