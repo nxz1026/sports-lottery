@@ -7,6 +7,8 @@
         "sql_note": "...", "degraded": 是否任一段降级}
 
 口径判定归页面/DASH 层：本层不发明健康判定，只做只读查询与降级标记。
+（n_orphan = ops.file_arrival 里 done_marker=false 的行，即无 marker 认领、只由 orphan 阶段
+装载的「无主通道」文件；R48 起 loader 有增量水位+已装载跳过，它们不再每轮被重扫。）
 本文件不得出现 psycopg；端点内延迟 import store（顶层不 import，T5 免 psycopg 环境）。
 web 启动带 PYTHONPATH=.:scripts（§9-38），故模块级自举一次。
 """
@@ -28,7 +30,8 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 _NOTE = ("teams=最新 business_date 各联赛对照进度（n_af_ready 才能直接预测）；"
-         "topics=ops.file_arrival 按话题聚合（n_orphan 是无主通道，loader 每次 run 无条件重扫）；"
+         "topics=ops.file_arrival 按话题聚合（n_orphan 是无主通道：无 marker 认领、只由 orphan 阶段装载；"
+         "R48 起 loader 有增量水位+已装载跳过，这批文件不再每轮重扫）；"
          "quota=当日各源配额余量（空=未发请求）；rejects=近 24h 进库差与失败。")
 
 
