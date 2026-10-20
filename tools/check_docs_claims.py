@@ -225,6 +225,18 @@ def main() -> int:
     check("README 引用了产品路线图", True, roadmap_name in readme)
     check("AGENTS 引用了产品路线图", True, roadmap_name in read(ROOT / "AGENTS.md"))
 
+    # ---- 14. 建议 2 的待审清单存在且被路线图引用 ----
+    # v2 清单是建议 2 的落地依据（396 支六档 + 逐支人工判定）。路线图 §6.2 与
+    # 《建议 2》两处都指向它；只查「存在 + 被引用」，不查里面的队数/比例
+    # （那是逐次实测更新的生产数字，由清单自己的度量表负责）。
+    jc_alias_v2 = "待审-竞彩球队对照-v2-20261020.md"
+    roadmap_text = read(roadmap_path)
+    check("竞彩球队对照 v2 清单存在（docs/project/）", True,
+          (ROOT / "docs" / "project" / jc_alias_v2).is_file())
+    check("产品路线图引用了竞彩球队对照 v2 清单", True, jc_alias_v2 in roadmap_text)
+    check("v2 清单标注为「一行未入库」（待审状态）", True,
+          "一行未入库" in read(ROOT / "docs" / "project" / jc_alias_v2))
+
     # ---- 输出 ----
     width = 78
     print("=" * width)
