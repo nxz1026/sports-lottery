@@ -13,6 +13,14 @@ R48（生产实测根因，三条叠加）：
   · **水位**：``ops.ingest_marker`` 记已处理完的 marker ⇒ 每轮只处理新到港的批次；
   · **已装载跳过**：``ops.file_arrival`` 记已装载文件 ⇒ orphan 阶段不再重装老文件；
   · **孤儿前置**：孤儿（可能是老数据）先装、marker 批（更新的数据）后装 ⇒ is_current 指针单调向新。
+
+R48b（部署后生产实测追加）：
+  ④ **orphan 阶段整段是一个事务 + 裸 ``except Exception: conn.rollback()``** ⇒ 第一个坏文件
+     （上游撕裂 JSON，实测 11+ 个）就把**整段 1239 个文件**的写入全部回滚，而且异常被吞掉
+     （日志只剩 "orphan 装载 n=1239"，看不出任何异常）⇒ 那批文件每轮白跑白丢、永远进不了
+     ``ops.file_arrival`` ⇒ ④ 修的「已装载跳过」根本收敛不了（每轮还是 1239 个）。
+     修法：隔离粒度降到**文件**（``_load_file`` 保存点）—— 坏文件自己回滚、同段好文件照常落库；
+     失败清单打进 warning（不再静默）。
 """
 import argparse
 from contextlib import closing
@@ -40,13 +48,40 @@ _MARKER_UPSERT_SQL = (
 )
 
 
+_SAVEPOINT = ("savepoint jc_file", "release savepoint jc_file",
+              "rollback to savepoint jc_file")
+
+
+def _load_file(cur, root: Path, marker: Path, topic: str, path, state: str):
+    """装载一个文件；失败只回滚**这一个文件**（保存点隔离），不掀翻同批其它文件。
+
+    R48b（生产实测）：原来「整段一个事务 + 裸 ``except Exception: conn.rollback()``」
+    ⇒ orphan 阶段第一个坏文件（上游撕裂 JSON）就把**上千个文件**的写入全部回滚，
+    而且异常被吞掉（日志只剩 "orphan 装载 n=1239"，看不出任何异常）⇒ 那批文件每轮
+    白跑白丢、永远进不了 ops.file_arrival ⇒ R48 的「已装载跳过」永远收敛不了。
+    这里把隔离粒度降到**文件**：坏文件自己回滚，同批好文件照常落库。
+    """
+    try:
+        cur.execute(_SAVEPOINT[0])
+        r = load_topic(cur, root, marker, topic, path, state)
+        cur.execute(_SAVEPOINT[1])
+        return r, None
+    except Exception as e:
+        cur.execute(_SAVEPOINT[2])
+        return None, f"{type(e).__name__}:{str(e)[:160]}"
+
+
 def load_batch(conn, root: Path, marker: Path) -> dict:
     topics, errors = [], []
     try:
         with conn.cursor() as cur:
             for topic, cands in files_for_batch(root, marker, TOPICS + OPTIONAL).items():
                 for path, state in cands or ([] if topic in OPTIONAL else [(None, "missing")]):
-                    topics.append(load_topic(cur, root, marker, topic, path, state))
+                    r, err = _load_file(cur, root, marker, topic, path, state)
+                    if r is None:
+                        errors.append(f"{marker.name}:{topic}:{err}")
+                    else:
+                        topics.append(r)
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -150,14 +185,21 @@ def main(argv: list[str] | None = None) -> int:
         # 放在 marker 批之前 ⇒ is_current 指针单调向新（后装的更新批次会盖过旧版本）。
         claimed = _claimed_files(root, pending)
         orph = _orphan_files(root, claimed, loaded)
+        bad: list[str] = []
         try:
             with conn.cursor() as cur:
                 for p in orph:
-                    load_topic(cur, root, Path("orphan"), p.parent.name, p, "orphan")
+                    r, err = _load_file(cur, root, Path("orphan"), p.parent.name, p, "orphan")
+                    if r is None:
+                        bad.append(f"{p.parent.name}/{p.name}:{err}")
             conn.commit()
-        except Exception:
+        except Exception as e:
             conn.rollback()
-        logger.info("orphan 装载 n=%d 文件=%s", len(orph),
+            logger.warning("orphan 阶段整体失败: %s: %s", type(e).__name__, e)
+        if bad:
+            logger.warning("orphan 失败 n=%d（文件级隔离，其余文件照常落库）：%s",
+                           len(bad), "; ".join(bad[:5]) + ("…" if len(bad) > 5 else ""))
+        logger.info("orphan 装载 n=%d 失败=%d 文件=%s", len(orph), len(bad),
                     ",".join(p.name for p in orph[:5]) + ("…" if len(orph) > 5 else "") or "-")
 
         # marker 批：只处理水位之后的新批次（升序 ⇒ 越新越后写）。

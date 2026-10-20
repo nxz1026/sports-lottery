@@ -74,13 +74,38 @@ def test_load_batch_commits_on_success():
     conn.rollback.assert_not_called()
 
 
-def test_load_batch_rolls_back_on_exception_and_records_error():
-    """load_topic 抛 RuntimeError → rollback 一次；errors 列表记到「类名:消息」。"""
+def test_load_batch_isolates_failing_file_and_keeps_siblings():
+    """R48b：坏文件只回滚**它自己**（保存点隔离）——同批好文件照常落库，批照常提交。
+
+    旧语义（整批一个事务 + 裸 except）会被一个坏文件掀翻：实测 orphan 阶段 1239 个文件
+    全被回滚、且异常被吞掉。批级事务仍在（一次 commit），只是失败不再连坐。"""
     fake_marker = Path("/tmp/.done_boom")
     with patch.object(jc_load, "files_for_batch",
-                      return_value={"jczq_offer": [(Path("x.jsonl"), "ok")]}), \
-         patch.object(jc_load, "load_topic",
-                      side_effect=RuntimeError("db timeout")):
+                      return_value={"jczq_offer": [(Path("x.jsonl"), "ok"),
+                                                   (Path("y.jsonl"), "ok")]}):
+        with patch.object(jc_load, "load_topic",
+                          side_effect=[RuntimeError("db timeout"), {"ups": 3, "topic": "jczq_offer"}]):
+            conn = MagicMock()
+            cur = MagicMock()
+            conn.cursor.return_value.__enter__.return_value = cur
+            r = jc_load.load_batch(conn, Path("/tmp"), fake_marker)
+    conn.commit.assert_called_once()
+    conn.rollback.assert_not_called()
+    assert len(r["errors"]) == 1
+    assert "RuntimeError" in r["errors"][0]
+    assert "db timeout" in r["errors"][0]
+    # 好文件的结果照样收进 topics
+    assert [t["ups"] for t in r["topics"]] == [3]
+    # 坏文件回滚到保存点（不是整批 rollback）
+    rollbacks = [c for c in cur.execute.call_args_list
+                 if "rollback to savepoint" in str(c[0])]
+    assert rollbacks, "坏文件没有回滚到保存点"
+
+
+def test_load_batch_rolls_back_on_exception_and_records_error():
+    """连文件清单都拿不到（files_for_batch 抛错）⇒ 整批回滚 + errors 记「类名:消息」。"""
+    fake_marker = Path("/tmp/.done_boom2")
+    with patch.object(jc_load, "files_for_batch", side_effect=OSError("dir vanished")):
         conn = MagicMock()
         cur = MagicMock()
         conn.cursor.return_value.__enter__.return_value = cur
@@ -88,8 +113,8 @@ def test_load_batch_rolls_back_on_exception_and_records_error():
     conn.rollback.assert_called_once()
     conn.commit.assert_not_called()
     assert len(r["errors"]) == 1
-    assert "RuntimeError" in r["errors"][0]
-    assert "db timeout" in r["errors"][0]
+    assert "OSError" in r["errors"][0]
+    assert "dir vanished" in r["errors"][0]
 
 
 def test_load_batch_collects_topic_results():
@@ -208,6 +233,52 @@ def test_main_orphan_glob_skipped_logs_warning():
     assert rc == 0
     warns = [str(call) for call in fake_logger.warning.call_args_list]
     assert any("orphan-glob" in m for m in warns), f"未记 orphan-glob warning: {warns!r}"
+
+
+# ---------- R48b：文件级隔离（坏文件不掀翻整段 / 整批）----------
+
+def test_main_orphan_phase_isolates_bad_file_and_reports_it():
+    """orphan 阶段：一个坏文件不掀翻整段（好文件照常落库），失败被 warning 明确记下。
+
+    旧实现是「整段一个事务 + 裸 except ⇒ conn.rollback()」：生产实测 1239 个文件
+    每轮被整段回滚、异常被吞掉（日志只剩 "orphan 装载 n=1239"）⇒ 「已装载跳过」永不收敛。
+    """
+    fake_conn = MagicMock()
+    fake_cursor = MagicMock()
+    fake_cursor.execute.return_value.fetchone.return_value = [0]
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+
+    good = Path("/tmp/incoming/lottery_draw/good.jsonl")
+    bad = Path("/tmp/incoming/lottery_draw/bad.jsonl")
+
+    with patch.object(jc_load.pg, "connect", return_value=fake_conn), \
+         patch.object(jc_load, "iter_markers", return_value=[]), \
+         patch.object(jc_load, "files_for_batch", return_value={}), \
+         patch.object(jc_load, "_orphan_files", return_value=[bad, good]), \
+         patch.object(jc_load, "load_topic",
+                      side_effect=[ValueError("Expecting ',' delimiter"), {"ups": 2, "topic": "t"}]):
+        with patch.object(jc_load, "logger", MagicMock()) as fake_logger:
+            rc = jc_load.main(["--dir", "/tmp/incoming"])
+
+    assert rc == 0
+    # 好文件所在的那一段照常提交（坏文件只回滚自己）
+    fake_conn.commit.assert_called()
+    warns = [str(c) for c in fake_logger.warning.call_args_list]
+    assert any("orphan 失败" in w for w in warns), f"坏文件没有被报告: {warns!r}"
+    assert any("bad.jsonl" in w for w in warns), f"坏文件名没进告警: {warns!r}"
+
+
+def test_load_file_rolls_back_to_savepoint_on_error():
+    """_load_file：出错 ⇒ 回滚到保存点（不是整批 rollback），并把错误交回调用方。"""
+    conn = MagicMock()
+    cur = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cur
+    with patch.object(jc_load, "load_topic", side_effect=ValueError("bad json")):
+        r, err = jc_load._load_file(cur, Path("/tmp"), Path("/tmp/m.done"),
+                                    "lottery_draw", Path("x.jsonl"), "jsonl")
+    assert r is None
+    assert "ValueError" in err and "bad json" in err
+    assert any("rollback to savepoint" in str(c[0]) for c in cur.execute.call_args_list)
 
 
 # ---------- R48：增量水位 + 已装载跳过 ----------

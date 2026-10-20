@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2371 passed / 71 skipped / 0 failed**（2442 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48 +8**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2374 passed / 71 skipped / 0 failed**（2445 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1116,6 +1116,49 @@ import 排序（无逻辑变更）。数据**没丢**（文件都在 `incoming/`
 
 测试基线 2363 → **2371 passed / 71 skipped / 0 failed**（2442 collected；新增 8 例：水位跳过、
 已装载跳过、台账写入、保存点隔离 ×3、prize 幂等/翻版 ×2）。
+
+#### 上线实测（Oracle，2026-10-20；迁移 → 拉代码 → 补跑 → 验收）
+
+| 项 | 修复前 | 修复后（实测） |
+|---|---|---|
+| cron `*/10` 退出码 | **124**（每轮撞 420s timeout） | **0**（00:30 轮 **5 秒**跑完：00:30:01 → 00:30:06） |
+| 每轮处理批次数 | 2602（全量重扫） | **8**（水位：已处理 2594 / 待处理 8） |
+| `fact.jc_offer` 最新 snap_ts | 10-19 06:56（**落后 17h**） | 10-19 23:53（**落后 32min**，随到港滚动） |
+| `fact.jc_offer` 行数 | 84,450 | **163,590**（补跑 2602 批耗时 11 分钟） |
+| 本轮 `UniqueViolation` | 2580 批中 **1805 批（70%）** | **0** |
+| `fact.jc_issue_prize` | 167 行 / `is_current` 恒 true（死列） | 174 行 / **同 tier 仅 1 条 `is_current=true`（0 违规）** |
+| `ops.ingest_marker` | 表不存在 | 2602 行（2594 ok / 8 失败） |
+
+部署顺序**不可颠倒**：新代码的 `ON CONFLICT (..., src_hash)` 要求新 PK 已生效 ⇒
+先 `sudo -u postgres psql -d league -f docs/db/r48_ingest_fix.sql`，再 `git reset --hard origin/main`。
+
+**`is_current` 翻版本轮没触发（如实记录）**：撞 PK 的两批内容逐字相同 ⇒ 实际走的是
+`ON CONFLICT DO NOTHING` **幂等跳过**分支；`is_current=false` 行数 **0**、同 tier 多版本 **0 组**
+⇒ 翻版路径目前只有测试覆盖，生产这一轮没发生（与"同一期被反复推送"的诊断一致）。
+
+#### R48b（部署后实测追加）：orphan 阶段整段静默回滚 ⇒ 修复不收敛
+
+上线验收时暴露**第四个根因**（被 R48 新加的日志照出来）：
+
+| # | 根因 | 证据 |
+|---|---|---|
+| D | **orphan 阶段整段是一个事务 + 裸 `except Exception: conn.rollback()`** ⇒ 第一个坏文件把**整段 1239 个文件**的写入全部回滚，且**异常被吞掉**（日志只剩 `orphan 装载 n=1239`，零异常栈） | 00:30 轮 `ops.file_arrival` 行数**两轮不变**（17858 → 17858）⇒ 整段确实被回滚；逐文件复现 **11+ 个**文件 `JSONDecodeError`（上游撕裂 JSON，如 `{"kind": "line", "topic": "lot{"kind": …`，行数对得上但内容被写坏，且与 manifest 的 sha256 **全不匹配**） |
+
+**为什么必须一起修**：根因 C 的「已装载跳过」依赖 `ops.file_arrival` 有记录，而 D 让 orphan 段
+的写入**永远提交不了** ⇒ 每轮还是 1239 个文件白跑白丢，**修复不收敛**（也正是 420s 超时的大头）。
+
+修法（隔离粒度从「整段 / 整批」降到「单文件」，与 P0-COLLECT2eB「坏指令不废批」同原则）：
+
+1. `jc_load._load_file`：每个文件一个保存点 ⇒ 坏文件只回滚**它自己**，同段/同批好文件照常落库；
+2. orphan 失败清单打进 `logger.warning`（不再静默）；marker 批的文件级失败照旧进 `errors`
+   （该批仍标 `ok=false` ⇒ 下轮重试，语义不变）。
+
+连带更正既有测试的旧语义：`test_load_batch_rolls_back_on_exception_and_records_error`
+（"一个文件炸 ⇒ 整批回滚"）拆成两例 —— 新的**文件级隔离**例 + 保留的**整批回滚**例
+（后者改成"文件清单都拿不到"才整批回滚）。
+
+测试基线 2371 → **2374 passed / 71 skipped / 0 failed**（2445 collected；新增 3 例：
+orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、文件级失败不连坐好文件）。
 
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
