@@ -240,10 +240,11 @@ def main() -> int:
     v2_text = read(ROOT / "docs" / "project" / jc_alias_v2)
     check("v2 清单记录了 A+B+C+D 的落库结果", True,
           "已按本清单落库" in v2_text and "待审-竞彩E档建行-P0P1" in v2_text)
-    check("E 档 P0∪P1 待审清单存在（docs/project/）", True,
+    check("E 档待审清单存在（docs/project/）", True,
           (ROOT / "docs" / "project" / jc_e_p01).is_file())
-    check("E 档待审清单标注为「一行未入库」", True,
-          "一行未入库" in read(ROOT / "docs" / "project" / jc_e_p01))
+    check("E 档清单记录了落库结果与「一行未入库」的生成态", True,
+          "已落库" in read(ROOT / "docs" / "project" / jc_e_p01)
+          and "一行未入库" in read(ROOT / "docs" / "project" / jc_e_p01))
     check("产品路线图引用了 E 档待审清单", True, jc_e_p01 in roadmap_text)
 
     # ---- 输出 ----
