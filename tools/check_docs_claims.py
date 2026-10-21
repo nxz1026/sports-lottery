@@ -472,6 +472,11 @@ def main() -> int:
           "永远算不出 CLV" in roadmap_text)
     check("路线图写明 n 不足不显示均值的口径", True,
           "n 不足" in roadmap_text or "insufficient" in roadmap_text)
+    # 生产落库结果与「首跑暴露的 5 个 bug」必须留在文档里 ——
+    # 不写下来，下一个人会以为这条管线是「一次就写对了」，也会重犯同样的静默失败。
+    check("路线图记录了建议 3 的生产落库结果（§6.5.6）", True, "6.5.6" in roadmap_text)
+    check("路线图记录了生产首跑暴露的 5 个真 bug（§6.5.7）", True,
+          "6.5.7" in roadmap_text and "静默失败" in roadmap_text)
 
     # ---- 17. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。

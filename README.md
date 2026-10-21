@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2418 passed / 72 skipped / 0 failed**（2490 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +25**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2420 passed / 72 skipped / 0 failed**（2492 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1298,9 +1298,20 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 **样本不足不显示均值**：CLV 日汇总与命中率分层都带 `n`；`n < 5` 时标 `insufficient`，
 前端**不显示均值**（宁可空白不误导）—— 与 §1.2「n=18 的命中率不可信」同一条纪律。
 
+**生产落库与首算（2026-10-21 实测）**：4 张新表建成（既有表一行未动）；
+回填历史预测 72 次运行 / 1592 场，其中 **312 场**关联上竞彩；
+CLV 首算：候选 312 → 可算 **71** 场 → 落 **213 行**明细 + **31 行**日汇总，
+**整体 CLV 均值 +0.0498**（客胜 +0.176 / 主胜 +0.061 / 平局 -0.087）。
+分层命中率 30 天窗口：epl 20 / laliga 19 / seriea 20 / bundesliga 18 / ligue1 18 场，全部带 Wilson 95% 区间。
+
+**首跑暴露 5 个「静默失败」型 bug**（不报错、退出码 0、页面空白）：SQL 选了不存在的列、
+naive/aware 时间戳直接比、`p_model` 误取市场先验、CLI 漏 `__main__` 入口、
+整体均值被逐行 insufficient 抹掉 —— 全部已修并补测，详见路线图 **§6.5.7**。
+**教训**：「跑完了」不等于「跑对了」——纯函数单测一条都没抓到这 5 个。
+
 **顺带修掉一处文档编码损坏**：路线图里「怎么做」三个字曾被写成三个 U+FFFD 替换字符
 （commit `1e4fdac` 引入，肉眼极易漏过）。已修复，并给守门加了**全仓 U+FFFD 扫描**
-（`tools/check_docs_claims.py`，91 项）⇒ 这类损坏以后进不了库。
+（`tools/check_docs_claims.py`，93 项）⇒ 这类损坏以后进不了库。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 

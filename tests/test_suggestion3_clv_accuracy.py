@@ -368,6 +368,39 @@ def test_clv_calc_cli_has_entry_point():
     assert "usage" in (proc.stdout or "").lower(), f"没有 usage 输出：{proc.stdout!r}"
 
 
+def test_clv_summary_aggregates_across_days_despite_small_rows():
+    """⚠️ 逐日 n<5（每行都带 `insufficient`）**不能**把整体均值一起抹掉。
+
+    实测（2026-10-21 生产首跑）：31 个逐日单元的 n 都是 1~4 ⇒ 每行 `insufficient=True`；
+    若按逐行标记过滤，整体均值变 null（**总样本 71 场却不显示**）⇒ 看板永远一片空白。
+    ⇒ 整体口径按**总场次**判不足。
+    """
+    from web.services.clv import summary
+
+    rows = [{"date": f"2026-10-{d:02d}", "league_key": "epl", "n_matches": 2, "n_options": 6,
+             "mean_clv": 0.05, "median_clv": 0.05, "min_clv": -0.1, "max_clv": 0.2,
+             "insufficient": True}
+            for d in range(1, 6)]
+    out = summary(rows)
+    assert out["n_days"] == 5
+    assert out["n_matches"] == 10
+    assert out["mean_clv"] == pytest.approx(0.05, abs=1e-4)
+    assert out["insufficient"] is False
+
+
+def test_clv_summary_withholds_mean_when_total_n_too_small():
+    """总场次不足 ⇒ 不给均值（宁可空白不误导）。"""
+    from web.services.clv import summary
+
+    rows = [{"date": "2026-10-01", "league_key": "epl", "n_matches": 2, "n_options": 6,
+             "mean_clv": 0.05, "median_clv": 0.05, "min_clv": -0.1, "max_clv": 0.2,
+             "insufficient": True}]
+    out = summary(rows)
+    assert out["n_matches"] == 2
+    assert out["mean_clv"] is not None      # 值仍算出来，但 insufficient=True
+    assert out["insufficient"] is True      # 页面据此不显示
+
+
 # ── D. 真库全链（表未建则 skip）────────────────────────────────────────
 
 class _FakeClvConn:
