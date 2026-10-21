@@ -1054,6 +1054,17 @@ def main() -> int:
         # R15a #8: 批量边界事件锚点 —— n_succeeded 标本次成功 run 一场数（不论 0/1/N）。
         n_succeeded = sum(1 for o in all_outputs if o is not None)
         _log_event_batch("batch_done", mode="all", n_succeeded=n_succeeded)
+        # 建议 4：结算历史推荐单 + 生成「今日推荐单」（决策层）。
+        # 顺序很重要：先结算（用官方赛果），再生成新的（用今天的盘口与今天的模型概率）。
+        # 尽力而为：失败只 warning —— 预测产出已经落盘，不能因为决策层挂了就废掉当天预测。
+        try:
+            from decision.recommend import main as _recommend_main
+            from decision.settle import main as _settle_main
+
+            _settle_main([])
+            _recommend_main([])
+        except Exception as _exc:  # noqa: BLE001 - 决策层失败不影响预测产出
+            logger.warning(f"推荐单/结算失败（不影响预测产出）：{_exc}")
         # Print combined JSON array for --all mode
         print(json.dumps(all_outputs, indent=2, ensure_ascii=False))
         # R18 #1: 任一联赛失败 → 退出码 1（fail-fast：cron 可见失败）

@@ -368,6 +368,21 @@ def clv_daily(request: Request,
     }
 
 
+@router.get("/recommend")
+def recommend(request: Request,
+              _: None = Depends(require_auth)) -> dict:
+    """今日推荐单 + 战绩（建议 4 子项 ①②③，主指标）。
+
+    「今日」按 **BJT** 判定（`made_at AT TIME ZONE 'Asia/Shanghai'`）——
+    直接用 `made_at::date` 会按会话时区算、差一天（见路线图 §7 第 12 条的时区坑）。
+
+    口径纪律：战绩 n 不足（< 5）时 `roi` 为 null，页面**不显示 ROI**（宁可空白不误导）。
+    """
+    from web.services import recommend as recommend_service
+
+    return recommend_service.snapshot()
+
+
 @router.get("/history")
 def history(request: Request,
             _: None = Depends(require_auth)) -> dict:

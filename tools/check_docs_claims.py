@@ -482,6 +482,68 @@ def main() -> int:
     check("路线图记录了生产首跑暴露的 5 个真 bug（§6.5.7）", True,
           "6.5.7" in roadmap_text and "静默失败" in roadmap_text)
 
+    # ---- 18. 建议 4（决策层：今日推荐单 + Kelly + 竞彩官方赔率结算）----
+    # 这条链路的每个环节都是「静默失效」：定价口径错、结算用错价、样本不足还给 ROI，
+    # 都不会报错，只会让看板给出**误导性的建议**。⇒ 对结构与口径设守卫。
+    s4_sql = ROOT / "docs" / "db" / "suggestion4_schema.sql"
+    check("建议 4 的建表 SQL 存在（docs/db/）", True, s4_sql.is_file())
+    if s4_sql.is_file():
+        _s4 = s4_sql.read_text(encoding="utf-8")
+        check("建议 4 DDL 含 analysis.rec_settle", True, "analysis.rec_settle" in _s4)
+        check("建议 4 DDL 给 ev_report 加了可空列（match_id/option_code/sp_decide）", True,
+              all(k in _s4 for k in ("match_id", "option_code", "sp_decide")))
+        check("建议 4 DDL 有幂等唯一键（match_id, option_code, made_at::date）", True,
+              "ev_report_pick_uq" in _s4 and "made_at::date" in _s4)
+    for _rel in ("scripts/market/kelly.py", "scripts/decision/recommend.py",
+                 "scripts/decision/settle.py", "web/services/recommend.py"):
+        check(f"建议 4 新增文件存在（{_rel}）", True, (ROOT / _rel).is_file())
+    # Kelly 公式唯一真源：web 层 combo 必须**委托** scripts 层，不得自己再写一份
+    _combo_src = read(ROOT / "web" / "services" / "combo.py")
+    check("web/services/combo.py 委托 scripts/market/kelly.py（Kelly 唯一真源）", True,
+          "market.kelly" in _combo_src)
+    # 定价口径：推荐单必须用**竞彩官方 SP**（fact.jc_offer.options），不是 ESPN 赔率
+    _rec_src = read(ROOT / "scripts" / "decision" / "recommend.py")
+    check("推荐单定价取竞彩官方 SP（fact.jc_offer 的 options）", True,
+          "fact.jc_offer" in _rec_src and "options" in _rec_src)
+    check("推荐单不使用 ESPN 赔率定价（无 decimal_odds）", True, "decimal_odds" not in _rec_src)
+    # 结算口径：必须用 fact.jc_result 的**官方结算 SP** + win_flag
+    _set_src = read(ROOT / "scripts" / "decision" / "settle.py")
+    check("结算用竞彩官方结算 SP（sp_home/sp_draw/sp_away）", True,
+          all(k in _set_src for k in ("sp_home", "sp_draw", "sp_away")))
+    check("结算命中判定用 win_flag（官方标记）", True, "win_flag" in _set_src)
+    check("战绩 n 不足不给 ROI（insufficient 门槛）", True,
+          "MIN_N_SETTLED" in _set_src and "insufficient" in _set_src)
+    # web 端点
+    check("web 新增 /recommend 端点", True, '@router.get("/recommend")' in _pred_router)
+    _plan4 = read(ROOT / "docs" / "web" / "PLAN.md")
+    check("PLAN 端点表登记了 /api/v1/recommend", True, "/api/v1/recommend" in _plan4)
+    # 路线图必须写明建议 4 的落地状态与「EV 含跨市场定价差」这条诚实标注
+    check("路线图记录了建议 4 的落地状态（§6.6）", True, "6.6" in roadmap_text)
+    check("路线图写明 EV 含跨市场定价差（不许直接进 EV/Kelly）", True,
+          "跨市场定价差" in roadmap_text)
+    check("README 记录了建议 4 的 v4.0 段", True, "v4.0" in readme)
+    # 今日口径：made_at 是 timestamptz，「今天」必须按 BJT 算（与 §7 第 12 条同款坑）
+    _rec_web = read(ROOT / "web" / "services" / "recommend.py")
+    check("推荐单「今天」按 BJT 判定（AT TIME ZONE 'Asia/Shanghai'）", True,
+          "AT TIME ZONE 'Asia/Shanghai'" in _rec_web)
+    # web 层顶层不得 import scripts.*（新增的两个 web 模块）
+    for _rel in ("web/services/recommend.py", "web/services/combo.py"):
+        try:
+            _t4 = ast.parse(read(ROOT / _rel))
+        except SyntaxError:
+            _t4 = ast.Module(body=[], type_ignores=[])
+        _bad4: list[str] = []
+        for _node in _t4.body:              # 只看模块顶层
+            if isinstance(_node, ast.Import):
+                for _a in _node.names:
+                    if _a.name.split(".")[0] == "scripts":
+                        _bad4.append(f"import {_a.name}")
+            elif isinstance(_node, ast.ImportFrom):
+                _mod = (_node.module or "")
+                if _mod.split(".")[0] == "scripts":
+                    _bad4.append(f"from {_mod} import ...")
+        check(f"{_rel} 顶层未 import scripts.*", [], _bad4)
+
     # ---- 17. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。

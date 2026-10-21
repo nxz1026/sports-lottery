@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2420 passed / 72 skipped / 0 failed**（2492 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2439 passed / 72 skipped / 0 failed**（2511 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +19**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1271,6 +1271,31 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
    （竞彩官方 team id），面板展示名来自 `fact.jc_match.home_cn/away_cn`，`web/` 零处读 `ref.team`
    ⇒ **回改 `name_cn` 不提升映射率、也不改用户可见内容**。想解锁映射只能**新建行 + 填 `sporttery` 键**。
 
+### v4.0 (2026-10-21) 建议 4 落地：决策层（今日推荐单 + Kelly + 竞彩官方赔率结算）
+
+**路线图 §建议 4 的代码侧已落地**；实测订正与落地清单见该文档 **§6.6**
+（4 条「怎么做」里 2 条照做、1 条改口径、1 条补原料，外加 3 条必须诚实标注的硬约束）。
+
+| 改动 | 落点 |
+|---|---|
+| 今日推荐单 | `scripts/decision/recommend.py` → `analysis.ev_report`（一行 = 一条推荐腿）；候选 = **竞彩当前在售**场次 ∩ 模型有概率 ∩ EV 超阈值，**每场最多推一侧** |
+| Kelly / EV 唯一真源 | `scripts/market/kelly.py`（分数 Kelly + EV + 1/4 Kelly 建议注额）；`web/services/combo.py` **改为委托**它，不再自己写一份 |
+| 结算与战绩 | `scripts/decision/settle.py` → `analysis.rec_settle`；结算价取 `fact.jc_result.sp_home/sp_draw/sp_away`（**竞彩官方结算 SP**），命中取 `win_flag`（缺失用比分） |
+| 接口与看板 | 新端点 `GET /api/v1/recommend`；看板「今日推荐」视图加「今日推荐单」卡，「复盘」视图加「推荐单战绩」卡 |
+| DDL | `docs/db/suggestion4_schema.sql`：`analysis.rec_settle` 新表 + `analysis.ev_report` 加 7 个**可空列** + 幂等唯一键（既有 8 列语义不动） |
+
+**三条必须写明的诚实标注**（路线图 §6.6.3）：
+
+1. **EV 里混着「跨市场定价差」** —— 本模型的概率是**市场锚定**的（ESPN 赔率 + onside + ELO + 形态加权），
+   所以 `EV = p_model × 竞彩SP − 1` 不等于「模型有同等真实优势」。项目手册早已写死同一条纪律
+   （「现在这些 p **不许直接进 EV/Kelly**」）。落地方式：**阈值保守**（EV ≥ 5%）、**1/4 Kelly**、页面标注。
+2. **推荐单依赖当天的预测运行** —— 归档与推荐单都在 `predict.py` 跑完时写入（生产 timer 09:30），
+   ⇒ **09:30 之前看板是空的**（节奏，不是故障）。
+3. **ucl 是冷启动联赛**（置信上限 0.5、最高 2-star）⇒ 在售场次里 8 场是欧冠，推荐单里必须标「低置信」。
+
+**口径纪律**：战绩按**固定注额**统计（Kelly 是「建议」，战绩要可比就得用统一注额）；
+**n 不足（< 5）不给 ROI** —— 与建议 3 同一套纪律：宁可空白不误导。
+
 ### v3.0 (2026-10-21) 建议 3 落地：命中率改「分层 + 样本量 + 区间」，主指标换 CLV
 
 **路线图 `docs/project/产品路线图-竞彩闭环-20261020.md` §建议 3 的代码侧已落地**；
@@ -1311,7 +1336,7 @@ naive/aware 时间戳直接比、`p_model` 误取市场先验、CLI 漏 `__main_
 
 **顺带修掉一处文档编码损坏**：路线图里「怎么做」三个字曾被写成三个 U+FFFD 替换字符
 （commit `1e4fdac` 引入，肉眼极易漏过）。已修复，并给守门加了**全仓 U+FFFD 扫描**
-（`tools/check_docs_claims.py`，94 项）⇒ 这类损坏以后进不了库。
+（`tools/check_docs_claims.py`，116 项）⇒ 这类损坏以后进不了库。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 

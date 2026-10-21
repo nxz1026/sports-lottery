@@ -3,6 +3,13 @@
 纯函数模块。无 DB/网络/IO 依赖。所有边界场景（赔率<1、概率缺失、单腿等）
 都在这里处理，路由层只做转发。
 
+⚠️ **公式唯一真源在 `scripts/market/kelly.py`**（建议 4 子项 ②）：
+建议 4 的「今日推荐单」在 scripts 层落库，若两边各写一份 Kelly/EV，
+迟早会漂（页面上的注数与落库的建议对不上）⇒ 本模块**委托**真源，不自己算。
+web 层**不能顶层 import scripts**（T5 免 psycopg 环境 + 仓库约定），
+故 sys.path 只自举一次（追加到**末尾**，避免 scripts/ 下同名包遮蔽 web/），
+真正的 import 放在函数内延迟执行。
+
 约定：
 - side 字符串: "主胜" / "平" / "客胜" / "让胜" / "让平" / "让负" / NBA 玩法可扩展
 - odds: 十进制赔率（>1.0），<=1 视为无效腿，忽略计入 warning
@@ -13,6 +20,15 @@
 - warning 数组包含无法计算项、赔率异常、联合概率>1 等提示，UI 原样展示。
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# scripts/ 是公式唯一真源（scripts/market/kelly.py）；追加到 **末尾**（不前置），
+# 否则 scripts/ 下的同名包会遮蔽 web/ 下的（见 web/api.py 顶部同款警告）。
+_SCRIPTS_DIR = str(Path(__file__).resolve().parents[2] / "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.append(_SCRIPTS_DIR)
 
 # 边角输入钳制
 _ODDS_MIN = 1.01
@@ -38,6 +54,9 @@ def evaluate_combo(legs: list[dict],
     odds_product = 1.0
     kelly_total = 0.0
 
+    # 公式唯一真源（scripts 层）：延迟 import，遵守 web 层「不顶层 import scripts」约定
+    from market.kelly import ev_per_unit, kelly_fraction
+
     for i, leg in enumerate(legs or []):
         side = str(leg.get("side") or "")
         try:
@@ -49,7 +68,7 @@ def evaluate_combo(legs: list[dict],
         except (TypeError, ValueError):
             p_model = 0.0
         p_model = max(_PROB_MIN, min(_PROB_MAX, p_model))
-        ev = p_model * odds - 1.0 if odds > _ODDS_MIN else None
+        ev = ev_per_unit(p_model, odds) if odds > _ODDS_MIN else None
         if odds <= _ODDS_MIN:
             warnings.append(f"腿 {i+1}: 赔率 {odds!r} 非法（<=1.01），跳过 EV/Kelly")
             kelly = None
@@ -58,8 +77,7 @@ def evaluate_combo(legs: list[dict],
                 kelly = 0.0
                 warnings.append(f"腿 {i+1}: 模型概率为空，Kelly 视为 0")
             else:
-                b = odds - 1.0
-                kelly = max(0.0, (b * p_model - (1.0 - p_model)) / b) if b > 0 else 0.0
+                kelly = kelly_fraction(p_model, odds)
         eval_legs.append({
             "idx": i + 1, "side": side, "odds": odds, "p_model": round(p_model, 4),
             "ev": round(ev, 4) if ev is not None else None,
@@ -96,7 +114,8 @@ def evaluate_combo(legs: list[dict],
     if n_valid < len(eval_legs):
         warnings.append(f"{len(eval_legs) - n_valid} 条腿概率或赔率缺失，parlay EV 可能偏低")
     if n_valid >= 2 and odds_product > _ODDS_MIN:
-        kelly_total = max(0.0, (joint_p * (odds_product - 1.0) - (1.0 - joint_p)) / (odds_product - 1.0))
+        # 串关级 Kelly：同一公式（b = 赔率乘积 − 1）⇒ 仍走唯一真源
+        kelly_total = kelly_fraction(joint_p, odds_product)
     elif eval_legs and odds_product > _ODDS_MIN:
         warnings.append("有效腿 <2，Kelly 按 0 处理（无法 parlay）")
 

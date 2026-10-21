@@ -56,6 +56,7 @@ Python 兼容下限 **3.11**（GHA 3.11 / coder 机 3.12，勿照抄 welfare 的
 | /api/v1/accuracy | GET | 方向/比分命中率 + 校准曲线数据（past_matches+backtest） |
 | /api/v1/accuracy/stratified | GET | 分层命中率 + 样本量 + Wilson 95% 区间（建议 3 ①，增量端点；`/accuracy` 字段一字未动） |
 | /api/v1/clv | GET | CLV 日汇总（建议 3 ②，主指标；`rows` + `summary`，n 不足带 `insufficient`） |
+| /api/v1/recommend | GET | 今日推荐单 + 推荐单战绩（建议 4；`picks` + `record`，ROI n 不足不给） |
 | /api/v1/history?league=&limit= | GET | 历史预测文件索引（日期/联赛/场次/是否有赛果） |
 | /api/v1/jobs/predict | POST | 触发一次预测（body: leagues? all?），返回 job_id |
 | /api/v1/jobs/{id} 与 /jobs/latest | GET | 任务状态轮询（queued/running/done/error + 日志尾巴） |
