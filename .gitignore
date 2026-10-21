@@ -93,3 +93,6 @@ coverage.xml
 
 # stress_runs 产物快照（每次压测会变；工具脚本 *.ps1 仍 commit 进仓）
 stress_runs/*.txt
+
+# 测试占位产物：tests/test_bball_*.py 把 ELO_FILE/DATA_DIR 重定向到 "unused" 这个相对路径
+unused
