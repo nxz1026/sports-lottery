@@ -127,7 +127,6 @@ ON CONFLICT (match_id, play_type, option_code, prev_ts, curr_ts) DO UPDATE SET
   sp_prev = EXCLUDED.sp_prev, sp_curr = EXCLUDED.sp_curr, move_pct = EXCLUDED.move_pct,
   threshold_pct = EXCLUDED.threshold_pct, league_cn = EXCLUDED.league_cn,
   match_date = EXCLUDED.match_date, updated_at = now()
-RETURNING move_id
 """
 
 

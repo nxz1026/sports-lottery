@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2476 passed / 72 skipped / 0 failed**（2548 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2478 passed / 72 skipped / 0 failed**（2550 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1305,13 +1305,16 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 3. **异动事件落表才是资产** —— 每条存（场次/侧/前后两版 `snap_ts`/前后 SP/跳变幅度/阈值/是否已推），
    **任何人可用同一公式复算**。
 
-**新增 34 项守门断言**（`tools/check_docs_claims.py`，158 项）—— 重点 4 条：
+**新增 36 项守门断言**（`tools/check_docs_claims.py`，160 项）—— 重点 5 条：
 ① **看板内联 JS 必须语法合法**（`node --check`）—— 本轮实测踩到：往 `dashboard.html` 插函数时
 少写一个大括号 ⇒ 整个内联脚本解析失败 ⇒ **看板所有交互全挂**（页面还"能打开"，只是什么都不响应）；
 ② **仓库任何文件都不得含飞书 webhook URL**（凭证只走 env，不入代码/文档/commit/日志）；
 ③ **未配 webhook 不得谎报已推** + **告警文案必须带「不是下注理由」**；
 ④ **推送标记逐条精确**（不许 `ANY` 的笛卡尔积）+ **推送必须去重**（检测窗口 24h，
-不去重就会每 10 分钟重推同一条 ⇒ 刷屏）。
+不去重就会每 10 分钟重推同一条 ⇒ 刷屏）；
+⑤ **落表 SQL 与 DDL 对账**（生产首跑实测：INSERT 写了 `RETURNING move_id`，而表里
+**根本没有这列** ⇒ 每次落表都抛 `UndefinedColumn` ⇒ 异动一条都进不去；
+单测用**假连接**不执行真 SQL ⇒ 验不到这一层）。
 
 ### v4.0 (2026-10-21) 建议 4 落地：决策层（今日推荐单 + Kelly + 竞彩官方赔率结算）
 

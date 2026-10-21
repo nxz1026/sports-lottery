@@ -705,6 +705,31 @@ def main() -> int:
     check("异动推送去重（只推没推过的；--repush 才重发）", True,
           "already_pushed" in _om_src and "--repush" in _om_src)
 
+    # 落表 SQL 必须与 **DDL 对账** —— 生产首跑实测：INSERT 写了 `RETURNING move_id`，
+    # 而表里**根本没有这列** ⇒ 每次落表都抛 UndefinedColumn ⇒ 异动一条都进不去。
+    # ⚠️ 单测用的是**假连接**（不执行真 SQL）⇒ 单测全绿也验不到这层 ⇒ 守门独立复核。
+    _s5_cols: set[str] = set()
+    try:
+        _s5_ddl = read(ROOT / "docs" / "db" / "suggestion5_schema.sql")
+        _m_tbl = re.search(r"CREATE TABLE IF NOT EXISTS analysis\.odds_move\s*\((.*?)\n\);",
+                           _s5_ddl, re.S)
+        if _m_tbl:
+            for _line in _m_tbl.group(1).split("\n"):
+                _line = _line.strip().rstrip(",")
+                if not _line or _line.upper().startswith(
+                        ("CONSTRAINT", "PRIMARY KEY", "UNIQUE", "CHECK", "FOREIGN KEY")):
+                    continue
+                _s5_cols.add(_line.split()[0])
+    except Exception:  # noqa: BLE001 - 读不到就判失败，不误伤
+        _s5_cols = set()
+    _m_ins = re.search(r"INSERT INTO analysis\.odds_move\s*\(([^)]*)\)", _om_src, re.S)
+    _ins_cols = {c.strip() for c in _m_ins.group(1).split(",") if c.strip()} if _m_ins else set()
+    check("异动落表 SQL 的列都在 DDL 里（假连接验不到这层）", True,
+          bool(_s5_cols) and bool(_ins_cols) and not (_ins_cols - _s5_cols))
+    _m_ret = re.search(r"RETURNING\s+(\w+)", _om_src)
+    check("异动落表 RETURNING 只引用真实列（实测曾引用不存在的 move_id）", True,
+          _m_ret is None or _m_ret.group(1) in _s5_cols)
+
     # ④ 告警文案必须带「异动是信息不是信号」（§6.6.5.1 的水位结论）
     check("告警文案带「异动是信息不是信号」的硬约束", True,
           "不是下注理由" in _om_src and "信息" in _om_src)

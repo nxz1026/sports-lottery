@@ -171,6 +171,59 @@ def test_group_by_match_aggregates_sides_per_match():
     assert len(g1["sides"]) == 2
 
 
+def _ddl_columns(ddl_text: str, table: str) -> set[str]:
+    """从 DDL 里抽出某张表的列名（忽略 CONSTRAINT / PRIMARY KEY / CHECK 行）。"""
+    m = re.search(r"CREATE TABLE IF NOT EXISTS " + re.escape(table) + r"\s*\((.*?)\n\);",
+                  ddl_text, re.S)
+    assert m, f"DDL 里找不到 {table} 的建表语句"
+    cols: set[str] = set()
+    for line in m.group(1).split("\n"):
+        line = line.strip().rstrip(",")
+        if not line or line.upper().startswith(
+                ("CONSTRAINT", "PRIMARY KEY", "UNIQUE", "CHECK", "FOREIGN KEY")):
+            continue
+        cols.add(line.split()[0])
+    return cols
+
+
+def _s5_ddl_text() -> str:
+    root = Path(__file__).resolve().parent.parent
+    return (root / "docs" / "db" / "suggestion5_schema.sql").read_text(encoding="utf-8")
+
+
+def test_insert_sql_columns_match_ddl():
+    """INSERT 用到的列必须都在 DDL 里（**单测的假连接验不到这一层**）。
+
+    ⚠️ 生产首跑实测踩到：INSERT 写了 ``RETURNING move_id``，而表里**根本没有
+    `move_id` 列** ⇒ 每次落表都抛 ``UndefinedColumn`` ⇒ 异动事件一条都进不去。
+    单测全绿（假连接不执行真 SQL）⇒ 只有「DDL 与 SQL 对账」这一层能挡住它。
+    """
+    from market.odds_move import _INSERT_SQL
+
+    cols = _ddl_columns(_s5_ddl_text(), "analysis.odds_move")
+    m = re.search(r"INSERT INTO analysis\.odds_move\s*\(([^)]*)\)", _INSERT_SQL, re.S)
+    assert m, "解析不出 INSERT 的列清单"
+    used = {c.strip() for c in m.group(1).split(",") if c.strip()}
+    assert used, "INSERT 列清单为空"
+    missing = used - cols
+    assert not missing, f"INSERT 用了 DDL 里没有的列：{sorted(missing)}"
+    n_ph = _INSERT_SQL.split("VALUES", 1)[1].split("ON CONFLICT", 1)[0].count("%s")
+    assert n_ph == len(used), f"占位符 {n_ph} 个 != 列 {len(used)} 个"
+    m_ret = re.search(r"RETURNING\s+(\w+)", _INSERT_SQL)
+    if m_ret:
+        assert m_ret.group(1) in cols, f"RETURNING 引用了不存在的列 {m_ret.group(1)}"
+
+
+def test_web_read_sql_columns_match_ddl():
+    """只读视图的 SQL 引用列也必须都在 DDL 里（同样验不到的那一层）。"""
+    from web.services import odds_move as svc
+
+    cols = _ddl_columns(_s5_ddl_text(), "analysis.odds_move")
+    for sql in (svc._RECENT_SQL, svc._OPS_SQL):
+        for col in re.findall(r"\bo\.(\w+)", sql):
+            assert col in cols, f"只读 SQL 引用了不存在的列 o.{col}"
+
+
 def test_already_pushed_detects_previously_pushed_events():
     """推送必须**去重**：检测窗口 24h ⇒ 同一异动每轮都会重新检出。
 
