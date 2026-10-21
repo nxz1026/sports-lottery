@@ -372,9 +372,18 @@ def main() -> int:
     # ref.league 增补脚本必须在仓库里（DB 侧落地时直接用，不手搓 SQL）
     check("ref.league 增补 ucl 行的 SQL 存在（docs/db/）", True,
           (ROOT / "docs" / "db" / "ucl_league_seed.sql").is_file())
-    # 物化入口的缺口必须留在文档里（raw→fact 没有生产 CLI ⇒ 下次回填仍要手工跑一次）
-    check("路线图记录了物化入口的缺口（生产无 CLI）", True,
-          "生产没有 CLI 入口" in roadmap_text)
+    # 物化入口的警告必须留在文档里：**回填后仍要显式跑一次物化**（不是自动的）。
+    # ⚠️ 口径已从「没有 CLI」变成「有 CLI 但手动触发」（§6.10.2 补的 `scripts/store/materialize.py`）——
+    #    守的是**意图**（「别以为回填完就自动进 fact.fixture」），不是那句已经过期的话。
+    check("路线图记录了物化入口需手动触发（回填后要显式跑一次）", True,
+          "每次回填后仍要显式跑一次物化" in roadmap_text)
+    check("路线图记录了物化 CLI 的用法（scripts/store/materialize.py）", True,
+          "scripts/store/materialize.py" in roadmap_text)
+    # ⚠️ 反向守卫：**不再**许诺「生产没有 CLI 入口」（§6.10.2 之后这句话就是假的了）。
+    #    用 stale_lines：命中该串**且**行内无「订正/此前/已修复」等标记的行才算违规
+    #    （§6.4.2 那条历史记录带订正标记 ⇒ 不算违规）。
+    check("路线图不再残留『生产没有 CLI 入口』这句过期说法", True,
+          not stale_lines(roadmap_text, ["生产没有 CLI 入口"]))
 
     # ---- 16. 建议 3（分层命中率 + CLV 管线）的结构守卫 ----
     # 建议 3 新增了一条「每天自动长一行」的管线：预测归档 → 收盘快照 → CLV 落库 → 看板。

@@ -1264,9 +1264,10 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 
 **两条顺带查实的事实**（避免下一个人走弯路）：
 
-1. **物化入口全仓只在 `tests/` 里** —— `upsert_fixtures.run` / `upsert_results.run` 没有生产 CLI
-   （`ops/league-daily-predict.sh` 只跑预测；Oracle 的 `~/bin/jc-ingest-run.sh` 走 `jc_load.py`，是竞彩官方通道，
-   与 AF/FD 的 raw→fact 无关）⇒ **每次回填后要手工跑一次物化**。
+1. **raw 落库与 fact 物化之间没有「自动」入口** —— `ops/league-daily-predict.sh` 只跑预测；
+   Oracle 的 `~/bin/jc-ingest-run.sh` 走 `jc_load.py`，是竞彩官方通道，与 AF/FD 的 raw→fact 无关
+   ⇒ **每次回填后仍要显式跑一次物化**：`python scripts/store/materialize.py --execute`
+   （**v4.5 已补上这个 CLI**；默认 `--dry-run` 预演，零落库。它**不会**被采集 cron 自动触发）。
 2. **`ref.team.name_cn` 不参与任何 join** —— 竞彩↔`ref.team` 的 join 键是 `aliases->>'sporttery'`
    （竞彩官方 team id），面板展示名来自 `fact.jc_match.home_cn/away_cn`，`web/` 零处读 `ref.team`
    ⇒ **回改 `name_cn` 不提升映射率、也不改用户可见内容**。想解锁映射只能**新建行 + 填 `sporttery` 键**。
@@ -1322,10 +1323,11 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**新增 21 项守门断言**（`tools/check_docs_claims.py`，227 项；建议 6 再加 21 项、顺手修再加 7 项、
-复算脚本再加 16 项、两条遗留再加 21 项）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+**新增 21 项守门断言**（`tools/check_docs_claims.py`，229 项；建议 6 再加 21 项、顺手修再加 7 项、
+复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
 回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
-物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字。
+物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字、
+**「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）。
 
 **生产验收**（Oracle `0793153` + `3a209c1`，详见路线图 §6.10.4）：
 
