@@ -5,6 +5,9 @@
   返回 {"rows": {"teams": [...], "topics": [...], "quota": [...], "rejects": [...]},
         "ok":   {"teams": true, ...},   ← 分键降级标记（store 异常该键 false）
         "sql_note": "...", "degraded": 是否任一段降级}
+- GET /api/jc/ops/odds-move  赔率异动事件的运维视图（建议 5）
+  返回 {"n_events", "n_pushed", "n_matches", "max_move_pct", "threshold_pct",
+        "push_configured", ...} —— **push_configured 只回布尔值，不回 webhook URL**。
 
 口径判定归页面/DASH 层：本层不发明健康判定，只做只读查询与降级标记。
 （n_orphan = ops.file_arrival 里 done_marker=false 的行，即无 marker 认领、只由 orphan 阶段
@@ -49,6 +52,31 @@ def ops(_: None = Depends(require_auth)) -> dict:
         "sql_note": _NOTE,
         "degraded": not all(ok.values()),
     }
+
+
+@router.get("/ops/odds-move")
+def ops_odds_move(hours: int = 24, _: None = Depends(require_auth)) -> dict:
+    """赔率异动事件的运维视图（建议 5）：阈值 / 命中量 / 推送状态。
+
+    ⚠️ **口径**：异动 = **相邻 ~10 分钟快照的跳变**，不是「开盘 vs 临场」的首末差
+    （后者 ≥5% 命中 77%，是纯噪音）。默认阈值 5%（可配 3%），实测命中 0.40% ⇒ ≈0.6 次/天。
+
+    ⚠️ **诚实性**：`push_configured` 只回**布尔值**（webhook URL 是凭证，绝不回显）；
+    `n_pushed < n_events` 就是**还有没推出去的**（未配 webhook 时必然如此）——
+    页面必须如实显示，不得美化。
+
+    降级：store 异常 ⇒ 计数全 0 + `note` 标注「读失败」，**不 5xx**。
+    """
+    from web.services import odds_move as odds_move_service
+
+    try:
+        return odds_move_service.ops(hours=hours)
+    except Exception as exc:  # noqa: BLE001 - 运维视图降级，不 5xx
+        logger.warning("jc_ops: odds_move ops failed: %s", exc)
+        return {"window_hours": hours, "n_events": 0, "n_pushed": 0, "n_matches": 0,
+                "max_move_pct": None, "avg_move_pct": None, "last_curr_ts": None,
+                "threshold_pct": None, "push_configured": False,
+                "note": "读失败（已降级为 0，不编数）"}
 
 
 @router.get("/freshness")

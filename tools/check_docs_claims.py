@@ -12,8 +12,10 @@ from __future__ import annotations
 import ast
 import importlib.util
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -621,6 +623,143 @@ def main() -> int:
           "无 webhook" in roadmap_text or "既有告警 webhook" in roadmap_text)
     check("建议 5 记录了 movement 开盘价取错的订正（第一版完整 had）", True,
           "第一版完整" in roadmap_text or "第一版**完整" in roadmap_text)
+
+    # ---- 19.1 建议 5 的代码纪律（32 条）----
+    _jc_router = read(ROOT / "web" / "routers" / "jc.py")
+    _jc_ops_router = read(ROOT / "web" / "routers" / "jc_ops.py")
+    _om_src = read(ROOT / "scripts" / "market" / "odds_move.py")
+    _gc_src = read(ROOT / "scripts" / "market" / "gap_calc.py")
+    _nt_src = read(ROOT / "scripts" / "market" / "notify.py")
+    _s5_ddl = read(ROOT / "docs" / "db" / "suggestion5_schema.sql")
+    _tm_src = read(ROOT / "web" / "services" / "team_match.py")
+
+    # ① 看板内联 JS 必须语法合法 —— **本轮实测踩到**：往 dashboard.html 插函数时
+    #    少写一个大括号 ⇒ 整个内联脚本解析失败 ⇒ 看板所有交互全挂
+    #    （页面还"能打开"，只是什么都不响应 ⇒ 典型静默失败）。
+    #    浏览器测试在无 playwright 的环境里是 skip ⇒ 靠这条守门兜底。
+    #    node 不在 ⇒ SKIP（不阻断，与 ruff 同款纪律）。
+    _dash_html = read(ROOT / "static" / "dashboard.html")
+    _m_js = re.search(r"(?s)<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>", _dash_html)
+    if _m_js is None:
+        check("看板内联 JS 语法合法（node --check）", True, "无内联 script")
+    elif shutil.which("node") is None:
+        skip("看板内联 JS 语法合法（node --check）",
+             "当前环境未安装 node ⇒ 本项未检查（非失败）")
+    else:
+        _js_path = Path(tempfile.gettempdir()) / "sports_lottery_dashboard_inline_check.js"
+        _js_path.write_text(_m_js.group(1), encoding="utf-8")
+        _rc_js = subprocess.run(["node", "--check", str(_js_path)],
+                                capture_output=True, text=True).returncode
+        check_rc("看板内联 JS 语法合法（node --check）", 0, _rc_js)
+
+    # ② 凭证纪律：飞书 webhook URL **只允许**从环境变量读
+    #    （谁拿到就能往那个群发消息）⇒ 仓库任何文件里都不得出现 hook URL。
+    _hook_re = re.compile(r"open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9\-]+")
+    _hook_hits: list[str] = []
+    for _p in ROOT.rglob("*"):
+        if not _p.is_file() or _p.suffix not in _TEXT_SUFFIXES:
+            continue
+        if any(part in _SKIP_DIRS for part in _p.parts):
+            continue
+        try:
+            _t = _p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if _hook_re.search(_t):
+            _hook_hits.append(str(_p.relative_to(ROOT)))
+    check("仓库任何文件都不得含飞书 webhook URL（只走 env）", [], _hook_hits)
+    check("飞书推送只从环境变量读 URL（不硬编码）", True,
+          "os.environ.get(ENV_WEBHOOK)" in _nt_src
+          and 'ENV_WEBHOOK = "FEISHU_WEBHOOK_URL"' in _nt_src)
+
+    # ③ 未配 webhook 时**不得谎报已推送**
+    check("未配 webhook 时返回 not_configured（不谎报已推）", True,
+          '"ok": False, "reason": "not_configured"' in _nt_src)
+    check("analysis.odds_move 的 pushed 默认 false（没配 webhook 恒为没推）", True,
+          re.search(r"pushed\s+boolean\s+NOT NULL DEFAULT false", _s5_ddl) is not None)
+    check("异动推送失败不阻断落库（pushed 保持 false）", True,
+          "pushed" in _om_src and "push_failed" in _om_src)
+
+    # ④ 告警文案必须带「异动是信息不是信号」（§6.6.5.1 的水位结论）
+    check("告警文案带「异动是信息不是信号」的硬约束", True,
+          "不是下注理由" in _om_src and "信息" in _om_src)
+    check("页面/接口文案带同样的硬约束", True,
+          "不是下注理由" in _jc_router and "不是下注理由" in read(ROOT / "web" / "services" / "odds_move.py"))
+
+    # ⑤ 异动落表才是资产：幂等唯一键 + 前后两版可复算
+    check("analysis.odds_move 有幂等唯一键（场,玩法,侧,前后版本）", True,
+          "PRIMARY KEY (match_id, play_type, option_code, prev_ts, curr_ts)" in _s5_ddl)
+    check("异动事件存了前后两版 snap_ts 与 SP（可复算）", True,
+          all(k in _s5_ddl for k in ("prev_ts", "curr_ts", "sp_prev", "sp_curr", "move_pct")))
+
+    # ⑥ 决策时盘口必须取「第一版**完整** had」，不是「第一版快照」
+    check("gap_calc 取决策时盘口用『三项齐全』过滤（第一版完整 had）", True,
+          all(k in _gc_src for k in ("options->>'h'", "options->>'d'", "options->>'a'")))
+    check("gap_calc 的决策时盘口取 snap_ts <= 归档 run_at 的最后一版", True,
+          "snap_ts <= src.run_at" in _gc_src)
+
+    # ⑦ 错位榜必须是**增量**：老字段一字未动
+    check("错位榜老字段（gap/official/model）仍在 jc_gap 输出里", True,
+          all(k in _tm_src for k in ('"gap": round(gap, 3)', '"official":', '"model":')))
+    check("错位榜新增三分量字段（gap_decide/gap_now/drift_pp）", True,
+          all(k in read(ROOT / "web" / "services" / "gap.py")
+              for k in ("gap_decide", "gap_now", "drift_pp"))
+          and "attach_triples" in _jc_router)
+
+    # ⑧ web 层顶层不得 import scripts.*（建议 5 新增的 3 个 web 模块）
+    for _rel in ("web/services/gap.py", "web/services/odds_move.py", "web/services/notify.py"):
+        try:
+            _t5 = ast.parse(read(ROOT / _rel))
+        except SyntaxError:
+            _t5 = ast.Module(body=[], type_ignores=[])
+        _bad5: list[str] = []
+        for _node in _t5.body:              # 只看模块顶层
+            if isinstance(_node, ast.Import):
+                for _a in _node.names:
+                    if _a.name.split(".")[0] == "scripts":
+                        _bad5.append(f"import {_a.name}")
+            elif isinstance(_node, ast.ImportFrom):
+                _mod = (_node.module or "")
+                if _mod.split(".")[0] == "scripts":
+                    _bad5.append(f"from {_mod} import ...")
+        check(f"{_rel} 顶层未 import scripts.*", [], _bad5)
+
+    # ⑨ 建议 5 的文件级落地清单必须齐（§6.7.4）
+    for _rel in ("scripts/market/odds_move.py", "scripts/market/gap_calc.py",
+                 "scripts/market/notify.py", "docs/db/suggestion5_schema.sql",
+                 "web/services/gap.py", "web/services/odds_move.py", "web/services/notify.py",
+                 "tests/test_suggestion5_odds_move.py"):
+        check(f"建议 5 新增文件存在（{_rel}）", True, (ROOT / _rel).is_file())
+
+    # ⑩ web 端点齐了
+    check("web 新增 /api/jc/odds-move 端点", True, '@router.get("/odds-move")' in _jc_router)
+    check("web 新增 /api/jc/ops/odds-move 端点", True,
+          '@router.get("/ops/odds-move")' in _jc_ops_router)
+
+    # ⑪ 看板必须有异动事件表 + 错位榜三分量列（§6.7.4 的 static/dashboard.html 落点）
+    check("看板有异动事件表容器与列定义", True,
+          'id="jcMoveBody"' in _dash_html and "JC_MOVE_COLS" in _dash_html
+          and "move_pct" in _dash_html and "pushed" in _dash_html)
+    check("看板错位榜有三分量列（gap_decide/gap_now/drift_pp）", True,
+          all(k in _dash_html for k in ("gap_decide", "gap_now", "drift_pp")))
+
+    # ⑫ 异动检测的相邻对口径必须是「~10 分钟间隔」窗口（跨批次自然间隔不算）
+    check("异动检测只取 ~10 分钟的相邻对（540~660 秒）", True,
+          "MIN_GAP_SEC = 540" in _om_src and "MAX_GAP_SEC = 660" in _om_src)
+    check("异动检测默认阈值 5%（实测命中 0.40%）", True,
+          "DEFAULT_THRESHOLD_PCT = 5.0" in _om_src)
+
+    # ⑬ 告警是信息不是信号 ⇒ web 层不得出现「按异动直接出推荐」的端点
+    _bad_signal_routes: list[str] = []
+    for _rf in sorted((ROOT / "web" / "routers").glob("*.py")):
+        for _i, _l in enumerate(read(_rf).splitlines(), 1):
+            _m_route = re.search(r'@(\w+\.)?get\("([^"]+)"\)', _l)
+            if not _m_route:
+                continue
+            _path = _m_route.group(2).lower()
+            if "odds" in _path and "recommend" in _path:
+                _bad_signal_routes.append(f"{_rf.relative_to(ROOT)}:{_i} {_path}")
+    check("web 层没有『按异动直接给推荐』的端点（告警≠信号）", [], _bad_signal_routes)
 
     # ---- 20. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。

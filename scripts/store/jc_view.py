@@ -225,22 +225,62 @@ _MOV_SQL_LATEST = _MOV_SQL_DAY.replace(
     "m.business_date = %(day)s",
     "m.business_date = (select max(business_date) from fact.jc_match)")
 
+# 建议 5 ④：窗口口径（**可选参数**，不改变老端点的默认行为）——
+# 「只看最新一期」⇒ 刚开盘的场次只有 1 个快照版本 ⇒ 永远算不出 delta
+# （实测：今日在售 11 场每场 versions=1）。窗口口径让新开盘场次随采集累积。
+_MOV_SQL_WINDOW = """
+   select m.match_num, m.league_cn, m.home_cn, m.away_cn,
+          to_char(m.kickoff_bj, 'MM-DD HH24:MI') as kickoff_bj,
+          o.play_type, o.snap_ts, o.goal_line, o.options
+     from fact.jc_offer o
+     join fact.jc_match m using (match_id)
+    where m.business_date >= (select max(business_date) from fact.jc_match) - %(window_days)s::int
+    order by m.match_num, o.play_type, o.snap_ts, o.match_id"""
 
-def jc_movement(day: str | None = None) -> list[dict[str, Any]]:
+
+def _has_full_had(options: Any) -> bool:
+    """该版快照的 had 三项是否齐全（>1 且可转 float）。
+
+    ⚠️ 实测：406 场「版本数 ≥ 5」里 **405 场的第 1 版 `options` 是 `{}`**
+    （竞彩刚开盘时 had 还没值）⇒ 「开盘价」若取第一版快照，delta 会全是 None。
+    """
+    nums = _nums(options or {})
+    return all(v is not None and v > 1 for v in nums.values())
+
+
+def _has_any_side(options: Any) -> bool:
+    """该版快照是否**至少有一侧**有合法赔率（> 1）。
+
+    用途：全场**没有**一版三项齐全的 had 时的退路 —— 单边有效的版本仍可当开盘价
+    （老口径：单边隐含概率 100%，与历史 ABI 兼容；缺的侧照旧是 None、不参与 delta）。
+    """
+    nums = _nums(options or {})
+    return any(v is not None and v > 1 for v in nums.values())
+
+
+def jc_movement(day: str | None = None, window_days: int | None = None) -> list[dict[str, Any]]:
     """两时点盘口快照链：每场每玩法「开盘(first) vs 临场(last)」赔率与隐含概率变动。
 
     fact.jc_offer 由 10 分钟采集周期累积多时点 snap_ts（开盘/临场都在内）。
     返回每场每玩法一条：开盘/临场时点、逐侧赔率、delta、归一化隐含概率。
-    day 缺省 → 最新 business_date。只读，异常降级 []。
+    day 缺省 → 最新 business_date；``window_days`` 给定时 → 最近 N 期（**可选，不改老行为**）。
+    只读，异常降级 []。
+
+    ⚠️ 建议 5 ③（修 bug）：「开盘(first)」取**第一版三项齐全的 had**，不是「第一版快照」
+    —— 实测 405/406 场的第一版 `options` 是 `{}` ⇒ 原实现让 delta 全是 None
+    （这就是 `/api/jc/movement` 长期显示「有快照却无变动」的真正原因）。
     """
-    sql = _MOV_SQL_DAY if day else None
-    if day is None:
+    if day:
+        rows = _fetch(_MOV_SQL_DAY, {"day": day})
+    elif window_days:
+        wd = max(1, min(int(window_days), 30))
+        rows = _fetch(_MOV_SQL_WINDOW, {"window_days": wd})
+    else:
         # R18 #6: latest business_date 走 60s LRU 缓存（同 fixtures_on）
         latest = _latest_business_date()
         if not latest:
             return []
-        return _fetch(_MOV_SQL_DAY, {"day": latest})
-    rows = _fetch(sql, {"day": day} if day else {})
+        rows = _fetch(_MOV_SQL_DAY, {"day": latest})
     groups: dict = {}
 
     for r in rows:
@@ -250,7 +290,15 @@ def jc_movement(day: str | None = None) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for (mn, pt), g in groups.items():
-        first, last = g["snaps"][0], g["snaps"][-1]
+        snaps = g["snaps"]
+        first = next((s for s in snaps if _has_full_had(s.get("options"))), None)
+        if first is None:
+            # 全场**没有**一版三项齐全的 had ⇒ 退而取第一版「有有效值」的快照
+            # （老口径：单边有效也出行，缺的侧照旧 None、不参与 delta —— 与历史 ABI 兼容）
+            first = next((s for s in snaps if _has_any_side(s.get("options"))), None)
+        if first is None:
+            continue      # 连一个有效赔率都没有 ⇒ 给不出开盘价（不编数）
+        last = snaps[-1]
         fo, lo = _nums(first["options"] or {}), _nums(last["options"] or {})
         delta = {k: (round(lo[k] - fo[k], 3) if (fo[k] and lo[k]) else None) for k in fo}
         out.append({

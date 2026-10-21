@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2442 passed / 72 skipped / 0 failed**（2514 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2472 passed / 72 skipped / 0 failed**（2544 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1271,6 +1271,43 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
    （竞彩官方 team id），面板展示名来自 `fact.jc_match.home_cn/away_cn`，`web/` 零处读 `ref.team`
    ⇒ **回改 `name_cn` 不提升映射率、也不改用户可见内容**。想解锁映射只能**新建行 + 填 `sporttery` 键**。
 
+### v4.1 (2026-10-21) 建议 5 落地：滚动重算（错位三分量）+ 赔率异动告警
+
+**路线图 §建议 5 的代码侧已落地**；实测订正与落地清单见该文档 **§6.7**
+（原文 2 条「怎么做」：① 拆成两件事、② 的前提是错的；另发现 2 条隐含 bug）。
+
+**一条前提订正（原文是错的）**：原文说「赔率异动告警**复用既有告警 webhook**」——
+**既有 webhook 并不存在**（全仓无、crontab 无、systemd timers 无）⇒ 必须**新建**推送通道。
+另一条：告警口径**不能用**「开盘 vs 临场」的首末差（实测 ≥5% 命中 **77%**，纯噪音），
+必须用「**相邻 ~10 分钟快照的跳变**」（≥5% 命中 0.40% ⇒ ≈0.6 次/天）。
+
+| 改动 | 落点 |
+|---|---|
+| 错位三分量 | `scripts/market/gap_calc.py`：`gap_decide`（决策时错位，**固定**）/ `gap_now`（当前错位，**滚动**）/ `drift_pp`（漂移，pp）。决策时盘口取 `snap_ts <= 归档 run_at` 的**最后一版三项齐全的 had**；`p_model` 取 `model.pred_archive_match` 的归档概率（**精确匹配 `jc_match_id`**，不用市场先验） |
+| 异动检测 | `scripts/market/odds_move.py`：相邻跳变检测（只认 **540~660 秒**的间隔，跨批次自然间隔不算）→ 幂等落 `analysis.odds_move`；**每侧一行**，**按场次聚合成一条**推送（不刷屏） |
+| 推送通道 | `scripts/market/notify.py`：**只从环境变量 `FEISHU_WEBHOOK_URL` 读**；未配置 ⇒ `{"ok": false, "reason": "not_configured"}` ⇒ `pushed` 恒 false，**绝不谎报已推** |
+| DDL | `docs/db/suggestion5_schema.sql`：`analysis.odds_move` 新表（15 列，PK `(match_id, play_type, option_code, prev_ts, curr_ts)`，3 索引，幂等，**既有表零改动**） |
+| 只读视图 | `web/services/odds_move.py`（事件 + 运维视图）、`web/services/gap.py`（三分量附加）、`web/services/notify.py`（**顶层不 import scripts**，函数内延迟 import） |
+| 接口 | `GET /api/jc/gap` **增量**加 `gap_decide`/`gap_now`/`drift_pp`/`p_decide`/`p_now`（**老字段一字未动**）；**新端点** `GET /api/jc/odds-move`；**运维端点** `GET /api/jc/ops/odds-move`（阈值/命中量/推送状态，**只回布尔值不回 URL**）；`GET /api/jc/movement` 加**可选** `window_days`（**缺省行为不变**） |
+| 看板 | 「盘口变动」区加**赔率异动事件表**（跳变 % + **已推/未推**标记 + 运维计数）；错位榜加**三分量列** |
+| 修 bug | `/api/jc/movement` 的「开盘价」原来取**第一版快照**，而实测 **405/406 场第 1 版 `options` 是 `{}`** ⇒ delta 全是 None（页面「有快照却无变动」）⇒ 改取**第一版三项齐全的 had**；全场都没有齐全版本时退而取第一版**有有效值**的快照（老口径单边 100%，与历史 ABI 兼容） |
+
+**三条必须写明的硬约束**（路线图 §6.7.3）：
+
+1. **告警是「信息」，不是「信号」** —— 盘口跳变大 **≠** 模型有价值。§6.6.5.1 实测：当前 EV 的主要成分是
+   **跨市场定价差**，且推荐侧系统性偏向长赔侧，而单边投注要先扛 **~25~33% 的水位**
+   ⇒ **盘口异动本身不构成下注理由**（告警文案与页面都带这句，守门锁死）。
+2. **没有 webhook URL ⇒ 只落表 + 页面可见 + `pushed=false`** —— 绝不假装「已推送到人」
+   （建议 3/4「静默失败」教训的同款防线）。
+3. **异动事件落表才是资产** —— 每条存（场次/侧/前后两版 `snap_ts`/前后 SP/跳变幅度/阈值/是否已推），
+   **任何人可用同一公式复算**。
+
+**新增 32 项守门断言**（`tools/check_docs_claims.py`，156 项）—— 重点 3 条：
+① **看板内联 JS 必须语法合法**（`node --check`）—— 本轮实测踩到：往 `dashboard.html` 插函数时
+少写一个大括号 ⇒ 整个内联脚本解析失败 ⇒ **看板所有交互全挂**（页面还"能打开"，只是什么都不响应）；
+② **仓库任何文件都不得含飞书 webhook URL**（凭证只走 env，不入代码/文档/commit/日志）；
+③ **未配 webhook 不得谎报已推** + **告警文案必须带「不是下注理由」**。
+
 ### v4.0 (2026-10-21) 建议 4 落地：决策层（今日推荐单 + Kelly + 竞彩官方赔率结算）
 
 **路线图 §建议 4 的代码侧已落地**；实测订正与落地清单见该文档 **§6.6**
@@ -1367,7 +1404,7 @@ naive/aware 时间戳直接比、`p_model` 误取市场先验、CLI 漏 `__main_
 
 **顺带修掉一处文档编码损坏**：路线图里「怎么做」三个字曾被写成三个 U+FFFD 替换字符
 （commit `1e4fdac` 引入，肉眼极易漏过）。已修复，并给守门加了**全仓 U+FFFD 扫描**
-（`tools/check_docs_claims.py`，124 项）⇒ 这类损坏以后进不了库。
+（`tools/check_docs_claims.py`，当时 124 项）⇒ 这类损坏以后进不了库。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 

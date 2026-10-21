@@ -206,26 +206,70 @@ def gap(top: int = 10, _: None = Depends(require_auth)) -> dict:
         rows = []
     rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
     items = _jc_gap(rows, top_n=min(max(int(top), 1), 30))
+    # 建议 5（增量）：把「真实错位」与「盘口漂移」拆开 ——
+    # 老字段（gap / official / model）**一字未动**，只附加三个新字段。
+    try:
+        from web.services.gap import attach_triples, triples_note
+
+        items = attach_triples(items)
+        _triple_note = triples_note()
+    except Exception as exc:  # noqa: BLE001 - 增强失败不影响老字段
+        logger.warning("jc: gap 三分量附加失败（降级：老字段照常）: %s", exc)
+        _triple_note = ""
     return {
         "sport": "football", "scope": "五大联赛+欧冠", "count": len(items),
         "items": items,
         "note": "基线=官方让利价隐含概率 vs 模型概率；The Odds API 默认关闭，国际收盘不纳入。",
+        "triple_note": _triple_note,
+    }
+
+
+@router.get("/odds-move")
+def odds_move(hours: int = 24, limit: int = 50, _: None = Depends(require_auth)) -> dict:
+    """赔率异动事件（建议 5 子项 ②）。
+
+    ⚠️ **口径**：异动 = **相邻 ~10 分钟快照的跳变**，不是「开盘 vs 临场」的首末差
+    —— 后者实测 ≥5% 命中 77%（纯噪音）；相邻跳变 ≥5% 命中 0.40% ⇒ 约 0.6 次/天。
+    ⚠️ **盘口异动是「信息」，不是下注理由**（模型概率与竞彩盘口不同源，且竞彩 had 有水位）。
+    """
+    from web.services import odds_move as odds_move_service
+
+    rows = odds_move_service.recent(hours=hours, limit=limit)
+    return {
+        "sport": "football",
+        "count": len(rows),
+        "items": rows,
+        "note": ("异动口径 = 相邻 ~10 分钟快照的跳变（不是开盘 vs 临场的首末差 —— "
+                 "后者 ≥5% 命中 77%，是噪音）。"
+                 "⚠️ 盘口异动是「信息」，不是下注理由。"),
     }
 
 
 @router.get("/movement")
-def movement(day: str | None = None, _: None = Depends(require_auth)) -> dict:
+def movement(day: str | None = None, window_days: int | None = None,
+             _: None = Depends(require_auth)) -> dict:
     """两时点盘口快照链：开盘(first) vs 临场(last) 赔率与隐含概率变动。
 
     数据源=竞彩官方 10 分钟采集在 fact.jc_offer 累积的多时点 snap_ts（D9 口径，
     不含 The Odds API）。只列主面板联赛在售场次（五大联赛 + 欧冠）；day 缺省 → 最新 business_date。
+
+    建议 5 ③：**「开盘价」取第一版三项齐全的 had**（不是第一版快照）——
+    实测 405/406 场的第 1 版 `options` 是 `{}` ⇒ 原实现让 delta 全是 None。
+    建议 5 ④：``window_days``（**可选参数**）→ 看最近 N 期而不只最新一期
+    （刚开盘场次只有 1 个版本 ⇒ 老口径永远为空）；**缺省行为不变**。
     """
     from store import jc_view
 
-    rows = jc_view.jc_movement(day=day)
+    # ⚠️ 缺省路径**逐字保持老调用形态**（只传 day）⇒ 老行为一字不变、既有 mock 不用改；
+    #    只有显式给了 window_days 才走新参数。
+    if window_days is None:
+        rows = jc_view.jc_movement(day=day)
+    else:
+        rows = jc_view.jc_movement(day=day, window_days=window_days)
     rows = [r for r in rows if (r.get("league_cn") or "") in _big5_with_temp()]
     return {
-        "sport": "football", "scope": "五大联赛+欧冠", "day": day or "latest",
+        "sport": "football", "scope": "五大联赛+欧冠",
+        "day": day or ("window_%s" % window_days if window_days else "latest"),
         "count": len(rows), "items": rows,
     }
 
