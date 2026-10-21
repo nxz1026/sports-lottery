@@ -287,6 +287,12 @@ def test_format_alert_warns_moves_are_info_not_signal():
     text = format_alert(groups, 5.0)
     assert "不是下注理由" in text
     assert "主胜" in text and "2.00" in text and "2.20" in text
+    # 窗口标签必须**从常量推导**（否则窗口改了、文案还写着旧口径）
+    from market.odds_move import gap_label
+
+    assert gap_label() == "4~20 分钟"
+    assert "4~20 分钟" in text
+    assert "~10 分钟" not in text
 
 
 # ── C. 飞书推送 ───────────────────────────────────────────────────────

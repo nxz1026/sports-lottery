@@ -1,4 +1,4 @@
-﻿"""P2-C1/C2 单元测试：sources router 暴露 next_runs + last_failure。
+"""P2-C1/C2 单元测试：sources router 暴露 next_runs + last_failure。
 
 辅助函数 ``list_timer_runs`` / ``recent_job_stats`` 放在 ``web/services/source_meta.py``
 （零 web 框架依赖），便于本地 pytest 不依赖 fastapi 直接覆盖。

@@ -272,6 +272,25 @@ def main() -> int:
             _corrupted.append(f"{_p.relative_to(ROOT)}（{_text.count(chr(0xfffd))} 处）")
     check("受版本控制的文本文件无 U+FFFD 编码损坏", [], _corrupted)
 
+    # ---- 12.6 UTF-8 BOM 扫描 ----
+    # 实测踩坑（2026-10-21）：把脚本传到生产机时，管道给文件加了个 **UTF-8 BOM**
+    # ⇒ `#!/usr/bin/env bash` 变成 `﻿#!/usr/bin/env bash`
+    # ⇒ bash 报 "No such file or directory"（虽然 `bash <script>` 仍能跑，但每轮都报错）。
+    # BOM 在 .html（首行标签前多一个字符）/ .sql（psql 可能报错）里同样是坑 ⇒ 一并扫掉。
+    _bom_hits: list[str] = []
+    for _p in ROOT.rglob("*"):
+        if not _p.is_file() or _p.suffix not in _TEXT_SUFFIXES:
+            continue
+        if any(part in _SKIP_DIRS for part in _p.parts):
+            continue
+        try:
+            _head = _p.read_bytes()[:3]
+        except OSError:
+            continue
+        if _head == b"\xef\xbb\xbf":
+            _bom_hits.append(str(_p.relative_to(ROOT)))
+    check("受版本控制的文本文件无 UTF-8 BOM", [], _bom_hits)
+
     # ---- 13. R48b 追加：产品路线图存在且被 README/AGENTS 引用 ----
     # 路线图是竞彩链路的总纲（诊断 + 度量基线 + 硬约束）。它若被删而 README/AGENTS
     # 还在指路，读者会点到一个不存在的文件；反之只留一份孤儿文件也没人看。
@@ -729,6 +748,11 @@ def main() -> int:
     _m_ret = re.search(r"RETURNING\s+(\w+)", _om_src)
     check("异动落表 RETURNING 只引用真实列（实测曾引用不存在的 move_id）", True,
           _m_ret is None or _m_ret.group(1) in _s5_cols)
+
+    # 告警文案的窗口标签必须**从常量推导** —— 窗口从 540~660 改成 240~1200 秒后，
+    # 写死的「相邻 ~10 分钟跳变」就与真实口径脱节了。
+    check("告警文案的窗口标签从常量推导（不许写死旧口径）", True,
+          "def gap_label" in _om_src and "window_label=gap_label()" in _om_src)
 
     # ④ 告警文案必须带「异动是信息不是信号」（§6.6.5.1 的水位结论）
     check("告警文案带「异动是信息不是信号」的硬约束", True,

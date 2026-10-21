@@ -202,13 +202,20 @@ def group_by_match(moves: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(out.values())
 
 
-def format_alert(groups: list[dict[str, Any]], threshold_pct: float) -> str:
+def gap_label() -> str:
+    """相邻对窗口的人话标签（**从常量推导**，避免文案与口径脱节）。"""
+    return f"{MIN_GAP_SEC // 60}~{MAX_GAP_SEC // 60} 分钟"
+
+
+def format_alert(groups: list[dict[str, Any]], threshold_pct: float,
+                 window_label: str | None = None) -> str:
     """告警文案（飞书 text）。
 
     ⚠️ 必须带上「异动是信息不是信号」这句 —— 路线图 §6.6.5.1 实测：模型概率与竞彩盘口
     不同源，竞彩 had 还有 ~25~33% 的水位 ⇒ 盘口跳变大 **不构成下注理由**。
     """
-    lines = [f"【赔率异动告警】阈值 {threshold_pct:g}%（相邻 ~10 分钟跳变）"]
+    label = window_label or gap_label()
+    lines = [f"【赔率异动告警】阈值 {threshold_pct:g}%（相邻 {label} 跳变）"]
     for g in groups:
         lines.append("")
         lines.append(f"· {g.get('league_cn') or '—'} · {g.get('match_date') or '—'} · 场次 {g['match_id']}")
@@ -232,7 +239,7 @@ def push_groups(groups: list[dict[str, Any]], threshold_pct: float) -> dict[str,
         from market.notify import push_feishu
     except Exception as exc:  # noqa: BLE001 - 推送不可用不能阻断检测
         return {"pushed": False, "reason": f"notify_unavailable: {type(exc).__name__}"}
-    text = format_alert(groups, threshold_pct)
+    text = format_alert(groups, threshold_pct, window_label=gap_label())
     try:
         res = push_feishu(text)
     except Exception as exc:  # noqa: BLE001 - 推送失败不阻断落库
