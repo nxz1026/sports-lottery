@@ -610,7 +610,19 @@ def main() -> int:
     check("路线图记录了建议 2 映射待办的订正（维戈塞尔塔原判断作废）", True,
           "原判断作废" in roadmap_text and "维戈塞尔塔" in roadmap_text)
 
-    # ---- 19. 守门项数自检（防「README 说的项数」与实际漂移）----
+    # ---- 19. 建议 5（滚动重算 + 赔率异动告警）----
+    # 建议 5 的原文有个**前提是错的**（「复用既有告警 webhook」实际不存在），
+    # 且它的告警口径若按「首末差」会命中 77%（纯噪音）⇒ 这三条订正必须留在文档里，
+    # 否则下一个人会照原文实现一个「每次都告警」的噪音通道。
+    check("路线图记录了建议 5 的实测订正（§6.7）", True, "6.7" in roadmap_text)
+    check("建议 5 记录了告警口径=相邻跳变（实测命中率）而非首末差", True,
+          "相邻" in roadmap_text and "0.40%" in roadmap_text and "首末差" in roadmap_text)
+    check("建议 5 记录了「既有告警 webhook 不存在」这条订正", True,
+          "无 webhook" in roadmap_text or "既有告警 webhook" in roadmap_text)
+    check("建议 5 记录了 movement 开盘价取错的订正（第一版完整 had）", True,
+          "第一版完整" in roadmap_text or "第一版**完整" in roadmap_text)
+
+    # ---- 20. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。
     _guard_total = len(results) + 1
