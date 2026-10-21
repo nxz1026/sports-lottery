@@ -363,7 +363,8 @@ def clv_daily(request: Request,
         "summary": clv_service.summary(rows),
         "sql_note": ("CLV = ln(p_model / p_close)；p_close = 竞彩官方 had 赔率在开球前最后一版"
                      "（fact.jc_odds_history 的 max(seq_no)）的比例去水；"
-                     "p_model = 模型自己的 *_true_prob（不是市场隐含概率）"),
+                     "p_model = 模型自己的 probs.h/d/a（**不是**顶层 *_true_prob —— "
+                     "那是市场先验，拿它算 CLV 是循环论证）"),
     }
 
 

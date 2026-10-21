@@ -451,6 +451,10 @@ def main() -> int:
                 if _mod.split(".")[0] == "scripts":
                     _bad_import.append(f"from {_mod} import ...")
         check(f"{_rel} 顶层未 import scripts.*", [], _bad_import)
+    # 端点自带的口径说明不能还在讲「市场先验」——它是给使用者看的第一手定义，
+    # 写错一次就等于把循环论证的口径发出去。
+    check("/api/v1/clv 的口径说明写明 p_model 取 probs.h/d/a", True,
+          "probs.h/d/a" in _pred_router and "循环论证" in _pred_router)
     # CLI 入口不能少：少了 `if __name__ == "__main__"`，脚本被当模块执行 ⇒
     # 静默什么都不做（退出码 0、零输出、零写入），看起来像「跑了但没数据」（2026-10-21 踩过）。
     for _rel in ("scripts/market/clv_calc.py", "scripts/model/archive_backfill.py"):
