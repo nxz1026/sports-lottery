@@ -283,3 +283,10 @@ def main(argv: list[str] | None = None) -> int:
         shown = "—(样本不足)" if r["insufficient"] else f"{r['mean_clv']:+.4f}"
         print(f"{r['date']}  {r['league_key']:<12} n={r['n_matches']:<4} 均值={shown}")
     return 0
+
+
+if __name__ == "__main__":
+    # ⚠️ 这个入口不能少：少了它，`python scripts/market/clv_calc.py` 会**静默什么都不做**
+    # （模块被导入即结束 ⇒ 退出码 0、零输出、零写入），看起来像「跑了但没数据」。
+    # 2026-10-21 生产首跑就踩了这个坑（另有一个选项码 KeyError，见 git 历史 1e76fdc）。
+    raise SystemExit(main())

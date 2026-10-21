@@ -451,6 +451,11 @@ def main() -> int:
                 if _mod.split(".")[0] == "scripts":
                     _bad_import.append(f"from {_mod} import ...")
         check(f"{_rel} 顶层未 import scripts.*", [], _bad_import)
+    # CLI 入口不能少：少了 `if __name__ == "__main__"`，脚本被当模块执行 ⇒
+    # 静默什么都不做（退出码 0、零输出、零写入），看起来像「跑了但没数据」（2026-10-21 踩过）。
+    for _rel in ("scripts/market/clv_calc.py", "scripts/model/archive_backfill.py"):
+        check(f"{_rel} 有 __main__ 入口", True,
+              '__name__ == "__main__"' in read(ROOT / _rel))
     # 文档侧：字段口径与端点必须写进契约文档，否则下一个人会继续用 data_window 当比赛日
     check("DATA_CONTRACT 记录了 match_date 字段（§2.2）", True,
           "match_date" in contract_text)

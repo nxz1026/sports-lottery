@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2415 passed / 72 skipped / 0 failed**（2487 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +22**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2418 passed / 72 skipped / 0 failed**（2490 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +25**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1300,7 +1300,7 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 
 **顺带修掉一处文档编码损坏**：路线图里「怎么做」三个字曾被写成三个 U+FFFD 替换字符
 （commit `1e4fdac` 引入，肉眼极易漏过）。已修复，并给守门加了**全仓 U+FFFD 扫描**
-（`tools/check_docs_claims.py`，89 项）⇒ 这类损坏以后进不了库。
+（`tools/check_docs_claims.py`，91 项）⇒ 这类损坏以后进不了库。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 

@@ -348,6 +348,26 @@ def test_archive_no_predictions_writes_nothing():
     assert conn.calls == []
 
 
+def test_clv_calc_cli_has_entry_point():
+    """⚠️ CLI 入口不能少（2026-10-21 生产踩过）。
+
+    少了 `if __name__ == "__main__"` ⇒ `python scripts/market/clv_calc.py` 会**静默什么都不做**：
+    退出码 0、零输出、零写入 —— 看起来像「跑了但没数据」，实际上一行代码都没执行。
+    ⇒ 用 `--help` 做行为级断言：必须打印 usage。
+    """
+    import os
+    import subprocess
+
+    repo = Path(__file__).resolve().parent.parent
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(repo / "scripts")
+    proc = subprocess.run(
+        [sys.executable, str(repo / "scripts" / "market" / "clv_calc.py"), "--help"],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    assert "usage" in (proc.stdout or "").lower(), f"没有 usage 输出：{proc.stdout!r}"
+
+
 # ── D. 真库全链（表未建则 skip）────────────────────────────────────────
 
 class _FakeClvConn:
