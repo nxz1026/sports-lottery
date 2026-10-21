@@ -26,6 +26,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from core.backtest import backtest_with_live_results, reconcile_predictions
+from core.bjt import bjt_date
 from core.calibration import build_calibration, compute_calibration_offset, load_historical_past_matches
 from core.config import (
     DC_RHO,
@@ -242,6 +243,13 @@ def _generate_predictions(
             # past_matches/future 记录里，导致今日页足球 28/28 行「时间待定」，
             # 前端「今天/明天」时间筛选恒为 0 场。
             pred["kickoff_utc"] = match.get("kickoff_utc", "")
+            # 建议 3 子项 ④：每条预测带**自己的比赛日**（BJT 日历日）。
+            # 顶层 `data_window` 是「本次取数区间」（今天-30 ~ 今天+14），它被复制进每条
+            # 预测行后，逐条展示时必然被误读成「这场预测的比赛日窗口」⇒ 另给一个无歧义的字段。
+            # 口径与 web 层 `bjt_today()`（Asia/Shanghai）一致，避免两侧差一天。
+            _md = bjt_date(match.get("kickoff_utc", ""))
+            if _md:
+                pred["match_date"] = _md
             if data_window:
                 pred["data_window"] = data_window
             # Apply AI feedback adjustment (按联赛隔离，P4)
@@ -703,6 +711,32 @@ def _compute_and_predict(past, future, league_key, fifa_rankings, host_country, 
     return calibration, calibration_offset, fitted_rho, predictions
 
 
+def _archive_league_output(league_key: str, output: dict) -> None:
+    """建议 3 子项 ③：把本次预测产出归档进 ``model.pred_archive`` / ``model.pred_archive_match``。
+
+    这是 **CLV 管线的前半段**：没有归档，CLV 无从谈起 —— 路线图 §6.5.3 实测，
+    存量 ``analysis.backtest_market``（175,200 行）与竞彩场次**日期零重叠、join = 0 行**，
+    永远算不出 CLV。
+
+    **尽力而为**：归档失败（无 DB / 表未建 / 权限不足）只记日志，**绝不打断预测主流程** ——
+    预测文件已经落盘了，归档只是额外的可追溯性。
+    """
+    try:
+        from model.archive import archive_output
+        from model.sides import commit_sha
+        from store import pg
+
+        with pg.write_conn("app") as conn:
+            archive_output(conn, league_key, output, commit=commit_sha())
+    except Exception as exc:  # noqa: BLE001 - 归档是附加能力，失败不影响预测产出
+        try:
+            from core.observability import log_error
+            log_error(exc, context="predict.archive_league_output", league=league_key)
+        except Exception:  # noqa: BLE001 - 兜底本身也不许抛
+            pass
+        logger.warning(f"预测归档失败（不影响预测产出）：{exc}")
+
+
 def _finalize_league_output(silent, output, calibration_offset, now_utc, predictions, calibration, monte_carlo_result, n_simulations, accuracy_summary, _t_start):
     """收尾：打印 JSON、落盘、摘要与运行时统计（stderr）。
     """
@@ -780,6 +814,14 @@ def run_league(league_key: str, args, now_utc, dates_str, silent: bool = False) 
         logger.info(f"Backtest: {bt.get('status')} matched={bt.get('matched_matches')} acc={bt.get('accuracy')}")
 
     _finalize_league_output(silent, output, calibration_offset, now_utc, predictions, calibration, monte_carlo_result, n_simulations, accuracy_summary, _t_start)
+
+    # 建议 3 子项 ③：落库归档（CLV 管线前半段）。尽力而为，失败不打断主流程。
+    # 双层兜底：_archive_league_output 内部已 try/except；这里再包一层 ——
+    # 归档是附加能力，哪怕它自己的兜底逻辑出 bug，也不能废掉当天全部预测产出。
+    try:
+        _archive_league_output(league_key, output)
+    except Exception as exc:  # noqa: BLE001 - 兜底本身也不许打断预测
+        logger.warning(f"预测归档异常（不影响预测产出）：{exc}")
 
     return output
 

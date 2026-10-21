@@ -246,6 +246,30 @@ def main() -> int:
     check("README 记录了登录入口缺陷与修复", True,
           "没有可用登录入口" in readme and "已修复" in readme)
 
+    # ---- 12.5 编码损坏（U+FFFD）扫描 ----
+    # 实测踩坑：2026-10-21 发现路线图里「怎么做」三个字被写成了三个 U+FFFD 替换字符
+    # （commit 1e4fdac 引入）—— 中文文档里一个字变成方块，肉眼很容易漏过，
+    # 但读者看到的就是乱码。⇒ 扫全部受版本控制的文本文件，有 U+FFFD 即 FAIL。
+    # （3 个 U+FFFD 替换字符，commit 1e4fdac 引入）—— 中文文档里一个字变成方块，
+    # 肉眼看「像字」很容易漏过，但读者看到的就是乱码。
+    # ⇒ 扫全部受版本控制的文本文件，有 U+FFFD 即 FAIL。
+    _TEXT_SUFFIXES = (".md", ".py", ".sql", ".html", ".json", ".txt")
+    _SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv",
+                  "stress_runs", "dist", "build", ".pytest_cache"}
+    _corrupted: list[str] = []
+    for _p in ROOT.rglob("*"):
+        if not _p.is_file() or _p.suffix not in _TEXT_SUFFIXES:
+            continue
+        if any(part in _SKIP_DIRS for part in _p.parts):
+            continue
+        try:
+            _text = _p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if "\ufffd" in _text:
+            _corrupted.append(f"{_p.relative_to(ROOT)}（{_text.count(chr(0xfffd))} 处）")
+    check("受版本控制的文本文件无 U+FFFD 编码损坏", [], _corrupted)
+
     # ---- 13. R48b 追加：产品路线图存在且被 README/AGENTS 引用 ----
     # 路线图是竞彩链路的总纲（诊断 + 度量基线 + 硬约束）。它若被删而 README/AGENTS
     # 还在指路，读者会点到一个不存在的文件；反之只留一份孤儿文件也没人看。
@@ -330,6 +354,127 @@ def main() -> int:
     # 物化入口的缺口必须留在文档里（raw→fact 没有生产 CLI ⇒ 下次回填仍要手工跑一次）
     check("路线图记录了物化入口的缺口（生产无 CLI）", True,
           "生产没有 CLI 入口" in roadmap_text)
+
+    # ---- 16. 建议 3（分层命中率 + CLV 管线）的结构守卫 ----
+    # 建议 3 新增了一条「每天自动长一行」的管线：预测归档 → 收盘快照 → CLV 落库 → 看板。
+    # 这条链路的每个环节都是**静默失效**的：删一个文件、改一个函数名、让某次 join 匹配不上，
+    # 都不会报错，只会在某天看板空了才被发现。所以对**结构事实**设守卫。
+    s3_sql = ROOT / "docs" / "db" / "suggestion3_schema.sql"
+    check("建议 3 的建表 SQL 存在（docs/db/）", True, s3_sql.is_file())
+    if s3_sql.is_file():
+        _sql3 = s3_sql.read_text(encoding="utf-8")
+        for _tbl in ("model.pred_archive", "model.pred_archive_match",
+                     "analysis.clv_match", "analysis.clv_daily"):
+            check(f"建议 3 建表 SQL 含 {_tbl}", True, _tbl in _sql3)
+    # 管线的每一段代码都必须在仓库里（缺一段 = 看板永远空白）
+    for _rel in ("scripts/core/bjt.py", "scripts/core/team_alias.py",
+                 "scripts/model/archive.py", "scripts/model/archive_backfill.py",
+                 "scripts/market/clv_calc.py", "web/services/clv.py"):
+        check(f"建议 3 新增文件存在（{_rel}）", True, (ROOT / _rel).is_file())
+    # 两个**增量**端点
+    _pred_router = read(ROOT / "web" / "routers" / "predictions.py")
+    check("web 新增 /accuracy/stratified 端点", True,
+          '@router.get("/accuracy/stratified")' in _pred_router)
+    check("web 新增 /clv 端点", True, '@router.get("/clv")' in _pred_router)
+    # 老端点的契约不得被悄悄改掉（建议 3 对外承诺的是「增量」）
+    _acc_src = read(ROOT / "web" / "services" / "accuracy.py")
+    check("老接口 league_accuracy_web 仍在（未被删/改名）", True,
+          "def league_accuracy_web(" in _acc_src)
+    check("新接口 league_accuracy_stratified 在", True,
+          "def league_accuracy_stratified(" in _acc_src)
+    # 核心不变量：p_model 只能是**模型自己的输出**，绝不能是市场概率。
+    #   顶层 `home_true_prob`/`draw_true_prob`/`away_true_prob` 是 predictor.py 从 `match`
+    #   **透传的市场先验**（ESPN 赔率去水），不是模型输出 ⇒ 拿它当 p_model 就是循环论证。
+    #   `*_implied` 是市场隐含概率，更不能要。
+    # ⇒ 查「代码（不含说明文字）里有没有出现这些键」，而不是查有没有 `_true_prob` 后缀。
+    _archive_src = read(ROOT / "scripts" / "model" / "archive.py")
+    try:
+        _atree = ast.parse(_archive_src)
+    except SyntaxError:
+        _atree = ast.Module(body=[], type_ignores=[])
+    _doc_ids: set[int] = set()
+    for _n in ast.walk(_atree):
+        if isinstance(_n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            _body = getattr(_n, "body", [])
+            if _body and isinstance(_body[0], ast.Expr) \
+                    and isinstance(_body[0].value, ast.Constant) \
+                    and isinstance(_body[0].value.value, str):
+                _doc_ids.add(id(_body[0].value))
+    _prob_keys: list[str] = []
+    _market_keys: list[str] = []
+    for _n in ast.walk(_atree):
+        if isinstance(_n, ast.Call) and isinstance(_n.func, ast.Name) and _n.func.id == "_prob":
+            for _a in _n.args:
+                if isinstance(_a, ast.Constant) and isinstance(_a.value, str):
+                    _prob_keys.append(_a.value)
+        if isinstance(_n, ast.Constant) and isinstance(_n.value, str) \
+                and id(_n) not in _doc_ids:
+            if "true_prob" in _n.value or "implied" in _n.value:
+                _market_keys.append(_n.value)
+    check("归档取用的概率键只有 h/d/a", [], [k for k in _prob_keys if k not in ("h", "d", "a")])
+    check("归档代码不碰市场先验/隐含概率（无 true_prob / implied）", [], _market_keys)
+    # 归档失败不得打断主预测流程（否则一次 DB 抖动就废掉当天全部预测）
+    _pred_src = read(ROOT / "scripts" / "predict.py")
+    try:
+        _tree3 = ast.parse(_pred_src)
+    except SyntaxError:
+        _tree3 = ast.Module(body=[], type_ignores=[])
+    _arch_fn = next((n for n in ast.walk(_tree3)
+                      if isinstance(n, ast.FunctionDef)
+                      and n.name == "_archive_league_output"), None)
+    check("predict.py 有 _archive_league_output", True, _arch_fn is not None)
+    if _arch_fn is not None:
+        check("归档函数内部有 except 兜底", True,
+              any(isinstance(n, ast.ExceptHandler) for n in ast.walk(_arch_fn)))
+    _call_in_try = False
+    for _node in ast.walk(_tree3):
+        if isinstance(_node, ast.Try):
+            for _sub in ast.walk(_node):
+                if isinstance(_sub, ast.Call) and isinstance(_sub.func, ast.Name) \
+                        and _sub.func.id == "_archive_league_output":
+                    _call_in_try = True
+    check("归档调用点在 try 内（失败只 warning，不打断预测）", True, _call_in_try)
+    # web 层不得顶层 import scripts.*（既有约定：模块级 sys.path 自举 + 函数内延迟 import）
+    for _rel in ("web/services/clv.py", "web/routers/predictions.py"):
+        try:
+            _t3 = ast.parse(read(ROOT / _rel))
+        except SyntaxError:
+            _t3 = ast.Module(body=[], type_ignores=[])
+        _bad_import = []
+        for _node in _t3.body:              # 只看模块顶层，不看函数体
+            if isinstance(_node, ast.Import):
+                for _a in _node.names:
+                    if _a.name.split(".")[0] == "scripts":
+                        _bad_import.append(f"import {_a.name}")
+            elif isinstance(_node, ast.ImportFrom):
+                _mod = (_node.module or "")
+                if _mod.split(".")[0] == "scripts":
+                    _bad_import.append(f"from {_mod} import ...")
+        check(f"{_rel} 顶层未 import scripts.*", [], _bad_import)
+    # 文档侧：字段口径与端点必须写进契约文档，否则下一个人会继续用 data_window 当比赛日
+    check("DATA_CONTRACT 记录了 match_date 字段（§2.2）", True,
+          "match_date" in contract_text)
+    check("DATA_CONTRACT 写明 data_window 是取数区间", True,
+          "取数区间" in contract_text)
+    _plan = read(ROOT / "docs" / "web" / "PLAN.md")
+    check("PLAN 端点表登记了 /api/v1/accuracy/stratified", True,
+          "/api/v1/accuracy/stratified" in _plan)
+    check("PLAN 端点表登记了 /api/v1/clv", True, "/api/v1/clv" in _plan)
+    # 路线图必须写明建议 3 的落地状态，以及「存量永远算不出 CLV」这条限制
+    check("路线图记录了建议 3 的落地状态", True,
+          "建议 3 代码落地" in roadmap_text)
+    check("路线图写明存量 backtest_market 永远算不出 CLV", True,
+          "永远算不出 CLV" in roadmap_text)
+    check("路线图写明 n 不足不显示均值的口径", True,
+          "n 不足" in roadmap_text or "insufficient" in roadmap_text)
+
+    # ---- 17. 守门项数自检（防「README 说的项数」与实际漂移）----
+    # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
+    # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。
+    _guard_total = len(results) + 1
+    _m_guard = re.search(r"check_docs_claims\.py`[，,]\s*(\d+)\s*项", readme)
+    check("README 声明的守门项数 == 实测", _guard_total,
+          int(_m_guard.group(1)) if _m_guard else "MISSING")
 
     # ---- 输出 ----
     width = 78

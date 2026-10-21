@@ -320,6 +320,53 @@ def accuracy_breakdown(request: Request,
     return {"leagues": out}
 
 
+@router.get("/accuracy/stratified")
+def accuracy_stratified(request: Request,
+                        _: None = Depends(require_auth)) -> dict:
+    """分层命中率 + 样本量 + 置信区间（建议 3 子项 ①）。
+
+    为什么单独开一个端点而不是改 ``/accuracy``：**老字段是前端契约**，
+    改它会让现有页面与第三方消费方一起漂移 ⇒ 新端点为**增量**视图。
+
+    每层（按 stars / 按 confidence 分档）都给 ``n`` / ``hits`` / ``rate`` / ``ci95``；
+    ``n < 5`` 的层带 ``insufficient: true``。窗口内无已结算样本 → 该联赛不出现在结果里
+    （**不编数**）。
+    """
+    from web.services.accuracy import league_accuracy_stratified
+
+    out: dict = {}
+    for league in _league_names():
+        try:
+            strat = league_accuracy_stratified(league, days=30)
+        except Exception as exc:  # noqa: BLE001 - 单联赛失败不影响其它联赛
+            logger.warning("accuracy_stratified(%s) failed: %s", league, exc)
+            continue
+        if strat:
+            out[league] = strat
+    return {"leagues": out, "method": "wilson-95", "min_n": 5}
+
+
+@router.get("/clv")
+def clv_daily(request: Request,
+              _: None = Depends(require_auth)) -> dict:
+    """CLV 日汇总（建议 3 子项 ②，主指标）。
+
+    ``mean_clv`` 是 ``ln(p_model / p_close)`` 的均值：>0 = 模型比收盘市场更看好该选项。
+    **口径纪律**：``n_matches`` 不足时行上带 ``insufficient: true``，
+    页面据此**不显示均值**（宁可空白不误导）—— 与命中率分层同一套纪律。
+    """
+    from web.services import clv as clv_service
+
+    rows = clv_service.daily_rows(days=60)
+    return {
+        "rows": rows,
+        "summary": clv_service.summary(rows),
+        "sql_note": ("CLV = ln(p_model / p_close)；p_close = 竞彩官方 had 赔率在开球前最后一版"
+                     "（fact.jc_odds_history 的 max(seq_no)）的比例去水；"
+                     "p_model = 模型自己的 *_true_prob（不是市场隐含概率）"),
+    }
+
+
 @router.get("/history")
 def history(request: Request,
             _: None = Depends(require_auth)) -> dict:

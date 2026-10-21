@@ -68,7 +68,7 @@
 | key | 类型/可为空 | 说明 | 证据 |
 |---|---|---|---|
 | `generated_at` | str ISO8601 带时区 | BJT 时间戳（`+08:00`，误解见 §3） | predict.py:280,329；样本:2 |
-| `data_window` | str `YYYYMMDD-YYYYMMDD` | 查询窗口 | predict.py:280,329 |
+| `data_window` | str `YYYYMMDD-YYYYMMDD` | **取数区间**（今天-30 ~ 今天+14），不是比赛日窗口；逐场比赛日见 §2.2 的 `match_date` | predict.py:280,329 |
 | `status` | str | `ok` / `no_matches` / `no_future_matches` | predict.py:270,281,330 |
 | `league` | str | `LEAGUE_CONFIG` key（epl/csl…） | predict.py:281,330 |
 | `tournament_type` | str | 联赛配置 `tournament_type`，默认 `league` | predict.py:245,330 |
@@ -112,6 +112,13 @@
 | `confidence_note` | str 可空 | 置信说明，通常 null | 样本:68 |
 | `odds_data_available` | bool | 是否获得赔率数据 | 样本:69 |
 | `reasoning_factors` | dict | 14 个数值字段：`home/draw/away_ml_true_prob`、`home/away_form_score`、`home/away_record_score`、`spread_movement`、`home/away_onside_score`、`home/draw/away_prob_weighted`、`elo_home_expected`、`raw_lambda_home/away` | 样本:70-87 |
+| `match_date` | str `YYYY-MM-DD` 可缺失 | **该场比赛的 BJT 日历日**（`Asia/Shanghai`），由 `kickoff_utc` 换算；与 web 层 `bjt_today()` 同口径。**这是逐场唯一的无歧义比赛日字段**（建议 3 子项 ④，2026-10-20 新增） | predict.py:250-252；scripts/core/bjt.py `bjt_date` |
+| `data_window`（逐行） | str `YYYYMMDD-YYYYMMDD` 可缺失 | **逐行重复的取数区间**，与顶层同值，**不是本场的比赛日窗口**。历史产物中该字段被逐条展示会误读 ⇒ 展示层一律改用 `match_date`；顶层 `data_window` 保留为「取数区间」语义 | predict.py:253-254；predict.py:280,329 |
+
+**为什么要有 `match_date`（建议 3 子项 ④ 的实测依据）**：顶层 `data_window` = `dates_str` = 今天-30 ~ 今天+14 的**取数区间**，
+会被原样复制进每一条预测行。逐条展示时它必然被读成「这场预测的比赛日窗口」，而它与真实比赛日无任何关系
+（区间跨度 45 天、且随运行日漂移）。新增 `match_date` 后，「哪一天的比赛」只有一个答案；`data_window` 的历史语义不变、
+仅在文档与展示层澄清，避免破坏既有消费方。
 
 **版本漂移提示**：predictor.py:342-343 的返回 dict 还含 `ml_model_used`（bool）与 `ml_proba`（list 可空）两字段，样本 13 无此二字段 → 样本由旧版生成，或该次运行 ML 未启用且字段被裁剪。web 层按此 schema 消费时应把这两个字段视为「可能缺失」（详见 §9 疑点）。
 

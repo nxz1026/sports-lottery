@@ -17,6 +17,8 @@ PR review 守门；详见 README §5 备注）。
 """
 from __future__ import annotations
 
+import math
+import re
 import time
 from typing import Any
 
@@ -118,4 +120,139 @@ def league_accuracy_web(league_key: str, days: int = 7) -> dict[str, Any] | None
         "direction_accuracy": round(correct_dir / total, 3),
         "score_accuracy": round(correct_score / total, 3),
         "over_under_accuracy": round(correct_ou / total, 3),
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# 建议 3 子项 ①：分层命中率 + 样本量 + 置信区间
+#
+# 为什么不能只给一个单值（路线图 §1.2）：
+#   n=18 时 0.389 与 0.667 的 95% 区间宽度约 ±0.23 ⇒ 五个联赛的差异统计上不可区分。
+#   把它当卖点展示是**误导而不是价值**。
+# ⇒ 任何展示出来的比率都必须带上 n 与区间；n 太小还要明说「样本不足」。
+#
+# 区间用 **Wilson score interval**（不是正态近似）：
+#   n 小或 p̂ 接近 0/1 时正态近似会给出越界区间；Wilson 在 p̂=0、n=1 时仍给出
+#   一个合法的 [0, 上界]，且恒落在 [0,1] 内。
+# ─────────────────────────────────────────────────────────────
+
+Z_95 = 1.959963984540054  # 双侧 95% 正态分位数
+
+
+def wilson_interval(hits: int, n: int, z: float = Z_95) -> tuple[float, float]:
+    """命中数 → Wilson 95% 置信区间 ``(lo, hi)``。
+
+    - ``n == 0`` → ``(0.0, 1.0)``（无样本 ⇒ 不给假区间，直接说「不知道」）；
+    - 结果恒在 ``[0, 1]`` 内（Wilson 的定义保证，不会像正态近似那样越界）。
+    """
+    if n <= 0:
+        return 0.0, 1.0
+    p = hits / n
+    denom = 1.0 + z * z / n
+    center = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return max(0.0, center - half), min(1.0, center + half)
+
+
+_STAR_RE = re.compile(r"(\d+)\s*-?\s*star", re.IGNORECASE)
+
+
+def _stars_of(pred: dict) -> int:
+    """星级 → 整数（'2-star' → 2；缺失/无法解析 → 0）。"""
+    m = _STAR_RE.search(str(pred.get("stars") or ""))
+    return int(m.group(1)) if m else 0
+
+
+def _conf_band(pred: dict) -> str:
+    """置信度分档：<0.4 / 0.4~0.6 / >0.6；缺失 → '未知'。"""
+    v = pred.get("confidence_score")
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return "未知"
+    if v < 0.4:
+        return "<0.4"
+    if v <= 0.6:
+        return "0.4-0.6"
+    return ">0.6"
+
+
+def _direction_hit(pred: dict, h_act: int, a_act: int) -> bool:
+    """方向是否命中（与 ``league_accuracy_web`` 的判定逐字一致）。"""
+    d = pred.get("direction", "")
+    home_team = pred.get("home", "")
+    away_team = pred.get("away", "")
+    is_draw = "平" in d or "平局" in d
+    is_home_win = is_away_win = False
+    if not is_draw:
+        if d.startswith(home_team):
+            is_home_win = True
+        elif d.startswith(away_team):
+            is_away_win = True
+    return bool((is_home_win and h_act > a_act) or (is_draw and h_act == a_act)
+                or (is_away_win and h_act < a_act))
+
+
+def _resolve_samples(league_key: str, days: int) -> list[tuple[dict, tuple[int, int]]]:
+    """已结算样本：``[(预测行, (主进球, 客进球))]``（对不上的丢弃）。"""
+    cutoff = time.time() - days * 86400
+    actuals, preds = _collect_league_data(league_key, cutoff)
+    out: list[tuple[dict, tuple[int, int]]] = []
+    for p in preds:
+        r = actuals.get(_stable_match_key(p))
+        if r:
+            out.append((p, r))
+    return out
+
+
+def league_accuracy_stratified(league_key: str, days: int = 30) -> dict[str, Any] | None:
+    """分层命中率 + 样本量 + 置信区间（建议 3 子项 ①）。
+
+    返回结构::
+
+        {
+          "window_days": 30,
+          "reconciled": 18,                 # 已结算样本总数
+          "direction_accuracy": 0.556,
+          "direction_ci95": [0.33, 0.76],  # 总体的 Wilson 区间
+          "by_stars":   {"1": {...}, "2": {...}, ...},
+          "by_confidence": {"<0.4": {...}, "0.4-0.6": {...}, ">0.6": {...}, "未知": {...}},
+        }
+
+    每层给 ``n`` / ``hits`` / ``rate`` / ``ci95``；``n < 5`` 时额外给
+    ``insufficient: true``（**不隐藏数字，但明说样本不足**）。
+    窗口内没有已结算样本时返回 ``None``（页面显示「数据积累中」，不编数）。
+    """
+    samples = _resolve_samples(league_key, days)
+    if not samples:
+        return None
+
+    def _layer(items: list[tuple[dict, tuple[int, int]]]) -> dict[str, Any]:
+        n = len(items)
+        hits = sum(1 for p, (h, a) in items if _direction_hit(p, h, a))
+        lo, hi = wilson_interval(hits, n)
+        out: dict[str, Any] = {
+            "n": n,
+            "hits": hits,
+            "rate": round(hits / n, 3) if n else None,
+            "ci95": [round(lo, 3), round(hi, 3)],
+        }
+        if n < 5:
+            out["insufficient"] = True
+        return out
+
+    total_hits = sum(1 for p, (h, a) in samples if _direction_hit(p, h, a))
+    lo, hi = wilson_interval(total_hits, len(samples))
+
+    by_stars: dict[str, list] = {}
+    by_conf: dict[str, list] = {}
+    for p, r in samples:
+        by_stars.setdefault(str(_stars_of(p)), []).append((p, r))
+        by_conf.setdefault(_conf_band(p), []).append((p, r))
+
+    return {
+        "window_days": days,
+        "reconciled": len(samples),
+        "direction_accuracy": round(total_hits / len(samples), 3),
+        "direction_ci95": [round(lo, 3), round(hi, 3)],
+        "by_stars": {k: _layer(v) for k, v in sorted(by_stars.items(), key=lambda kv: int(kv[0]))},
+        "by_confidence": {k: _layer(v) for k, v in sorted(by_conf.items())},
     }

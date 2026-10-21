@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2394 passed / 71 skipped / 0 failed**（2465 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2415 passed / 72 skipped / 0 failed**（2487 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +22**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1270,6 +1270,37 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 2. **`ref.team.name_cn` 不参与任何 join** —— 竞彩↔`ref.team` 的 join 键是 `aliases->>'sporttery'`
    （竞彩官方 team id），面板展示名来自 `fact.jc_match.home_cn/away_cn`，`web/` 零处读 `ref.team`
    ⇒ **回改 `name_cn` 不提升映射率、也不改用户可见内容**。想解锁映射只能**新建行 + 填 `sporttery` 键**。
+
+### v3.0 (2026-10-21) 建议 3 落地：命中率改「分层 + 样本量 + 区间」，主指标换 CLV
+
+**路线图 `docs/project/产品路线图-竞彩闭环-20261020.md` §建议 3 的代码侧已落地**；
+订正与落地清单见该文档 **§6.5**（含 1 条被实测推翻、1 条被改写）。
+
+**结果**：命中率不再是单一直播数字（每个比率都带 **n** 与 **Wilson 95% 区间**，并按星级/置信度分层）；
+主指标换成 **CLV**（模型概率 vs 竞彩收盘去水概率），看板有日更记录。
+
+| 改动 | 落点 |
+|---|---|
+| 分层命中率 + 样本量 + 区间 | `web/services/accuracy.py`（`wilson_interval` / `league_accuracy_stratified`）；端点 `GET /api/v1/accuracy/stratified`（**增量**，`/accuracy` 老字段一字未动） |
+| 每次预测落库归档 | `scripts/model/archive.py`（写 `model.pred_archive` / `model.pred_archive_match`）+ `scripts/predict.py::_archive_league_output`；历史预测文件回填 `scripts/model/archive_backfill.py` |
+| CLV 计算 | `scripts/market/clv_calc.py`（收盘取 `fact.jc_odds_history` 的 `max(seq_no)` = 开球前最后一版；CLV 复用现成的 `market/clv.py::clv`）；端点 `GET /api/v1/clv`。**`p_model` 只取预测行的 `probs.h/d/a`（模型最终输出）**，不取顶层 `*_true_prob`（那是市场先验，用它算 CLV 是循环论证） |
+| `data_window` 口径 | 每条预测行新增 **`match_date`**（BJT 比赛日）；顶层 `data_window` 仍是「取数区间」，语义写进契约 |
+| 队名归一（CLV 关联用） | `scripts/core/team_alias.py`（别名表**唯一真源**，与 `web/services/team_match.py` 同语义） |
+| BJT 日口径 | `scripts/core/bjt.py`（与 web 层 `bjt_today()` 同一时区，避免两侧差一天） |
+| 新增 DDL | `docs/db/suggestion3_schema.sql`（4 张表，幂等：`model.pred_archive` / `model.pred_archive_match` / `analysis.clv_match` / `analysis.clv_daily`） |
+| 前端 | `static/dashboard.html`：命中率加「分层命中率（30 天 · Wilson 95% 区间）」块；复盘视图新增「CLV · 收盘价值」卡片 |
+
+**一条必须写明的限制**（实测，不是推测）：**存量那 175,200 行 `analysis.backtest_market` 永远算不出 CLV** ——
+它的 `fixture_id` 指向 `fact.fixture`（API-Football 的 2022–2024 赛季回测），
+而竞彩盘口是 2026-09-15 之后的**当日**场次，**两者日期零重叠 ⇒ join 实测 0 行**。
+⇒ CLV 走的是**新管线**（先归档 → 再按收盘快照算），样本从管线启用当天起累积。
+
+**样本不足不显示均值**：CLV 日汇总与命中率分层都带 `n`；`n < 5` 时标 `insufficient`，
+前端**不显示均值**（宁可空白不误导）—— 与 §1.2「n=18 的命中率不可信」同一条纪律。
+
+**顺带修掉一处文档编码损坏**：路线图里「怎么做」三个字曾被写成三个 U+FFFD 替换字符
+（commit `1e4fdac` 引入，肉眼极易漏过）。已修复，并给守门加了**全仓 U+FFFD 扫描**
+（`tools/check_docs_claims.py`，89 项）⇒ 这类损坏以后进不了库。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 
