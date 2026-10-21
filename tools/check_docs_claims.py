@@ -605,6 +605,11 @@ def main() -> int:
           and "今日推荐单生成失败" in _predict_src
           and "logger.error" in _predict_src)
 
+    # 建议 2 映射待办的**订正**必须留在文档里 —— 否则下一个人会去给「维戈塞尔塔」
+    # 新建一行（而它早就通过 #2339 映射好了 ⇒ 新建 = 多余行 + 撞 partial unique 风险）
+    check("路线图记录了建议 2 映射待办的订正（维戈塞尔塔原判断作废）", True,
+          "原判断作废" in roadmap_text and "维戈塞尔塔" in roadmap_text)
+
     # ---- 19. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。
