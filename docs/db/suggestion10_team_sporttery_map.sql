@@ -19,7 +19,11 @@
 --     ref.team.jc_id 生成列**不改** ⇒ 零 DDL 风险；
 --   · 纯增量：只新建表 + 灌存量，**不改 ref.team 任何一行**（name_cn / aliases 全部零改动）。
 --
--- 跑法（先在事务里预演，确认无误再 COMMIT）：
+-- 跑法（**全部写入在同一个事务里**，先预演再真执行）：
+--   # ① 预演：把 COMMIT 换成 ROLLBACK ⇒ 建表/迁移/回填全部撤销，一个字节都不留
+--   sed 's/^COMMIT;/ROLLBACK;/' suggestion10_team_sporttery_map.sql \
+--     | sudo -u postgres psql -d league -v ON_ERROR_STOP=1 -f -
+--   # ② 真执行
 --   sudo -u postgres psql -d league -v ON_ERROR_STOP=1 -f /tmp/suggestion10_team_sporttery_map.sql
 -- ============================================================================
 
@@ -61,8 +65,6 @@ GRANT USAGE ON SCHEMA ref TO league_ing, league_app, league_ro;
 GRANT SELECT, INSERT, UPDATE ON ref.team_sporttery TO league_ing;
 GRANT SELECT ON ref.team_sporttery TO league_app, league_ro;
 
-COMMIT;
-
 -- ---------------------------------------------------------------- 5) 回填 fact.jc_match 的队伍映射（幂等、只补 NULL）
 --    ⚠️ 只补 NULL：**已有非空 team_id 一律不动**。若某 side 已有映射而与本表冲突，
 --    说明是数据打架 —— 留给人工判，不许脚本悄悄改写。
@@ -77,6 +79,8 @@ SET away_team_id = ts.team_id
 FROM ref.team_sporttery ts
 WHERE ts.sport = 'football' AND ts.jc_id = m.away_sporttery_id
   AND m.away_team_id IS NULL;
+
+COMMIT;
 
 -- ---------------------------------------------------------------- 6) 验证（跑完逐条核对）
 -- SELECT count(*) AS map_rows FROM ref.team_sporttery;                      -- 预期 153（152 存量 + 279）
