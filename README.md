@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2544 passed / 72 skipped / 0 failed**（2616 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2562 passed / 75 skipped / 0 failed**（2637 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1270,6 +1270,59 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 2. **`ref.team.name_cn` 不参与任何 join** —— 竞彩↔`ref.team` 的 join 键是 `aliases->>'sporttery'`
    （竞彩官方 team id），面板展示名来自 `fact.jc_match.home_cn/away_cn`，`web/` 零处读 `ref.team`
    ⇒ **回改 `name_cn` 不提升映射率、也不改用户可见内容**。想解锁映射只能**新建行 + 填 `sporttery` 键**。
+
+### v4.5 (2026-10-21) 两条遗留收尾：竞彩官方 id 多对一映射 + raw→fact 物化 CLI
+
+路线图 **§6.10**。两项都**先做生产实测再决定怎么做**——量完之后 A 的做法和原计划**不一样**。
+
+**A. 竞彩官方 id「一队多 id」—— 没有照原计划改成数组，改成了映射表**
+
+原计划是把 `ref.team.aliases->>'sporttery'` 从**单值**升级为**数组**。实测后**没这么做**：
+
+| 实测（2026-10-21 生产库） | 数 |
+|---|---|
+| `fact.jc_match` 场次 / 出现过的 distinct 官方 id | 457 / **397** |
+| `ref.team` 行数 / 带 `sporttery` 键 / **数组形态** | 267 / **152** / **0** |
+| 397 个 id 里命中 / 未命中 | **152** / **245** |
+| 未命中的 245 个 id，其中文名能精确命中 `ref.team` 任何行的 | **0** |
+| 全库「一支队两个官方 id」 | **1 例**（贝西克塔斯 279 ↔ 毕尔巴鄂竞技 506，#2351） |
+
+⇒ **映射缺口不是 schema 造成的，是「那一行根本不存在」**（275 个竞彩中文名在 `ref.team` 里压根没有行）。
+而数组化的 blast radius 很大：`->>` 作用在 jsonb **数组**上返回**数组的 JSON 文本**（`["506","279"]`）而不是 NULL
+⇒ 旧 SQL `(aliases->>'sporttery') = ANY(%s)` **一条都匹配不上** ⇒ **152 支队的映射静默全断**
+（而这个映射率本身是被观测的指标）；且 `jc_id` 是 STORED 生成列、`team_jc_key` partial unique
+只能守**主 id** ⇒ **次 id 失去防撞，比现状更弱**。
+
+**改为（纯增量、零破坏）**：新增 **`ref.team_sporttery`** 映射表
+
+- `PRIMARY KEY (sport, jc_id)` ⇒ **一个官方 id 只能属一支队**，对**所有** id 生效（比数组方案更强）；
+- `aliases->>'sporttery'` **语义一字不动**（仍是主 id）⇒ 现有读者零影响；`jc_id` 生成列不动 ⇒ 零 DDL 风险；
+- `resolve_jc_teams` 改为「**映射表为准 + `aliases` 兜底**」，且 aliases 侧**同时认字符串与数组两种形态**
+  ⇒ 将来真迁数组，**读者已就绪**；
+- 新增 `set_team_sporttery()`（幂等、**绝不覆盖既有映射**）。
+
+**实测收益**：救回 **3 个 side**（sid 279 的 2 主 + 1 客）⇒ `fact.jc_match` 双队已映射 **226 → 227**。
+
+**B. raw→fact 物化入口的生产 CLI**
+
+物化函数**早就在**（`store/upsert_fixtures.run` / `store/upsert_results.run`），但**全仓只有 `tests/` 在调**
+⇒ 每轮回填后只能手工物化。新增 **`scripts/store/materialize.py`**：
+
+- **默认 `--dry-run`**：真跑一遍**同一套逻辑**、最后 `ROLLBACK` ⇒ 预演数字与真跑**逐字相同**，一个字节都不落库；
+- **一个事务包住两个 run** ⇒ 不留「fixture 写了、赛果没写」的半截状态
+  （`fact`/`ref` 没有 DELETE，半截比不跑更糟）；
+- 输出 **before/after 行数** ⇒ 幂等与否一眼可查；
+- 退出码 0 / 1 / 2（成功 / 失败 / 参数或环境错）。
+
+```bash
+python scripts/store/materialize.py                 # 预演（默认，不写库）
+python scripts/store/materialize.py --execute       # 真物化
+```
+
+**新增 21 项守门断言**（`tools/check_docs_claims.py`，227 项；建议 6 再加 21 项、顺手修再加 7 项、
+复算脚本再加 16 项、两条遗留再加 21 项）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
+物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字。
 
 ### v4.4 (2026-10-21) 建议 6 收尾：零假设检验脚本入仓 ⇒ §6.8.4 的数字「任何人可复算」
 

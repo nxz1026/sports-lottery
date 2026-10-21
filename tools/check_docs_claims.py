@@ -1033,6 +1033,71 @@ def main() -> int:
     check("README 不再残留旧口径 p 值/门槛", True,
           not any(t in readme for t in ("0.348", "0.411", "0.278", "99.667%")))
 
+    # ---- 19.5 两条遗留收尾（§6.10：竞彩官方 id 多对一映射 + raw→fact 物化 CLI）----
+    _s10_ddl = ROOT / "docs" / "db" / "suggestion10_team_sporttery_map.sql"
+    _s10_mat = ROOT / "scripts" / "store" / "materialize.py"
+    check("遗留 A 的 DDL 已入仓（suggestion10_team_sporttery_map.sql）", True,
+          _s10_ddl.is_file())
+    check("遗留 B 的物化 CLI 已入仓（scripts/store/materialize.py）", True,
+          _s10_mat.is_file())
+    check("遗留 A/B 的测试已入仓（tests/test_suggestion10_deferred.py）", True,
+          (ROOT / "tests" / "test_suggestion10_deferred.py").is_file())
+    _s10_sql = read(_s10_ddl) if _s10_ddl.is_file() else ""
+    _s10_mat_src = read(_s10_mat) if _s10_mat.is_file() else ""
+    _s10_jc = read(ROOT / "scripts" / "ingest" / "jc_write.py")
+
+    # ① 映射表是「多 id 的真源」：主键必须防撞，且**不许**改 ref.team 的行
+    check("映射表主键是 (sport, jc_id)（一个官方 id 只属一支队）", True,
+          "PRIMARY KEY (sport, jc_id)" in _s10_sql)
+    check("DDL 不许改 ref.team 的任何一行（纯增量）", True,
+          "UPDATE ref.team" not in _s10_sql and "ALTER TABLE ref.team" not in _s10_sql)
+    check("fact.jc_match 回填只补 NULL（不改已有映射）", True,
+          "m.home_team_id IS NULL" in _s10_sql and "m.away_team_id IS NULL" in _s10_sql)
+    check("映射表授权与 ref.team 同口径（league_ing 无 DELETE）", True,
+          "GRANT SELECT, INSERT, UPDATE ON ref.team_sporttery TO league_ing" in _s10_sql
+          and "GRANT DELETE" not in _s10_sql)
+
+    # ② resolve_jc_teams 必须「映射表为准 + aliases 兜底」，且 aliases 侧**兼容数组形态**
+    #    （将来真迁数组时读者已就绪，不必再改代码）
+    check("resolve_jc_teams 走映射表 ref.team_sporttery", True,
+          "FROM ref.team_sporttery" in _s10_jc)
+    check("resolve_jc_teams 保留 aliases 兜底（存量不丢）", True,
+          "jsonb_array_elements_text" in _s10_jc and "LATERAL" in _s10_jc)
+    check("aliases 侧兼容字符串/数组两种形态", True,
+          "jsonb_typeof" in _s10_jc and "jsonb_build_array" in _s10_jc)
+    check("映射表优先于 aliases（真源只有一个）", True,
+          "by_jc.setdefault" in _s10_jc)
+    check("set_team_sporttery 不覆盖既有映射（不 DO UPDATE）", True,
+          "def set_team_sporttery(" in _s10_jc
+          and "DO NOTHING" in _s10_jc
+          and "DO UPDATE" not in _s10_jc.split("TEAM_MAP_INSERT_SQL = ")[1].split('"')[0])
+    check("映射表缺表时必须出声（不许静默降级）", True,
+          "to_regclass" in _s10_jc and "logger.warning" in _s10_jc)
+
+    # ③ 物化 CLI：默认只读（回滚不提交）、有 __main__ 入口、参数互斥返回码 2
+    check("物化 CLI 默认预演（dry-run 回滚、不提交）", True,
+          'ap.add_argument("--execute"' in _s10_mat_src
+          and "conn.rollback()" in _s10_mat_src and "conn.commit()" in _s10_mat_src)
+    check("物化 CLI 有 __main__ 入口（少了会静默什么都不做）", True,
+          'if __name__ == "__main__":' in _s10_mat_src
+          and "raise SystemExit(main())" in _s10_mat_src)
+    check("物化 CLI 输出 before/after 行数（幂等要能对账）", True,
+          '"before"' in _s10_mat_src and '"after"' in _s10_mat_src)
+    check("物化 CLI 连不上库返回码 2（不降级到别的角色）", True,
+          "return 2" in _s10_mat_src)
+
+    # ④ 文档：§6.10 必须记录实测数字与选型依据
+    _i610 = _roadmap.find("### 6.10 ")
+    _i62 = _roadmap.find("## 7. ")
+    _sec610 = _roadmap[_i610:_i62] if 0 <= _i610 < _i62 else ""
+    check("路线图有 §6.10 两条遗留收尾章节", True, bool(_sec610))
+    check("路线图 §6.10 记录了映射缺口的实测口径（397/152/245）", True,
+          all(t in _sec610 for t in ("397", "152", "245")))
+    check("路线图 §6.10 记录了选型依据（数组化会静默断掉 152 支队的映射）", True,
+          "152" in _sec610 and "ref.team_sporttery" in _sec610)
+    check("路线图 §6.10 记录了物化 CLI 的验收标准（幂等/默认只读）", True,
+          "--dry-run" in _sec610 and "幂等" in _sec610)
+
     # ---- 20. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。

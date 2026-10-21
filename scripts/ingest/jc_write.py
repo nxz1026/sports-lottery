@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.log import logger
 from psycopg import sql
 from psycopg.types.json import Json
 from store.parse_values import dec
@@ -29,16 +30,77 @@ def _sint(value: Any) -> int | None:
     return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def resolve_jc_teams(cur, home_sporttery_id: int | None, away_sporttery_id: int | None) -> tuple[int | None, int | None]:
-    """官方 team id → ref.team(team_id)：aliases->>'sporttery' 文本比较（该键可能缺，缺=NULL，不许猜）。"""
+# ── 竞彩官方 team id → ref.team(team_id) 的解析（路线图 §6.10.1）──────────────
+# ① 映射表 ref.team_sporttery 为准：**一家俱乐部在竞彩可能有多个官方 id**
+#    （例：毕尔巴鄂竞技 506 / 贝西克塔斯 279 是同一支队）⇒ 旧口径一行只能持一个 id，
+#    塞第二个就会覆盖第一个、比不映射更糟。
+# ② ref.team.aliases->>'sporttery' 兜底（仍是「主 id」）⇒ 兼容存量；
+#    且这里**同时认字符串与数组两种形态** ⇒ 将来真把 aliases 迁成数组，读者已就绪、不必再改。
+# 两个来源都查不到 ⇒ None（**不许猜**）。
+TEAM_MAP_SQL = ("SELECT team_id, jc_id::text AS jc FROM ref.team_sporttery "
+                "WHERE sport = %s AND jc_id = ANY(%s::bigint[])")
+TEAM_ALIAS_SQL = (
+    "SELECT t.team_id, a.jc FROM ref.team t, LATERAL ("
+    "  SELECT jsonb_array_elements_text("
+    "    CASE WHEN jsonb_typeof(t.aliases->'sporttery') = 'array'"
+    "         THEN t.aliases->'sporttery'"
+    "         ELSE jsonb_build_array(t.aliases->>'sporttery') END) AS jc"
+    ") a WHERE a.jc = ANY(%s::text[])")
+TEAM_MAP_INSERT_SQL = ("INSERT INTO ref.team_sporttery (sport, jc_id, team_id) VALUES (%s, %s, %s) "
+                       "ON CONFLICT (sport, jc_id) DO NOTHING RETURNING team_id")
+TEAM_MAP_GET_SQL = "SELECT team_id FROM ref.team_sporttery WHERE sport = %s AND jc_id = %s"
+
+_MAP_TABLE_OK: bool | None = None      # None = 还没查过；False = 缺表（退回单 id 语义，但要出声）
+_MAP_TABLE_WARNED = False
+
+
+def _map_table_ready(cur) -> bool:
+    """映射表是否已就位。
+
+    缺表 ⇒ 退回旧的「单 id」语义（aliases->>'sporttery'）⇒ **功能降级但管线不断**
+    （竞彩采集每 10 分钟跑一次，不能因为一张新表没建就整条断掉）。
+    ⚠️ 但**必须出声**：静默降级 = 映射率悄悄变差而没人知道。
+    查法用 to_regclass（不抛错的目录查询）⇒ 不会把事务带进 aborted 状态。
+    """
+    global _MAP_TABLE_OK, _MAP_TABLE_WARNED
+    if _MAP_TABLE_OK:
+        return True
+    ok = bool(cur.execute("SELECT to_regclass('ref.team_sporttery') IS NOT NULL").fetchone()[0])
+    _MAP_TABLE_OK = ok
+    if not ok and not _MAP_TABLE_WARNED:
+        _MAP_TABLE_WARNED = True
+        logger.warning("[jc] ref.team_sporttery 不存在 ⇒ 官方 id 解析退回 aliases->>'sporttery' 单 id 语义"
+                       "（请先执行 docs/db/suggestion10_team_sporttery_map.sql）")
+    return ok
+
+
+def resolve_jc_teams(cur, home_sporttery_id: int | None, away_sporttery_id: int | None,
+                     sport: str = "football") -> tuple[int | None, int | None]:
+    """官方 team id → ref.team(team_id)：映射表为准 + aliases 兜底（缺键=NULL，不许猜）。"""
     ids = [i for i in (home_sporttery_id, away_sporttery_id) if i]
     if not ids:
         return (None, None)
-    rows = cur.execute(
-            "SELECT (aliases->>'sporttery') AS jc, team_id FROM ref.team "
-            "WHERE (aliases->>'sporttery') = ANY(%s)", ([str(i) for i in ids],)).fetchall()
-    by_jc = {row[0]: row[1] for row in rows}
+    by_jc: dict[str, int] = {}
+    if _map_table_ready(cur):
+        for team_id, jc in cur.execute(TEAM_MAP_SQL, (sport, ids)).fetchall():
+            by_jc[str(jc)] = team_id
+    missing = [i for i in ids if str(i) not in by_jc]
+    if missing:
+        for team_id, jc in cur.execute(TEAM_ALIAS_SQL, (missing,)).fetchall():
+            by_jc.setdefault(str(jc), team_id)
     return (by_jc.get(str(home_sporttery_id)), by_jc.get(str(away_sporttery_id)))
+
+
+def set_team_sporttery(cur, team_id: int, jc_id: int, sport: str = "football") -> bool:
+    """登记「官方 id → 队行」到映射表（幂等）。
+
+    返回 True = 已登记（本次新增，或本来就指向同一支）；False = **该 id 已属别的队** ⇒ 不写。
+    ⚠️ 绝不覆盖既有映射：改指向等于把历史场次的 join 键改写 ⇒ 那是人工决策，不是代码该做的事。
+    """
+    if cur.execute(TEAM_MAP_INSERT_SQL, (sport, jc_id, team_id)).fetchone():
+        return True
+    row = cur.execute(TEAM_MAP_GET_SQL, (sport, jc_id)).fetchone()
+    return bool(row and row[0] == team_id)
 
 
 def _upsert(cur, table: str, pks: list[str], cols: list[str], row: dict,
