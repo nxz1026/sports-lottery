@@ -3,7 +3,7 @@
 背景（路线图 §6.8）：
   · 建议 6 验收 ① 遗漏值统计可查可解释 ② 复式拆法给出注数与成本对比。
   · 诚实底线：只做统计呈现，不做收益承诺 —— 选号能力实测与纯随机无法区分
-    （§6.8.4 合并 p = 0.348 / 0.411 / 0.278），故 **不提供任何选号推荐**。
+    （§6.8.4 合并 p = 0.273 / 0.323 / 0.200），故 **不提供任何选号推荐**。
 
 覆盖点：
   服务层纯函数（无 DB/IO，可手算对账）
@@ -446,11 +446,22 @@ def test_disclaimer_literal_in_service_dashboard_and_roadmap():
 
 
 def test_roadmap_has_suggestion6_section_with_key_measured_numbers():
-    """路线图 §6.8 必须写清实测口径与关键数字（防止有人只改代码不改文档）。"""
+    """路线图 §6.8 必须写清实测口径与关键数字（防止有人只改代码不改文档）。
+
+    ⚠️ 零假设检验的数字**按 §6.8.4 段落**校验，不能全文匹配 ——
+    变更记录里会合法引用旧口径数字做「订正前 → 订正后」对照。
+    """
     road = ROADMAP.read_text(encoding="utf-8")
     assert "### 6.8 建议 6 的实测订正与落地版" in road
-    for token in ("C(m,5)×C(n,2)", "0.348", "0.411", "0.278", "99.667%", "36 期", "24 期"):
+    i684 = road.find("#### 6.8.4")
+    i685 = road.find("#### 6.8.5")
+    sec684 = road[i684:i685] if 0 <= i684 < i685 else ""
+    for token in ("C(m,5)×C(n,2)", "36 期", "24 期"):
         assert token in road, token
+    for token in ("0.273", "0.323", "0.200", "99.750%", "Bonferroni"):
+        assert token in sec684, f"§6.8.4 缺少 {token}"
+    for stale in ("0.348", "0.411", "0.278", "99.667%"):
+        assert stale not in sec684, f"§6.8.4 仍残留旧口径 {stale}"
 
 
 def test_dashboard_panel_has_both_buttons_and_note():

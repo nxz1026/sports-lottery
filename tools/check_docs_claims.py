@@ -917,8 +917,16 @@ def main() -> int:
     # ⑨ 路线图 §6.8 必须写清实测口径与关键数字（防止只改代码不改文档）
     check("路线图有 §6.8 建议 6 章节", True,
           "### 6.8 建议 6 的实测订正与落地版" in _roadmap)
-    check("路线图 §6.8 记录了选号能力零假设检验的关键数字", True,
-          all(t in _roadmap for t in ("0.348", "0.411", "0.278", "99.667%", "Bonferroni")))
+    # §6.8.4 的零假设检验数字**按段**校验（不能用全文匹配：变更记录里
+    # 会合法引用旧口径数字做「订正前 → 订正后」对照）。
+    _i684 = _roadmap.find("#### 6.8.4")
+    _i685 = _roadmap.find("#### 6.8.5")
+    _sec684 = _roadmap[_i684:_i685] if 0 <= _i684 < _i685 else ""
+    check("路线图 §6.8.4 记录了选号能力零假设检验的关键数字（新口径）", True,
+          bool(_sec684) and all(t in _sec684 for t in (
+              "0.273", "0.323", "0.200", "99.750%", "Bonferroni", "12 项方向相反")))
+    check("路线图 §6.8.4 不再残留旧口径 p 值/门槛", [],
+          [t for t in ("0.348", "0.411", "0.278", "99.667%") if t in _sec684])
     check("路线图 §6.8 记录了复式注数口径订正（C(m,5)×C(n,2)）", True,
           "C(m,5)×C(n,2)" in _roadmap)
     check("路线图 §6.8 记录了遗漏值口径（按期不按天）", True,
@@ -964,6 +972,66 @@ def main() -> int:
     _dc = read(ROOT / "docs" / "web" / "DATA_CONTRACT.md")
     check("DATA_CONTRACT 记录 odds_accuracy 无样本时为 null", True,
           "odds_note" in _dc and "null" in _dc)
+
+    # ---- 19.4 建议 6 的零假设检验脚本（§6.8.4 的数字必须「任何人可复算」）----
+    # 纪律：结论印在**用户可见的页面**上 ⇒ 必须有一条人人可跑的复算命令，
+    # 否则那些数字只是作者的断言。
+    _sel_path = ROOT / "scripts" / "research" / "lottery_selection_check.py"
+    _sel_test = ROOT / "tests" / "test_lottery_selection_check.py"
+    check("零假设检验脚本已入仓（scripts/research/lottery_selection_check.py）", True,
+          _sel_path.is_file())
+    check("零假设检验脚本的单测已入仓（tests/test_lottery_selection_check.py）", True,
+          _sel_test.is_file())
+    _sel_src = read(_sel_path) if _sel_path.is_file() else ""
+
+    # ① 三个「不许给假结论」的内建守卫必须都在
+    check("脚本有『池数 < 100 ⇒ 不给结论』的百分位分辨率门槛", True,
+          "resolution_ok = pools >= 100" in _sel_src and "本次不给结论" in _sel_src)
+    check("脚本有畸形任务守卫（跳过畸形任务并说明原因）", True,
+          "task_degenerate_reason" in _sel_src and "数据畸形" in _sel_src)
+    check("脚本有『可用任务 < 3 ⇒ 不给结论』守卫", True,
+          "n_usable < 3" in _sel_src)
+
+    # ② 同类聚合：真实值与零分布值都必须是「多种子平均」
+    #    （不做 ⇒ 两边离散度失配 4.5 倍 ⇒ z 被压到 ±0.2 ⇒ 假阴性）
+    check("零分布与真实值同类聚合（都是多种子平均，避免离散度失配）", True,
+          "real = statistics.mean(" in _sel_src
+          and "nulls.append(statistics.mean(" in _sel_src)
+
+    # ③ 号码池离散度（卡方）也要可复算，且理论值口径写对了
+    check("脚本含号码池离散度卡方检验（chi2_dispersion）", True,
+          "def chi2_dispersion(" in _sel_src)
+    check("卡方零分布理论值口径写死（池大小 − 每期个数，不是 df）", True,
+          "池大小 − 每期个数" in _sel_src)
+
+    # ④ 研究脚本不得被 web 层顶层 import（web 层禁止顶层 import scripts.*）
+    _web_import_research = []
+    for _wf in sorted((ROOT / "web").rglob("*.py")):
+        if re.search(r"^\s*(from|import)\s+.*research", read(_wf), re.M):
+            _web_import_research.append(str(_wf.relative_to(ROOT)))
+    check("web 层不 import 研究脚本（scripts/research 不进 web 运行时）", [],
+          _web_import_research)
+
+    # ⑤ §6.8.7 必须指向已入仓的脚本，不能还写着「未入库」
+    _i687 = _roadmap.find("#### 6.8.7")
+    _i688 = _roadmap.find("#### 6.8.8")
+    _sec687 = _roadmap[_i687:_i688] if 0 <= _i687 < _i688 else ""
+    check("路线图 §6.8.7 指向已入仓的复算脚本", True,
+          "scripts/research/lottery_selection_check.py" in _sec687)
+    check("路线图 §6.8.7 不再写『调研期临时脚本、未入库』", True,
+          "未入库" not in _sec687)
+
+    # ⑥ 五个方法学坑必须写进文档（否则下一个人会重踩）
+    check("路线图 §6.8.4 记录了方法学订正（同类聚合/留一法/分辨率/畸形守卫）", True,
+          all(t in _sec684 for t in ("同类聚合", "失配 4.5 倍", "留一法", "分辨率", "畸形")))
+    check("路线图 §6.8.4 记录了留一法自检的实测值", True,
+          "+0.0025" in _sec684 and "1.0348" in _sec684)
+
+    # ⑦ README 同步新口径
+    check("README 记录了选号检验的新口径 p 值与多重比较门槛", True,
+          all(t in readme for t in ("0.273", "0.323", "0.200", "99.750%")))
+    check("README 不再残留旧口径 p 值/门槛", True,
+          not any(t in readme for t in ("0.348", "0.411", "0.278", "99.667%")))
 
     # ---- 20. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
