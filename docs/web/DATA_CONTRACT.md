@@ -151,9 +151,18 @@ AI 反馈注入：`adjust_prediction(pred, ai_adjustments)` 按联赛加载（pr
 | `total_over_close`/`total_under_close` | str | 大小球盘口 |
 | `odds_data_available` | bool | |
 
-### 2.4 `calibration` 字段（build_calibration，calibration.py:278-289）
+### 2.4 `calibration` 字段（build_calibration，calibration.py）
 
-`total_matches/home_wins/draws/away_wins`（int）、`home_win_rate/draw_rate/away_win_rate`（float 0-1）、`favored_by_odds/favored_won`（int）、`odds_accuracy`（float）。样本:8-19。无赛时 `{"note": "no past matches to calibrate from"}`（calibration.py:257；样本 13:11-12）。
+`total_matches/home_wins/draws/away_wins`（int）、`home_win_rate/draw_rate/away_win_rate`（float 0-1）、`favored_by_odds/favored_won`（int）、`odds_accuracy`（float 0-1，**无赔率样本时为 `null`**）、`odds_note`（str，**无赔率样本时为 `"no_odds_samples"`，否则 `null`**）。样本:8-19。无赛时 `{"note": "no past matches to calibrate from"}`（calibration.py）。
+
+⚠️ **无赔率样本 ⇒ `odds_accuracy` 是 `null` 而不是 `0`**（2026-10-21 订正）：
+`favored_by_odds` 统计的是「历史样本里带 `home_true_prob` 且 >0.5 的场次数」，
+而生产 `references/historical_past_matches.json` 的 **76 场**历史样本**没有一场**
+带 `home_true_prob` ⇒ `favored_by_odds=0` ⇒ 旧口径返回 `odds_accuracy=0`，
+`predict.py` 会印出 `"Odds favorite accuracy: 0% (0/0)"` ——
+读起来像「**赔率热门从没赢过**」，实际是「**根本没有赔率样本**」。
+现按建议 3 的「n 不足不显示均值」纪律改为 `null` + `odds_note`，
+`predict.py` 与 `scripts/core/dashboard.py` 都显示 **N/A**。
 
 `calibration_offset`（compute_calibration_offset，calibration.py:221-232）：`home/draw/away_correction`、`onside_home/away_correction`（float，钳位 [0.5,2.0]）、`sample_size`（int）、`sample_weight`（float）、`actual_home/draw/away_rate`（float）。持久化在 `references/.calibration_state_{league}.json`（calibration.py:15-18,235）。
 

@@ -75,7 +75,7 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
       <div class="stats-row"><span>Home Win:</span><strong style="color:#58a6ff">{hw_rate:.1%}</strong></div>
       <div class="stats-row"><span>Draw:</span><strong style="color:#a5d6ff">{d_rate:.1%}</strong></div>
       <div class="stats-row"><span>Away Win:</span><strong style="color:#f78166">{aw_rate:.1%}</strong></div>
-      <div class="stats-row"><span>Odds Accuracy:</span><strong style="color:#3fb950">{odds_acc:.1%}</strong></div>
+      <div class="stats-row"><span>Odds Accuracy:</span><strong style="color:#3fb950">{odds_acc_txt}</strong></div>
       {cal_info}
       {bt_html}
     </div>
@@ -217,6 +217,11 @@ def generate_dashboard(prediction_data: dict[str, Any], output_path: Path | None
     cal_info = _render_calibration_info(data["cal_offset"])
     bt_html = _render_backtest(data["bt"])
 
+    # ⚠️ `odds_accuracy` 在**无赔率样本**时是 None（不是 0）⇒ 不能直接用 `{:.1%}`
+    #    格式化（None 会抛 TypeError）⇒ 这里预先格式化成字符串，None 显示 "N/A"。
+    _odds_acc = stats["odds_accuracy"]
+    odds_acc_txt = "N/A" if _odds_acc is None else f"{_odds_acc:.1%}"
+
     html = DASHBOARD_TEMPLATE.format(
         league_upper=data["league"].upper(),
         now_str=data["now_str"],
@@ -229,7 +234,7 @@ def generate_dashboard(prediction_data: dict[str, Any], output_path: Path | None
         hw_rate=stats["home_win_rate"],
         d_rate=stats["draw_rate"],
         aw_rate=stats["away_win_rate"],
-        odds_acc=stats["odds_accuracy"],
+        odds_acc_txt=odds_acc_txt,
     )
 
     _write_dashboard_file(html, output_path)

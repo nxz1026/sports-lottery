@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2521 passed / 72 skipped / 0 failed**（2593 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2530 passed / 72 skipped / 0 failed**（2602 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1271,6 +1271,43 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
    （竞彩官方 team id），面板展示名来自 `fact.jc_match.home_cn/away_cn`，`web/` 零处读 `ref.team`
    ⇒ **回改 `name_cn` 不提升映射率、也不改用户可见内容**。想解锁映射只能**新建行 + 填 `sporttery` 键**。
 
+### v4.3 (2026-10-21) 顺手修：两处「无数据被当成 0 / 条件恒假」型缺陷
+
+路线图 **§6.9** 记录了完整排查过程。两条共同教训：
+**「无数据」必须显示成「无数据」**（`0%` 与 `N/A` 的差别不是措辞，是事实与幻觉的差别）；
+**前端条件要对着后端的真实语义写**。
+
+**A. `/api/jc/daily-image` 的「主面板空」提示条永远不显示**
+
+- 现象：某天五大联赛/欧冠没在售、只有临时赛事时，「每日一图」给出一张**空白主图**
+  + 临时赛事图，**没有任何文字解释**。
+- 根因（实测）：VM 里 `rows` **就等于** `main_rows`（`web/app/jc.py:247-248`），
+  而 `static/dailyimage.html` 的提示条件写的是
+  `d.main_rows.length===0 && (d.rows||[]).length` ⇒ **两者同一个数组 ⇒ 条件恒假**。
+  **不是「rows=0」的问题，是提示条件写错了对象。**
+- 生产实况（2026-10-21）：`sport=football` → `available=True` / `rows=9` / `main_rows=9` /
+  `temp_rows=0` ⇒ **当天并不可复现**；`sport=basketball` → `rows=16`。
+- 修：条件改看 `d.temp_rows`；**不**改 VM 的 `rows` 语义（老字段不动）。
+
+**B. `favored_by_odds=0` —— 「无赔率样本」被印成「赔率热门从没赢过」**
+
+- 现象：`predict.py` 印出 `"Odds favorite accuracy: 0% (0/0)"`。
+- 根因（生产实测）：`references/historical_past_matches.json` 是 **list[76]**，
+  样本字段只有 `away/away_abbr/date/home/home_abbr/name/result/score/status`
+  —— **没有一场带 `home_true_prob`** ⇒ `total_odds_based=0` ⇒ `odds_accuracy` 兜底 0。
+  ⇒ 实际含义是「**根本没有赔率样本**」，不是「热门全输」。
+- 违反的纪律：建议 3 定的「**n 不足不显示均值**」。
+- 修：`odds_accuracy` 无样本时返回 **`None`** + 新增 `odds_note="no_odds_samples"`；
+  `predict.py` 印 **N/A**；`scripts/core/dashboard.py` 模板改预格式化
+  （原 `{odds_acc:.1%}` 遇 `None` 会抛 TypeError）；`docs/web/DATA_CONTRACT.md` §2.4 同步。
+- 为什么不补数据：历史样本的 `home_true_prob` 要靠**赛前**赔率快照回填，
+  旧文件里没有 ⇒ 补数据属待排期，**本轮只保证「没有数据时不装作有数据」**。
+
+**新增 7 项守门断言**（`tools/check_docs_claims.py`，**190 项**）：odds_accuracy 必须是 None、
+odds_note 标记、predict.py 必须印 N/A、dashboard 模板不得直接格式化 None、
+daily-image 提示条件必须用 temp_rows、VM 的 `rows == main_rows` 契约被单测锁住、
+DATA_CONTRACT 口径同步。新增 `tests/test_hotfix_bad_metrics.py`（**7 条**）。
+
 ### v4.2 (2026-10-21) 建议 6 落地：体彩侧独立小产品（遗漏值 + 拆法对比，不碰模型）
 
 **路线图 §6.8** 记录了建议 6 的全部实测订正与落地清单。两条验收（① 遗漏值可查可解释
@@ -1363,7 +1400,7 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 3. **异动事件落表才是资产** —— 每条存（场次/侧/前后两版 `snap_ts`/前后 SP/跳变幅度/阈值/是否已推），
    **任何人可用同一公式复算**。
 
-**新增 38 项守门断言**（`tools/check_docs_claims.py`，183 项；建议 6 再加 21 项）—— 重点 6 条：
+**新增 38 项守门断言**（`tools/check_docs_claims.py`，190 项；建议 6 再加 21 项、顺手修再加 7 项）—— 重点 6 条：
 ① **看板内联 JS 必须语法合法**（`node --check`）—— 本轮实测踩到：往 `dashboard.html` 插函数时
 少写一个大括号 ⇒ 整个内联脚本解析失败 ⇒ **看板所有交互全挂**（页面还"能打开"，只是什么都不响应）；
 ② **仓库任何文件都不得含飞书 webhook URL**（凭证只走 env，不入代码/文档/commit/日志）；

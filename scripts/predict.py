@@ -396,8 +396,16 @@ def _print_summary(predictions: list, calibration: dict, calibration_offset: dic
           f"home win {calibration.get('home_win_rate',0)*100:.0f}% "
           f"draw {calibration.get('draw_rate',0)*100:.0f}% "
           f"away win {calibration.get('away_win_rate',0)*100:.0f}%", file=sys.stderr)
-    print(f"    Odds favorite accuracy: {calibration.get('odds_accuracy',0)*100:.0f}% "
-          f"({calibration.get('favored_won',0)}/{calibration.get('favored_by_odds',0)})", file=sys.stderr)
+    # 赔率热门命中率：**无赔率样本时必须显示「无数据」，不能显示 0%** ——
+    # 生产实测历史样本没有一场带 home_true_prob（favored_by_odds=0），
+    # 旧口径会印出 "0% (0/0)"，读起来像「赔率热门从没赢过」（详见
+    # scripts/core/calibration.py::build_calibration 的 odds_accuracy 注释）。
+    if calibration.get("favored_by_odds"):
+        print(f"    Odds favorite accuracy: {(calibration.get('odds_accuracy') or 0)*100:.0f}% "
+              f"({calibration.get('favored_won',0)}/{calibration.get('favored_by_odds',0)})",
+              file=sys.stderr)
+    else:
+        print("    Odds favorite accuracy: N/A (no odds samples in history)", file=sys.stderr)
     if calibration_offset:
         print(f"Calibration offset(n={calibration_offset['sample_size']}): "
               f"home x{calibration_offset['home_correction']} "

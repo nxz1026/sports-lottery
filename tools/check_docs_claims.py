@@ -924,6 +924,47 @@ def main() -> int:
     check("路线图 §6.8 记录了遗漏值口径（按期不按天）", True,
           "按「期」计" in _roadmap and "max" in _roadmap)
 
+    # ---- 19.3 顺手修：两处「无数据被当成 0 / 条件恒假」型缺陷 ----
+    _calib_src = read(ROOT / "scripts" / "core" / "calibration.py")
+    _predict_src = read(ROOT / "scripts" / "predict.py")
+    _dash_py = read(ROOT / "scripts" / "core" / "dashboard.py")
+    _dailyimage_html = read(ROOT / "static" / "dailyimage.html")
+
+    # ① 无赔率样本 ⇒ odds_accuracy 必须是 None（不是 0）+ odds_note 标记
+    check("无赔率样本时 odds_accuracy 是 None（不是 0%）", True,
+          'if total_odds_based else None' in _calib_src
+          and '"odds_note"' in _calib_src)
+    check("校准里有 odds_note 标记（no_odds_samples）", True,
+          '"no_odds_samples"' in _calib_src)
+
+    # ② predict.py 必须在无样本时印 N/A，**不许**印 "0% (0/0)"
+    check("predict.py 无赔率样本时印 N/A（不印 0% (0/0)）", True,
+          "Odds favorite accuracy: N/A" in _predict_src
+          and "no odds samples in history" in _predict_src)
+
+    # ③ dashboard.py 模板不能直接格式化 None（{:.1%} 遇 None 会抛 TypeError）
+    check("dashboard 模板对 odds_accuracy=None 走 N/A（不直接格式化 None）", True,
+          "odds_acc_txt" in _dash_py and "{odds_acc:.1%}" not in _dash_py
+          and '"N/A" if _odds_acc is None' in _dash_py)
+
+    # ④ daily-image 提示条条件必须看 temp_rows（rows 就是 main_rows ⇒ 旧条件恒假）
+    _note_lines = [ln.strip() for ln in _dailyimage_html.splitlines()
+                   if "d.main_rows.length===0" in ln and ln.strip().startswith("if(")]
+    check("daily-image 提示条条件存在且用 temp_rows（不看 rows）", True,
+          bool(_note_lines)
+          and all("d.temp_rows" in ln for ln in _note_lines)
+          and all("(d.rows||[]).length" not in ln for ln in _note_lines))
+
+    # ⑤ VM 的 rows == main_rows 契约要显式锁住（否则前端条件会再次悄悄失效）
+    check("daily-image VM 的 rows == main_rows（契约被单测锁定）", True,
+          '"rows": main_rows' in read(ROOT / "web" / "app" / "jc.py")
+          and (ROOT / "tests" / "test_hotfix_bad_metrics.py").is_file())
+
+    # ⑥ 文档口径同步
+    _dc = read(ROOT / "docs" / "web" / "DATA_CONTRACT.md")
+    check("DATA_CONTRACT 记录 odds_accuracy 无样本时为 null", True,
+          "odds_note" in _dc and "null" in _dc)
+
     # ---- 20. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。

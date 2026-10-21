@@ -321,5 +321,11 @@ def build_calibration(past_matches: list[dict[str, Any]]) -> dict[str, Any]:
         "away_win_rate": round(away_wins/total, 3) if total else 0,
         "favored_by_odds": total_odds_based,
         "favored_won": favorite_wins,
-        "odds_accuracy": round(favorite_wins/total_odds_based, 3) if total_odds_based else 0,
+        # ⚠️ **无赔率样本 ⇒ 命中率是「无数据」，不是 0%**（建议 3 的「n 不足不显示均值」纪律）。
+        #    生产实测（2026-10-21）：`references/historical_past_matches.json` 的 **76 场**
+        #    历史样本**没有一场**带 `home_true_prob` ⇒ total_odds_based=0 ⇒ 旧口径返回 0，
+        #    predict.py 会印出 "Odds favorite accuracy: 0% (0/0)" —— 读起来像
+        #    「赔率热门从没赢过」，实际是「**根本没有赔率样本**」。
+        "odds_accuracy": round(favorite_wins/total_odds_based, 3) if total_odds_based else None,
+        "odds_note": None if total_odds_based else "no_odds_samples",
     }

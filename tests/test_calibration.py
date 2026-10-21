@@ -121,8 +121,14 @@ class TestBuildCalibration(unittest.TestCase):
             f"odds_accuracy 应 round 到 3 位小数；实际 {result['odds_accuracy']}"
         )
 
-    def test_no_odds_data_zero_odds_metrics(self):
-        """所有场次无 home_true_prob → favored_by_odds=0 / favored_won=0 / odds_accuracy=0。"""
+    def test_no_odds_data_odds_metrics_are_none_not_zero(self):
+        """所有场次无 home_true_prob → odds_accuracy 是**无数据(None)**，不是 0%。
+
+        生产实测（2026-10-21）：`references/historical_past_matches.json` 的 76 场
+        历史样本**没有一场**带 `home_true_prob` ⇒ 旧口径返回 0 ⇒ predict.py 印出
+        "Odds favorite accuracy: 0% (0/0)"，读起来像「赔率热门从没赢过」，
+        实际是「根本没有赔率样本」⇒ 违反建议 3 的「n 不足不显示均值」纪律。
+        """
         past = [
             {"score": "2-1"},
             {"score": "1-1"},
@@ -130,7 +136,16 @@ class TestBuildCalibration(unittest.TestCase):
         result = build_calibration(past)
         assert result["favored_by_odds"] == 0
         assert result["favored_won"] == 0
-        assert result["odds_accuracy"] == 0, "无 odds 时 odds_accuracy 兜底 0"
+        assert result["odds_accuracy"] is None, "无赔率样本时 odds_accuracy 必须是 None（无数据），不是 0"
+        assert result["odds_note"] == "no_odds_samples"
+
+    def test_odds_note_none_when_odds_samples_exist(self):
+        """有赔率样本时 odds_note=None（不留误导性的 note）。"""
+        past = [{"score": "2-1", "home_true_prob": 0.7}]
+        result = build_calibration(past)
+        assert result["favored_by_odds"] == 1
+        assert result["odds_accuracy"] == 1.0
+        assert result["odds_note"] is None
 
     def test_home_draw_away_distribution_rates(self):
         """home_win_rate / draw_rate / away_win_rate 正确反映 1/3 / 1/3 / 1/3。"""

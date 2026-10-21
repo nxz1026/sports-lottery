@@ -371,7 +371,11 @@ async function load(){
     CANVAS = SPORT==="basketball"
       ? await drawNba(mainRows,d.date,q.qr_data_url||"",resolvedUrl,d.stats||{},news)
       : await drawFootball(mainRows,d.date,q.qr_data_url||"",resolvedUrl,d.stats||{},news,pickReason);
-    if(SPORT==="football" && (d.main_rows!=null) && d.main_rows.length===0 && (d.rows||[]).length && d.note){
+    // ⚠️ 条件必须看 **temp_rows**，不能看 rows ——
+    //    VM 里 `rows` 就是 `main_rows`（web/app/jc.py:247-248）⇒ 旧写法
+    //    `d.main_rows.length===0 && (d.rows||[]).length` **恒假**（两者同一个数组）
+    //    ⇒ 「主面板空 + 有临时赛事」时用户只看到一张空白主图，**没有任何解释**。
+    if(SPORT==="football" && (d.main_rows!=null) && d.main_rows.length===0 && (d.temp_rows||[]).length && d.note){
       const noteBar=document.createElement("div");
       noteBar.style.cssText="text-align:center;color:var(--fg);background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:6px;padding:8px 14px;font-size:13px;margin:0 auto 10px;max-width:900px;line-height:1.6";
       noteBar.textContent="ℹ️ "+d.note;
