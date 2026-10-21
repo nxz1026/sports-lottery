@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2562 passed / 75 skipped / 0 failed**（2637 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2639 passed / 75 skipped / 0 failed**（2714 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -501,7 +501,7 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 | `/dashboard/jc/api/...` | `proxy_pass http://127.0.0.1:8077/api/...;` | `/api/v1/...` |
 | `/dashboard` | `http://127.0.0.1:8099/` | —（旧门户，Basic Auth 保护） |
 
-**前端 API 基址**（`static/dashboard.html:266`）：`const API="/dashboard/jc/api/v1"`。所有 fetch 均同源（credentials:"same-origin"），浏览器自动带 session cookie（该路径 `auth_basic off`，**不涉及** Basic Auth 头）。
+**前端 API 基址**（`static/dashboard.html:270`）：`const API="/dashboard/jc/api/v1"`。所有 fetch 均同源（credentials:"same-origin"），浏览器自动带 session cookie（该路径 `auth_basic off`，**不涉及** Basic Auth 头）。
 
 **调试命令**：
 
@@ -1323,11 +1323,14 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**新增 21 项守门断言**（`tools/check_docs_claims.py`，229 项；建议 6 再加 21 项、顺手修再加 7 项、
-复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+**守门断言累计 244 项**（`tools/check_docs_claims.py`，244 项；建议 6 再加 21 项、顺手修再加 7 项、
+复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项、**§6.12 事故修复再加 15 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
 回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
 物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字、
-**「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）。
+**「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）、
+**静态页内联 JS 不许有跨作用域引用**（`tools/check_js_scope.py`，与 `tsc --checkJs` 逐条对拍过）、
+**看板运行时冒烟必须过**（`tools/dashboard_smoke.js`：三个面板真渲染出内容，不许出现「暂不可用」）、
+**分区 header 必须跨全宽**（不许再独占一个卡片格）。
 
 **生产验收**（Oracle `0793153` + `3a209c1`，详见路线图 §6.10.4）：
 

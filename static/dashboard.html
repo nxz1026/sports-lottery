@@ -87,8 +87,12 @@ code{background:var(--code-bg);color:var(--fg);border-radius:4px;padding:1px 4px
 .match.played{opacity:.55}
 .match.played:hover{opacity:.85}
 .badge-status{display:inline-block;background:var(--subtle);color:var(--mut);border:1px solid var(--line);border-radius:4px;padding:1px 7px;font-size:10.5px;margin-left:6px;letter-spacing:.04em}
-/* P0-A3：分区 header（今日推荐 / 今日已完赛） */
-.section-h3{font-size:13px;color:var(--dim);font-weight:600;letter-spacing:.04em;margin:18px 0 10px;padding-bottom:6px;border-bottom:1px dashed var(--line);text-transform:uppercase}
+/* P0-A3：分区 header（今日推荐 / 今日已完赛）
+ * R50（2026-10-21）：header 原来作为**独立节点**进渐进渲染队列（CHUNK=24）⇒ 在 2 列 grid 里
+ * **占一格**、看起来像一张空卡片（用户报「今日推荐 · 21 场直接占用了一个卡片位置」）。
+ * ⇒ 改成**跨全宽的分隔条**（grid-column:1/-1）：不再是卡片格，两段的视觉分隔保留。 */
+.section-h3{grid-column:1/-1;font-size:13px;color:var(--dim);font-weight:600;letter-spacing:.04em;margin:18px 0 10px;padding-bottom:6px;border-bottom:1px dashed var(--line);text-transform:uppercase}
+.section-h3 .section-count{color:var(--mut);font-weight:500;letter-spacing:0;text-transform:none}
 .section-h3.played-h3{color:var(--mut);border-bottom-style:dotted}
 .m-top,.teams,.pick,.meta,.prob-legend{display:flex;align-items:center;gap:8px}
 .m-top{color:var(--dim);font-size:12px;margin-bottom:10px}
@@ -280,6 +284,11 @@ async function api(path){
 function stateBox(el,msg,error){el.innerHTML=`<div class="empty ${error?"error":""}">${esc(msg)}${error?"<br><button class=\"btn\" onclick=\"location.reload()\">重试</button>":""}</div>`}
 function flat(data){return Object.entries(data?.leagues||{}).flatMap(([league,items])=>(items||[]).map(p=>({...p,league})))}
 function pct(v){const n=Number(v);return Number.isFinite(n)?`${(n<=1?n*100:n).toFixed(1)}%`:"—"}
+/* R50（2026-10-21）：`num` 原来定义在 loadAccuracy() **函数体内**，却被 loadClv() / loadRecommend() 调用
+ * ⇒ 跨函数作用域 ReferenceError ⇒ 生产看板「CLV」「今日推荐单」两个面板显示「暂不可用：num is not defined」。
+ * ⇒ 提到全局 helper 区（与 esc/pct 同层），任何函数都能用。
+ * 守门：tools/check_js_scope.py 扫 static/ 必须 0 命中。 */
+const num=v=>v===null||v===undefined?"—":"n="+v;
 function stars(v){const n=Math.max(0,Math.min(5,parseInt(String(v??"").replace(/[^0-9]/g,""),10)||0));return "★".repeat(n)+"☆".repeat(5-n)}
 function matchId(p){return [p.id||p.match_id||"",p.league||"",p.match||"",p.home||"",p.away||"",p.kickoff_utc||""].join("|").trim()||JSON.stringify(p)}
 /* ================= A0. 多维筛选（联赛/时间/星级/信心分/关键词，全部 AND，纯前端） ================= */
@@ -433,8 +442,10 @@ const renderCard=p=>{const home=p.home||String(p.match||"").split(/\s+vs\s+/i)[0
 // IntersectionObserver 是浏览器原生且一帧一次，无须节流。
 const CHUNK=24;
 const queue=[];
-if(upcomingCards.length){queue.push(`<h3 class="section-h3">今日推荐 · ${upcomingCards.length} 场</h3>`);upcomingCards.forEach(p=>queue.push(renderCard(p)))}
-if(playedCards.length){queue.push(`<h3 class="section-h3 played-h3">今日已完赛 · ${playedCards.length} 场（参考回看）</h3>`);playedCards.forEach(p=>queue.push(renderCard(p)))}
+/* R50（2026-10-21）：场次数从标题正文里拆成 .section-count（弱化显示），
+ * 标题本身跨全宽 ⇒ 不再独占一个卡片格。 */
+if(upcomingCards.length){queue.push(`<h3 class="section-h3">今日推荐 <span class="section-count">${upcomingCards.length} 场</span></h3>`);upcomingCards.forEach(p=>queue.push(renderCard(p)))}
+if(playedCards.length){queue.push(`<h3 class="section-h3 played-h3">今日已完赛 <span class="section-count">${playedCards.length} 场（参考回看）</span></h3>`);playedCards.forEach(p=>queue.push(renderCard(p)))}
 // 卸旧 observer，避免对陈旧节点继续 observe（filter 切换时频繁 re-render 必须重建）
 if(state._lazyObserver){state._lazyObserver.disconnect();state._lazyObserver=null}
 let cursor=0;
@@ -531,12 +542,15 @@ function aiAnalyzeInit(){
     }catch(e){hint.textContent="提交异常："+e.message}
   });
 }
-async function loadAccuracy(){const el=$("#accuracyBreakdown");try{const d=await api("/accuracy/breakdown"),pend=(await api("/accuracy").then(x=>x.pending||{}).catch(()=>({}))),rows=Object.entries(d.leagues||d||{});if(!el)return;const pendTotal=Object.values(pend).reduce((a,v)=>a+Number(v||0),0);
+async function loadAccuracy(){const el=$("#accuracyBreakdown");
+/* R50（2026-10-21）：`pendTotal` 原来声明在 **try 块里**，catch 块却引用它 ⇒ 一旦 loadAccuracy 抛错，
+ * catch 自己先抛 ReferenceError ⇒ **掩盖真正的错误信息**。⇒ 提到 try 之前声明。 */
+let pendTotal=0;
+try{const d=await api("/accuracy/breakdown"),pend=(await api("/accuracy").then(x=>x.pending||{}).catch(()=>({}))),rows=Object.entries(d.leagues||d||{});if(!el)return;pendTotal=Object.values(pend).reduce((a,v)=>a+Number(v||0),0);
 // 后端形状（web/routers/predictions.py:269）：{leagues:{<联赛>:{generated_at,data_window,7d:{…},30d:{…}}}}。
 // 三项准确率与 reconciled 都在**窗口层**内，不在联赛层——旧代码读 a.direction_accuracy 恒 undefined，三项永远显示 "—"。
 // reconciled 是**场次样本数**而非比例——旧代码用 pct() 渲染，把 180 场显示成 "180.0%"。
 const win=(a,k)=>(a&&typeof a[k]==="object"&&a[k])||{};
-const num=v=>v===null||v===undefined?"—":"n="+v;
 const rate=(w,k)=>k in w?pct(w[k]):"—";
 if(!rows.length){$("#kpiAccuracy").textContent="—";el.innerHTML=`<div class=empty>${pendTotal>0?`暂无准确率数据：${pendTotal} 场预测待结算（比赛结束后自动出数，无需操作）`:"暂无准确率数据（无已结算预测）"}</div>`;return}
 el.innerHTML=rows.map(([k,x])=>{const a=x||{},w7=win(a,"7d"),w30=win(a,"30d"),w=Object.keys(w7).length?w7:w30;return `<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>${esc(k)}</b><span class="hint">7d ${num(w7.reconciled??w7.sample_count)} · 30d ${num(w30.reconciled??w30.sample_count)}</span><br><span style="color:var(--mut)">direction ${rate(w,"direction_accuracy")} · score ${rate(w,"score_accuracy")} · over/under ${rate(w,"over_under_accuracy")}</span></div>`}).join("")+`<p style="color:var(--dim);font-size:11px">上表是<b>单一直播数字</b>，未带区间 —— 下方「分层命中率」才是带样本量与置信区间的口径，别单看上面的比例。</p>`;

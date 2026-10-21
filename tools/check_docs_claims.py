@@ -680,6 +680,50 @@ def main() -> int:
                                 capture_output=True, text=True).returncode
         check_rc("看板内联 JS 语法合法（node --check）", 0, _rc_js)
 
+    # ①' 内联 JS **作用域**合法 —— 2026-10-21 生产事故：dashboard.html 里
+    #     `const num=v=>...` 定义在 loadAccuracy() 内部，却被 loadClv()/loadRecommend() 使用
+    #     ⇒ 运行时 ReferenceError ⇒ 看板「CLV」「今日推荐单」两个面板显示
+    #     「暂不可用：num is not defined」。页面不白屏、接口 200 ⇒ **纯静默失效**。
+    #     node --check 只查语法、查不出作用域错误 ⇒ 这里用 tools/check_js_scope.py 兜底。
+    #     不用 tsc：它是 npm 全局包，生产机未必装得上（与 ruff 同款纪律：缺工具记 SKIP 不阻断）；
+    #     本脚本纯标准库 ⇒ 本地与生产机都能跑。判定规则已与 tsc --checkJs 的 TS2304 **逐条对拍**
+    #     （dashboard.html 10 处一致、其余 4 个静态页 0 处一致）。
+    try:
+        _js_scope_spec = importlib.util.spec_from_file_location(
+            "_guard_js_scope", ROOT / "tools" / "check_js_scope.py")
+        _js_scope_mod = importlib.util.module_from_spec(_js_scope_spec)
+        _js_scope_spec.loader.exec_module(_js_scope_mod)
+        _scope_hits: list[str] = []
+        for _html in sorted((ROOT / "static").glob("*.html")):
+            for _f in _js_scope_mod.check_html(_html):
+                _scope_hits.append(f"{_html.name}: {_f}")
+    except Exception as _exc:  # noqa: BLE001 - 读不到就判失败，不误伤
+        _scope_hits = [f"检查器加载失败：{_exc!r}"]
+    check("静态页内联 JS 无跨作用域引用（tools/check_js_scope.py）", [], _scope_hits)
+
+    # ①''' 看板内联 JS **运行时**冒烟 —— 语法/作用域都合法还不够：
+    #     生产事故里接口 200、页面不白屏，**只有面板内容是「暂不可用」**。
+    #     ⇒ 真跑一次 loadClv()/loadRecommend()/loadAccuracy()，断言三个面板都渲染出真内容。
+    #     工具：tools/dashboard_smoke.js（node + vm 桩，无浏览器依赖）。
+    #     node 不在 ⇒ SKIP（不阻断，与 ruff 同款纪律）。
+    _smoke_js = ROOT / "tools" / "dashboard_smoke.js"
+    if not _smoke_js.is_file():
+        check("看板运行时冒烟（面板真的渲染出内容）", True, "缺 tools/dashboard_smoke.js")
+    elif shutil.which("node") is None:
+        skip("看板运行时冒烟（面板真的渲染出内容）",
+             "当前环境未安装 node ⇒ 本项未检查（非失败）")
+    else:
+        _rc_smoke = subprocess.run(["node", str(_smoke_js)], cwd=ROOT,
+                                   capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace").returncode
+        check_rc("看板运行时冒烟（面板真的渲染出内容）", 0, _rc_smoke)
+
+    # ①'' 看板分区 header 必须跨全宽 —— 2026-10-21 用户报「今日推荐 · 21 场
+    #      直接占用了一个卡片位置」：header 作为独立节点进渐进渲染队列 ⇒ 在 2 列 grid 里占一格。
+    _sec_rule = next((l for l in _dash_html.splitlines() if l.startswith(".section-h3{")), "")
+    check("看板分区 header 跨全宽（不独占卡片格）", True,
+          "grid-column:1/-1" in _sec_rule)
+
     # ② 凭证纪律：飞书 webhook URL **只允许**从环境变量读
     #    （谁拿到就能往那个群发消息）⇒ 仓库任何文件里都不得出现 hook URL。
     _hook_re = re.compile(r"open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9\-]+")
@@ -1106,6 +1150,42 @@ def main() -> int:
           "152" in _sec610 and "ref.team_sporttery" in _sec610)
     check("路线图 §6.10 记录了物化 CLI 的验收标准（幂等/默认只读）", True,
           "--dry-run" in _sec610 and "幂等" in _sec610)
+
+    # ---- 19'. §6.12：生产事故修复 + 遗留收尾（2026-10-21 晚）----
+    _i612 = _roadmap.find("### 6.12 ")
+    _sec612 = _roadmap[_i612:_i62] if 0 <= _i612 < _i62 else ""
+    check("路线图有 §6.12 生产事故修复章节", True, bool(_sec612))
+    check("路线图 §6.12 记录了两处作用域 bug（num + pendTotal）", True,
+          "num" in _sec612 and "pendTotal" in _sec612)
+    check("路线图 §6.12 记录了映射缺口的当前实测口径（244 个未映射 id）", True,
+          "244" in _sec612)
+    check("路线图 §6.12 记录了 ESPN 历史赔率的取数事实（scoreboard 无 / summary 有）", True,
+          "summary" in _sec612 and "scoreboard" in _sec612)
+    check("路线图 §6.12 写明了「对用户可见产品零收益」的诚实结论", True,
+          "零收益" in _sec612)
+    check("路线图 §6.12 要求页面实测（不能只看 API）", True,
+          "页面" in _sec612 and "API" in _sec612)
+
+    # ---- 19''. 竞彩队映射补齐（§6.12.3 A）：只增不改 / 只补 NULL / 默认只读 ----
+    _s12_sql = read(ROOT / "docs" / "db" / "suggestion12_team_backfill.sql")
+    _s12_cli = read(ROOT / "scripts" / "ingest" / "jc_team_backfill.py")
+    _s12_write = read(ROOT / "scripts" / "ingest" / "jc_write.py")
+    check("队映射补齐有手工 SQL（单事务）", True,
+          "BEGIN;" in _s12_sql and "COMMIT;" in _s12_sql)
+    check("队映射补齐只增不改（ON CONFLICT DO NOTHING）", True,
+          "ON CONFLICT (sport, name_cn) DO NOTHING" in _s12_sql
+          and "ON CONFLICT (sport, jc_id) DO NOTHING" in _s12_sql
+          and "UPDATE ref.team" not in _s12_sql.upper())
+    check("队映射回填只补 NULL（不改既有映射）", True,
+          "IS NULL" in _s12_sql and "UPDATE fact.jc_match" in _s12_sql)
+    check("队映射补齐有 CLI 且默认预演（dry-run 回滚）", True,
+          "--execute" in _s12_cli and "conn.rollback()" in _s12_cli)
+    check("采集每轮补齐映射（新队不再攒缺口）", True,
+          "jc_write.ensure_jc_team_mappings(cur)" in read(ROOT / "scripts" / "ingest" / "jc_load.py"))
+    check("代码版与 SQL 版口径一致（同一套 ON CONFLICT / IS NULL）", True,
+          "ON CONFLICT (sport, name_cn) DO NOTHING" in _s12_write
+          and "ON CONFLICT (sport, jc_id) DO NOTHING" in _s12_write
+          and "IS NULL" in _s12_write)
 
     # ---- 20. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。

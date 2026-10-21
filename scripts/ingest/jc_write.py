@@ -103,6 +103,93 @@ def set_team_sporttery(cur, team_id: int, jc_id: int, sport: str = "football") -
     return bool(row and row[0] == team_id)
 
 
+# ── 未映射官方 id 的批量建行 + 灌映射（路线图 §6.12.3 A）──────────────────────
+# 实测（2026-10-21 生产库）：397 个官方 id 中 153 已映射 ⇒ **244 个未映射**；
+# 这 244 个竞彩中文名**两两不同**、且与现有 ref.team.name_cn **零冲突** ⇒ 1:1 建行无歧义，
+# 覆盖 23 个联赛（欧洲国家联赛 42 / 美国职业大联盟 20 / 巴西甲 19 / 国际赛 16 / 日本职业联赛 14 …）。
+#
+# 三条硬纪律（缺一条就可能把历史 join 键改写）：
+#   ① **只增不改**：既有 ref.team 行一个字节都不动（只 INSERT 新行 + ON CONFLICT DO NOTHING）；
+#   ② **不猜**：队名只取 fact.jc_match 的**竞彩官方中文名**（唯一真源），不做任何名称推断；
+#   ③ **只补 NULL**：fact.jc_match 的 team_id 只填 NULL，已有映射绝不被改写。
+#
+# ⚠️ 诚实结论：对**用户可见产品零收益**（产品层按队名 join，ref.team 全仓只被
+#    scripts/store/jc_ops_view.py 读）⇒ 做的理由是**把数据补齐**，不是产品收益。
+_JC_ID_NAMES_SQL = (
+    "SELECT DISTINCT jc_id, cn FROM ("
+    "  SELECT home_sporttery_id AS jc_id, home_cn AS cn FROM fact.jc_match"
+    "  UNION ALL"
+    "  SELECT away_sporttery_id AS jc_id, away_cn AS cn FROM fact.jc_match"
+    ") u WHERE u.jc_id IS NOT NULL AND u.cn IS NOT NULL AND u.cn <> ''")
+
+TEAM_ENSURE_ROWS_SQL = (
+    "INSERT INTO ref.team (sport, name_cn, aliases) "
+    "SELECT DISTINCT ON (u.cn) %(sport)s, u.cn, jsonb_build_object('sporttery', u.jc_id::text) "
+    "FROM (" + _JC_ID_NAMES_SQL + ") u "
+    "WHERE NOT EXISTS (SELECT 1 FROM ref.team_sporttery ts "
+    "                  WHERE ts.sport = %(sport)s AND ts.jc_id = u.jc_id) "
+    "  AND NOT EXISTS (SELECT 1 FROM ref.team t2 "
+    "                  WHERE t2.aliases->>'sporttery' = u.jc_id::text) "
+    "  AND NOT EXISTS (SELECT 1 FROM ref.team t3 "
+    "                  WHERE t3.sport = %(sport)s AND t3.name_cn = u.cn) "
+    "ORDER BY u.cn, u.jc_id "
+    "ON CONFLICT (sport, name_cn) DO NOTHING")
+
+TEAM_FILL_MAP_SQL = (
+    "INSERT INTO ref.team_sporttery (sport, jc_id, team_id) "
+    "SELECT DISTINCT ON (u.jc_id) %(sport)s, u.jc_id, t.team_id "
+    "FROM (" + _JC_ID_NAMES_SQL + ") u "
+    "JOIN ref.team t ON t.sport = %(sport)s AND t.name_cn = u.cn "
+    "WHERE NOT EXISTS (SELECT 1 FROM ref.team_sporttery ts "
+    "                  WHERE ts.sport = %(sport)s AND ts.jc_id = u.jc_id) "
+    "ORDER BY u.jc_id, t.team_id "
+    "ON CONFLICT (sport, jc_id) DO NOTHING")
+
+TEAM_BACKFILL_HOME_SQL = (
+    "UPDATE fact.jc_match m SET home_team_id = ts.team_id "
+    "FROM ref.team_sporttery ts "
+    "WHERE ts.sport = %(sport)s AND ts.jc_id = m.home_sporttery_id "
+    "AND m.home_team_id IS NULL")
+TEAM_BACKFILL_AWAY_SQL = (
+    "UPDATE fact.jc_match m SET away_team_id = ts.team_id "
+    "FROM ref.team_sporttery ts "
+    "WHERE ts.sport = %(sport)s AND ts.jc_id = m.away_sporttery_id "
+    "AND m.away_team_id IS NULL")
+
+# 同一个官方 id 在不同场次里出现不同中文名 ⇒ 建行会二选一 ⇒ 这种必须**报出来**（不静默）。
+TEAM_MULTI_NAME_SQL = (
+    "SELECT count(*) FROM (SELECT jc_id FROM (" + _JC_ID_NAMES_SQL + ") x "
+    "GROUP BY jc_id HAVING count(DISTINCT cn) > 1) y")
+
+
+def ensure_jc_team_mappings(cur, sport: str = "football") -> dict[str, int]:
+    """为「竞彩出现过、但 ref.team 里还没有行」的官方 id 建行 + 灌映射，并回填存量场次。
+
+    幂等：已建行/已映射的行不再动；``fact.jc_match`` 的 team_id **只补 NULL**。
+    每轮采集跑一次的成本是 4 条查询（建完就是 0 行改动）⇒ 新队不再继续攒映射缺口。
+
+    返回 ``{"teams_created", "mappings_added", "home_backfilled", "away_backfilled",
+    "multi_name_ids"}``；``multi_name_ids`` > 0 ⇒ 有官方 id 带多个中文名，**需要人工看一眼**。
+    """
+    params = {"sport": sport}
+    cur.execute(TEAM_ENSURE_ROWS_SQL, params)
+    created = cur.rowcount or 0
+    cur.execute(TEAM_FILL_MAP_SQL, params)
+    mapped = cur.rowcount or 0
+    cur.execute(TEAM_BACKFILL_HOME_SQL, params)
+    home = cur.rowcount or 0
+    cur.execute(TEAM_BACKFILL_AWAY_SQL, params)
+    away = cur.rowcount or 0
+    multi = cur.execute(TEAM_MULTI_NAME_SQL, params).fetchone()[0]
+    if created or mapped or home or away:
+        logger.info("[jc] 队映射补齐：新建 %d 行 / 灌映射 %d 条 / 回填场次 %d+%d", created, mapped, home, away)
+    if multi:
+        logger.warning("[jc] 有 %d 个竞彩官方 id 出现多个中文名 ⇒ 建行只取其一，需人工核对", multi)
+    return {"teams_created": created, "mappings_added": mapped,
+            "home_backfilled": home, "away_backfilled": away, "multi_name_ids": int(multi or 0)}
+
+
+
 def _upsert(cur, table: str, pks: list[str], cols: list[str], row: dict,
             gates: list[str] | None = None, extra_where: str = "") -> int:
     """通用 upsert：ON CONFLICT (pks) DO UPDATE SET 可更新列 = EXCLUDED 值（WHERE 防旧批回退）。

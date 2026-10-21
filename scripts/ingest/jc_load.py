@@ -29,6 +29,7 @@ from pathlib import Path
 from core.log import logger
 from store import pg
 
+from ingest import jc_write
 from ingest.jc_read import OPTIONAL, files_for_batch, iter_markers
 from ingest.jc_topic import load_topic
 
@@ -208,6 +209,20 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("batch %s ups=%d errors=%s", r["marker"],
                         sum(t["ups"] for t in r["topics"]), r["errors"])
             _record_marker(conn, m, sum(t["ups"] for t in r["topics"]), not r["errors"])
+
+        # R50（2026-10-21）：新出现的竞彩官方 id 自动建行 + 灌映射（路线图 §6.12.3 A）。
+        # 之前这些队只停在「官方 id 出现过、但 ref.team 里没有那一行」⇒ home/away_team_id 永远是 NULL
+        # ⇒ 映射率卡在 153/397。实测这批中文名两两不同、与既有 name_cn 零冲突 ⇒ 1:1 建行无歧义。
+        # 幂等：建完之后每轮都是 0 行改动；既有行一个字节都不动（只 INSERT 新行 + ON CONFLICT DO NOTHING）。
+        try:
+            with conn.cursor() as cur:
+                _map_stats = jc_write.ensure_jc_team_mappings(cur)
+            conn.commit()
+            if _map_stats["teams_created"] or _map_stats["mappings_added"]:
+                logger.info("队映射补齐：%s", _map_stats)
+        except Exception as e:  # noqa: BLE001 — 补齐失败不许拖垮采集（下一轮还会再试）
+            conn.rollback()
+            logger.warning("队映射补齐失败（不影响本轮采集）：%s: %s", type(e).__name__, e)
 
         with conn.cursor() as cur:
             vals = [cur.execute(_TABLE_SQL[t]).fetchone()[0] for t in TABLES]
