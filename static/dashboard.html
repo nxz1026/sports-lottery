@@ -226,6 +226,30 @@ details>summary{cursor:pointer;color:var(--blue);font-size:11.5px}
   <div class="card" style="margin-top:10px;padding:10px"><h3>③ 胆拖注数（奖期票面工具）</h3><div class="toolbar"><input id="lotToolDan" placeholder="胆码数" style="width:70px"><input id="lotToolTuo" placeholder="拖码数" style="width:70px"><input id="lotToolChoose" placeholder="选号数" style="width:70px"><button class="btn primary" id="lotToolDanBtn">算注数</button><span class="hint" id="lotToolDanOut"></span></div></div>
   <div class="card" style="margin-top:10px;padding:10px"><h3>④ 描述统计（近 N 期开奖）</h3><div class="toolbar"><input id="lotToolStatsN" placeholder="期数" value="30" style="width:70px"><button class="btn primary" id="lotToolStatsBtn">统计</button><span class="hint" id="lotToolStatsOut"></span></div></div>
 </div>
+<!-- 建议 6：体彩侧独立小产品 —— 遗漏值统计 + 复式/拆单式/胆拖 拆法对比 -->
+<div class="card" style="margin-top:13px">
+  <h3>体彩统计面板 · 遗漏值 / 拆法对比 <span class="hint">建议 6</span></h3>
+  <p style="color:var(--mut);margin:6px 0 10px;font-size:12.5px"><b>本页只做历史统计呈现与组合数学计算，不构成投注建议；热号/冷号/遗漏值只描述已发生的历史事实，实测选号能力与纯随机无法区分。</b></p>
+  <div class="toolbar">
+    <select id="lotPanelGame">
+      <option value="85">超级大乐透</option>
+      <option value="35">排列3</option>
+      <option value="350133">排列5</option>
+      <option value="04">7星彩</option>
+    </select>
+    <label class="hint">期数 <input id="lotPanelN" type="number" min="1" max="100" value="100" style="width:66px"></label>
+    <button class="btn primary" id="lotPanelOmissionBtn">查遗漏值</button>
+    <button class="btn" id="lotPanelSplitsBtn">算拆法</button>
+    <span class="hint" id="lotPanelHint">—</span>
+  </div>
+  <div class="toolbar" style="margin-top:8px">
+    <input id="lotPanelFront" placeholder="前区选号逗号分隔，如 1,2,3,4,5,6" style="flex:1">
+    <input id="lotPanelBack" placeholder="后区选号，如 1,2,3" style="flex:1">
+  </div>
+  <p style="color:var(--dim);margin:8px 0 0;font-size:11.5px">遗漏值单位是<b>期</b>不是天（大乐透 2~3 天一期、7星彩 2 天一期）：当前遗漏＝距上次出现后未出现的期数；平均遗漏＝总期数÷出现次数＝1/p；最大遗漏＝历史最长连续未出现期数。拆法对比只针对超级大乐透（排列/星彩类只有直选）。</p>
+  <div id="lotPanelOmission" style="margin-top:10px"><div class="empty">点「查遗漏值」读取历史统计。</div></div>
+  <div id="lotPanelSplits" style="margin-top:10px"><div class="empty">填前区/后区选号后点「算拆法」。</div></div>
+</div>
 <!-- P3-C7/C8/C9：去除 view-history / view-ai-analyze 各一张「合规提示」卡与右侧 aside.rail 重复。
      footer <b>理性购彩提示</b> 已是合规宣言的规范位置（详见下方 footer）。 -->
 </section><section class="view" id="view-ai-analyze"><div class="hero"><div class="kicker">异步分析（LLM）</div><h2>AI 智能分析</h2><p>异步 job 生成：逐场解读 / 胆材叙事 / 开奖复盘。不阻塞主预测链路，可在左侧「数据源与任务」观察进度。</p></div><div class="toolbar"><label>日期 <input type="date" id="aiAnalyzeDate"></label><button class="btn primary" id="aiAnalyzeRun">▶ 生成当日分析</button><span class="hint" id="aiAnalyzeHint">—</span></div><div class="card"><h3>胆材叙事 <span class="hint" id="aiBankerMeta">—</span></h3><div id="aiBanker" class="empty">尚未生成。先点「生成当日分析」。</div></div><div class="card" style="margin-top:13px"><h3>逐场解读 <span class="hint" id="aiPerMatchMeta">—</span></h3><div id="aiPerMatch"><div class="empty">尚未生成。</div></div></div><div class="card" style="margin-top:13px"><h3>开奖复盘 <span class="hint" id="aiLotteryMeta">—</span></h3><div id="aiLottery"><div class="empty">尚未生成。</div></div></div><!-- P3-C7/C8/C9：去除 view-ai-analyze 的合规卡，与 view-history 同处理（见上一处注释） -->
@@ -720,6 +744,8 @@ function _set(id,msg){const el=document.getElementById(id);if(el)el.textContent=
 async function _lotCall(path){try{const r=await fetch(API+path,{credentials:"same-origin"});if(!r.ok)return {error:"HTTP "+r.status};return await r.json();}catch(e){return {error:e.message}}}
 function lotToolsInit(){
   ["Prize","Cost","Dan","Stats"].forEach(k=>document.getElementById("lotTool"+k+"Btn")?.addEventListener("click",()=>lotToolRun(k)));
+  document.getElementById("lotPanelOmissionBtn")?.addEventListener("click",()=>lotPanelOmission());
+  document.getElementById("lotPanelSplitsBtn")?.addEventListener("click",()=>lotPanelSplits());
 }
 async function lotToolRun(kind){
   const game=document.getElementById("lotToolGame").value;
@@ -749,6 +775,45 @@ async function lotToolRun(kind){
   }
 }
 function encURI(v){return encodeURIComponent(v);}
+
+// ── 建议 6：体彩统计面板（遗漏值 / 拆法对比）─────────────────────────────
+// 诚实提示（逐字）：本页只做历史统计呈现与组合数学计算，不构成投注建议；
+// 热号/冷号/遗漏值只描述已发生的历史事实，实测选号能力与纯随机无法区分。
+async function lotPanelOmission(){
+  const box=document.getElementById("lotPanelOmission");
+  if(!box)return;
+  const game=_gv("lotPanelGame"), n=_gv("lotPanelN")||"100";
+  const d=await _lotCall(`/lottery/omission?game=${game}&n=${n}`);
+  if(d.error){_set("lotPanelHint","错误:"+d.error);box.innerHTML='<div class="empty">读取失败。</div>';return;}
+  _set("lotPanelHint",`${d.game_name||d.game} · ${d.n_periods??"—"} 期`);
+  if(!d.pools||!d.pools.length){box.innerHTML=`<div class="empty">该彩种暂无开奖数据（n_periods=${d.n_periods??"0"}）。</div>`;return;}
+  let h=`<div class="hint" style="margin:0 0 6px;font-size:11.5px">样本 ${d.n_periods} 期 · 单位：期 · 缺失号码的当前遗漏＝总期数</div>`;
+  for(const p of d.pools){
+    const hot=(p.hot||[]).map(x=>`${x.num}(${x.count}次)`).join(" ");
+    const cold=(p.cold||[]).map(x=>`${x.num}(${x.count}次)`).join(" ");
+    const lng=(p.max_omission||[]).map(x=>`${x.num}(${x.cur}期)`).join(" ");
+    h+=`<h4 style="margin:12px 0 4px;font-size:13px">${esc(p.name)} <span class="hint" style="margin-left:4px">${p.lo}-${p.hi}（${p.size} 个号）</span></h4>`;
+    h+=`<div class="hint" style="margin:0 0 6px;font-size:11.5px">出现最多：${esc(hot||"—")} ｜ 出现最少：${esc(cold||"—")} ｜ 当前遗漏最久：${esc(lng||"—")}</div>`;
+    h+='<div class="scroll" style="max-height:240px"><table><thead><tr><th>号码</th><th>当前遗漏</th><th>平均遗漏</th><th>最大遗漏</th><th>出现次数</th></tr></thead><tbody>';
+    for(const it of p.items||[]){h+=`<tr><td>${it.num}</td><td>${it.cur}</td><td>${it.avg??"—"}</td><td>${it.max}</td><td>${it.count}</td></tr>`;}
+    h+='</tbody></table></div>';
+  }
+  box.innerHTML=h;
+}
+async function lotPanelSplits(){
+  const box=document.getElementById("lotPanelSplits");
+  if(!box)return;
+  const game=_gv("lotPanelGame"), f=_gv("lotPanelFront"), b=_gv("lotPanelBack");
+  if(!f){box.innerHTML='<div class="empty">需前区选号。</div>';return;}
+  const d=await _lotCall(`/lottery/splits?game=${game}&front=${encURI(f)}&back=${encURI(b)}`);
+  if(d.error){_set("lotPanelHint","错误:"+d.error);box.innerHTML='<div class="empty">计算失败。</div>';return;}
+  if(!d.rows||!d.rows.length){box.innerHTML=`<div class="empty">${esc(d.note||"无法计算")}</div>`;return;}
+  let h=`<div class="hint" style="margin:0 0 6px;font-size:11.5px">${esc(d.game_name||d.game)} · ${esc(d.formula||"")}</div>`;
+  h+='<div class="scroll"><table><thead><tr><th>方案</th><th>注数</th><th>成本（元）</th><th>出票张数</th><th>覆盖组合</th><th>占复式覆盖</th><th>说明</th></tr></thead><tbody>';
+  for(const r of d.rows){h+=`<tr><td>${esc(r.scheme)}</td><td>${r.tickets}</td><td>${r.cost}</td><td>${r.ticket_count}</td><td>${r.coverage}</td><td>${(Number(r.coverage_ratio||0)*100).toFixed(1)}%</td><td>${esc(r.note||"")}</td></tr>`;}
+  h+='</tbody></table></div>';
+  box.innerHTML=h;
+}
 
 lotToolsInit();
 document.querySelectorAll("#sportFilters .chip").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("#sportFilters .chip").forEach(x=>x.classList.remove("active"));b.classList.add("active");state.sportFilter=b.dataset.sport||"all";renderMatches()}));

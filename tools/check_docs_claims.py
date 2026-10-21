@@ -835,6 +835,95 @@ def main() -> int:
                 _bad_signal_routes.append(f"{_rf.relative_to(ROOT)}:{_i} {_path}")
     check("web 层没有『按异动直接给推荐』的端点（告警≠信号）", [], _bad_signal_routes)
 
+    # ---- 19.2 建议 6 的代码纪律（体彩侧独立小产品）----
+    _lot_svc = read(ROOT / "web" / "services" / "lottery.py")
+    _lot_api = read(ROOT / "web" / "routers" / "lottery_api.py")
+    _roadmap = read(ROOT / "docs" / "project" / "产品路线图-竞彩闭环-20261020.md")
+
+    # ① 文件级落地清单（§6.8.5）
+    check("建议 6 新增文件存在（tests/test_suggestion6_lottery_panel.py）", True,
+          (ROOT / "tests" / "test_suggestion6_lottery_panel.py").is_file())
+
+    # ② 两个新端点齐了（老端点另有一组「老字段未动」断言）
+    check("web 新增 /api/v1/lottery/omission 端点", True,
+          '@router.get("/lottery/omission")' in _lot_api)
+    check("web 新增 /api/v1/lottery/splits 端点", True,
+          '@router.get("/lottery/splits")' in _lot_api)
+
+    # ③ 遗漏值口径必须写死：单位是「期」不是「天」，四个字段齐
+    check("遗漏值单位是『期』不是『天』", True,
+          '"unit": "期"' in _lot_svc)
+    check("遗漏值四字段口径齐（cur/count/avg/max）", True,
+          all(k in _lot_svc for k in ("OMISSION_DEFINITION", '"cur"', '"avg"', '"max"', '"count')))
+    # max 必须是「连续未出现期数」= 索引差 - 1（曾错用索引差，与 cur 口径差 1）
+    check("最大遗漏用『连续未出现期数』（索引差-1），不是索引差", True,
+          "idx - last[num] - 1" in _lot_svc)
+
+    # ④ GAME_SPEC 的 pool 语义不一致：front_pool/back_pool 是**上界**，
+    #    pool/special_pool 是**个数** ⇒ 特别号上界必须减 1，
+    #    否则会把不存在的 15 号算进遗漏值（单测已抓到过这个真 bug）。
+    check("特别号上界用 special_pool-1（不把不存在的 15 号算进去）", True,
+          'g["special_pool"] - 1' in _lot_svc)
+
+    # ⑤ 复式注数口径 = C(m,5)×C(n,2)（**不是 m×n**）
+    check("复式注数按 C(m,front)×C(n,back) 算（不是 m×n）", True,
+          'C(m, g["front"]) * C(n, g["back"])' in _lot_svc)
+    check("拆法对比含『出票张数』维度（拆单式与复式的真实差别）", True,
+          '"ticket_count"' in _lot_svc and '"coverage_ratio"' in _lot_svc)
+
+    # ⑥ 诚实提示规范句必须**逐字**出现在三处：服务层常量 / 看板面板 / 路线图 §6.8.6
+    #    规范句本身在这里**钉死**（拆成两段字面量，源码里就是隐式拼接的两段）。
+    _DISC_PARTS = ("本页只做历史统计呈现与组合数学计算，不构成投注建议；",
+                   "热号/冷号/遗漏值只描述已发生的历史事实，实测选号能力与纯随机无法区分。")
+    _disc_expected = "".join(_DISC_PARTS)
+    _disc_runtime = ""
+    try:
+        _spec = importlib.util.spec_from_file_location(
+            "_guard_lottery_svc", ROOT / "web" / "services" / "lottery.py")
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        _disc_runtime = getattr(_mod, "DISCLAIMER", "")
+    except Exception:  # noqa: BLE001 - 读不到就判失败，不误伤
+        _disc_runtime = ""
+    check("诚实提示规范句的服务层常量 == 规范句（运行时真值）", _disc_expected, _disc_runtime)
+    check("诚实提示规范句在服务层源码里逐字声明", True,
+          all(p in _lot_svc for p in _DISC_PARTS))
+    check("诚实提示规范句逐字出现在看板面板顶部", True,
+          _disc_expected in _dash_html)
+    check("诚实提示规范句逐字出现在路线图 §6.8.6", True,
+          _disc_expected in _roadmap)
+
+    # ⑦ 新面板不得出现「选号推荐」承诺词（把统计呈现说成选号建议 = 违规）
+    _panel = ""
+    _i0 = _dash_html.find("体彩统计面板")
+    if _i0 >= 0:
+        _i1 = _dash_html.find('id="lotPanelSplits"', _i0)
+        _panel = _dash_html[_i0:(_i1 + 400 if _i1 > 0 else _i0 + 2000)]
+    check("体彩统计面板存在（容器 + 两个按钮）", True,
+          all(k in _dash_html for k in ('id="lotPanelOmission"', 'id="lotPanelSplits"',
+                                       'id="lotPanelOmissionBtn"', 'id="lotPanelSplitsBtn"',
+                                       "lotPanelOmission()", "lotPanelSplits()")))
+    check("体彩面板不含选号承诺词（必中/稳赚/回本/包中/盈利/推荐号码）", [],
+          [w for w in ("必中", "稳赚", "回本", "包中", "盈利", "推荐号码") if w in _panel])
+
+    # ⑧ 老端点与老字段**一字未动**（增量，不许借机改语义）
+    check("老端点 /lottery/{prize,cost,stats,dantuo} 仍在", True,
+          all(f'@router.get("/lottery/{p}")' in _lot_api
+              for p in ("prize", "cost", "stats", "dantuo")))
+    check("stats() 老字段未动（count/unique/most/odd_even/sum_min/sum_max/avg）", True,
+          all(f'"{k}"' in _lot_svc
+              for k in ("count", "unique", "most", "odd_even", "sum_min", "sum_max", "avg")))
+
+    # ⑨ 路线图 §6.8 必须写清实测口径与关键数字（防止只改代码不改文档）
+    check("路线图有 §6.8 建议 6 章节", True,
+          "### 6.8 建议 6 的实测订正与落地版" in _roadmap)
+    check("路线图 §6.8 记录了选号能力零假设检验的关键数字", True,
+          all(t in _roadmap for t in ("0.348", "0.411", "0.278", "99.667%", "Bonferroni")))
+    check("路线图 §6.8 记录了复式注数口径订正（C(m,5)×C(n,2)）", True,
+          "C(m,5)×C(n,2)" in _roadmap)
+    check("路线图 §6.8 记录了遗漏值口径（按期不按天）", True,
+          "按「期」计" in _roadmap and "max" in _roadmap)
+
     # ---- 20. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。
