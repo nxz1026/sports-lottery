@@ -38,9 +38,13 @@ ALTER TABLE analysis.ev_report ADD COLUMN IF NOT EXISTS league_key    text;
 ALTER TABLE analysis.ev_report ADD COLUMN IF NOT EXISTS decided_at    timestamptz;
 
 -- 幂等：同场同侧同一天只留一行（重跑更新，不重复插）
--- ⚠️ 表达式索引用的是 made_at::date（推荐单的「业务日」= 决策日）
+-- ⚠️ 表达式索引用的是 **BJT 日历日**：`made_at::date` 是 STABLE（依赖会话时区），
+--    PostgreSQL 不允许它进索引表达式（实测报 "functions in index expression must be
+--    marked IMMUTABLE"）；而 `made_at AT TIME ZONE 'Asia/Shanghai'` 是 IMMUTABLE ✓
+--    —— 顺带把「今天」的口径钉死在 BJT，与 web 层 `web/services/recommend.py` 一致
+--    （直接用 `made_at::date` 会按会话时区算、差一天，见路线图 §7 第 12 条）。
 CREATE UNIQUE INDEX IF NOT EXISTS ev_report_pick_uq
-    ON analysis.ev_report (match_id, option_code, (made_at::date));
+    ON analysis.ev_report (match_id, option_code, ((made_at AT TIME ZONE 'Asia/Shanghai')::date));
 
 -- ─────────────────────────────────────────────────────────────
 -- ② analysis.rec_settle：推荐单的结算结果（建议 4 子项 ③）

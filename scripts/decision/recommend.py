@@ -278,7 +278,7 @@ INSERT INTO analysis.ev_report (made_at, legs, p_parlay, ev, kelly, corr_adj, no
                                  match_id, option_code, sp_decide, p_model,
                                  match_date, league_key, decided_at)
 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-ON CONFLICT (match_id, option_code, (made_at::date)) DO UPDATE SET
+ON CONFLICT (match_id, option_code, ((made_at AT TIME ZONE 'Asia/Shanghai')::date)) DO UPDATE SET
   legs = EXCLUDED.legs, p_parlay = EXCLUDED.p_parlay, ev = EXCLUDED.ev,
   kelly = EXCLUDED.kelly, note = EXCLUDED.note, sp_decide = EXCLUDED.sp_decide,
   p_model = EXCLUDED.p_model, match_date = EXCLUDED.match_date,

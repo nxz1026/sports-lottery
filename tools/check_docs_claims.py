@@ -492,8 +492,8 @@ def main() -> int:
         check("建议 4 DDL 含 analysis.rec_settle", True, "analysis.rec_settle" in _s4)
         check("建议 4 DDL 给 ev_report 加了可空列（match_id/option_code/sp_decide）", True,
               all(k in _s4 for k in ("match_id", "option_code", "sp_decide")))
-        check("建议 4 DDL 有幂等唯一键（match_id, option_code, made_at::date）", True,
-              "ev_report_pick_uq" in _s4 and "made_at::date" in _s4)
+        check("建议 4 DDL 有幂等唯一键（match_id, option_code, BJT 日）", True,
+              "ev_report_pick_uq" in _s4 and "Asia/Shanghai" in _s4)
     for _rel in ("scripts/market/kelly.py", "scripts/decision/recommend.py",
                  "scripts/decision/settle.py", "web/services/recommend.py"):
         check(f"建议 4 新增文件存在（{_rel}）", True, (ROOT / _rel).is_file())
