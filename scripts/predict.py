@@ -1057,14 +1057,33 @@ def main() -> int:
         # 建议 4：结算历史推荐单 + 生成「今日推荐单」（决策层）。
         # 顺序很重要：先结算（用官方赛果），再生成新的（用今天的盘口与今天的模型概率）。
         # 尽力而为：失败只 warning —— 预测产出已经落盘，不能因为决策层挂了就废掉当天预测。
+        # ⚠️ 但**失败必须可见**：settle / recommend 各自独立 try（避免 recommend 崩了
+        #    掩盖 settle 的结果），且都落 events.jsonl（log_error）—— 生产首跑实测教训：
+        #    决策层 TypeError 被 warning 吞掉 ⇒「今日推荐单」一直是空的，没人发现。
         try:
-            from decision.recommend import main as _recommend_main
             from decision.settle import main as _settle_main
 
             _settle_main([])
+        except Exception as _exc:  # noqa: BLE001 - 决策层失败不影响预测产出
+            logger.error(f"推荐单结算失败（不影响预测产出）：{_exc}")
+            try:
+                from core.observability import log_error
+
+                log_error(_exc, context="predict.main.settle")
+            except Exception:
+                pass
+        try:
+            from decision.recommend import main as _recommend_main
+
             _recommend_main([])
         except Exception as _exc:  # noqa: BLE001 - 决策层失败不影响预测产出
-            logger.warning(f"推荐单/结算失败（不影响预测产出）：{_exc}")
+            logger.error(f"今日推荐单生成失败（不影响预测产出）：{_exc}")
+            try:
+                from core.observability import log_error
+
+                log_error(_exc, context="predict.main.recommend")
+            except Exception:
+                pass
         # Print combined JSON array for --all mode
         print(json.dumps(all_outputs, indent=2, ensure_ascii=False))
         # R18 #1: 任一联赛失败 → 退出码 1（fail-fast：cron 可见失败）

@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2439 passed / 72 skipped / 0 failed**（2511 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +19**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2442 passed / 72 skipped / 0 failed**（2514 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1296,6 +1296,29 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 **口径纪律**：战绩按**固定注额**统计（Kelly 是「建议」，战绩要可比就得用统一注额）；
 **n 不足（< 5）不给 ROI** —— 与建议 3 同一套纪律：宁可空白不误导。
 
+**生产首跑实测（2026-10-21，路线图 §6.6.5 / §6.6.6）**：
+
+| 项 | 实测 |
+|---|---|
+| 回溯推荐单 | 候选 **40** → 达标 **26**（**达标率 65%**）→ `analysis.ev_report` **26 行**（6 个 BJT 日；同场同日推多侧 **0**） |
+| EV 分布 | min **+0.0608** / 中位 **≈ +0.22** / max **+1.2215** ⇒ **EV ≥ 5% 这个阈值基本不起过滤作用** |
+| 结算与战绩 | 可结算 **13 / 26**（其余赛果未出 ⇒ pending、**不计未中**）、命中 **2 / 13**、投入 26 元、回报 20.26 元、**ROI −22.08%** |
+| HTTP 层 | `GET /api/v1/recommend` **200**；BJT 今日正确；二次请求一致（纯只读）；无鉴权 **401**；n<5 时 `roi=null` |
+
+**两个结论（别被 ROI 数字误导）**：
+
+1. **当前口径下这套推荐单不具备可证实的盈利能力** —— n=13、命中 2、ROI −22.08%。
+   样本太小 ⇒ **既不能断言策略无效，也不能声称它有效** ⇒ 页面/文档一律按「**未验证**」呈现。
+   **阈值暂不校准**（把 EV 门槛调高只是「挑跨市场定价差更大的场」，不等于挑到模型更有优势的场），
+   等样本 **n ≥ 100** 再重做校准。
+2. **首跑暴露 1 个「静默失败」型真 bug（已修）**：`store.pg.connect()` 用 psycopg3 默认 `tuple_row`
+   ⇒ 行是**普通 tuple**，而 `load_sale_matches` 写的是 `dict(r)` ⇒ `TypeError: object is not iterable`
+   ⇒ **「今日推荐单」自上线起一直是空的**（`settle.py` 侥幸没炸：它全程用位置索引）；
+   失败又被 `logger.warning` 吞掉 ⇒ 无人发现。
+   修复 4 处：位置索引 / settle 与 recommend 拆开且失败记 `logger.error` + `log_error` / 补 3 条 tuple 行回归测试 /
+   加 3 条守门（AST 扫 `fetchall()+dict(行变量)` 形态、`load_sale_matches` 必须位置索引、决策层失败必须可见）。
+   **全仓同类排查**：只有 3 处 `dict(row)`，另 2 处显式设了 `cur.row_factory = dict_row` ⇒ 无第二处隐患。
+
 ### v3.0 (2026-10-21) 建议 3 落地：命中率改「分层 + 样本量 + 区间」，主指标换 CLV
 
 **路线图 `docs/project/产品路线图-竞彩闭环-20261020.md` §建议 3 的代码侧已落地**；
@@ -1336,7 +1359,7 @@ naive/aware 时间戳直接比、`p_model` 误取市场先验、CLI 漏 `__main_
 
 **顺带修掉一处文档编码损坏**：路线图里「怎么做」三个字曾被写成三个 U+FFFD 替换字符
 （commit `1e4fdac` 引入，肉眼极易漏过）。已修复，并给守门加了**全仓 U+FFFD 扫描**
-（`tools/check_docs_claims.py`，116 项）⇒ 这类损坏以后进不了库。
+（`tools/check_docs_claims.py`，119 项）⇒ 这类损坏以后进不了库。
 
 ### v2 (2026-09-18) 代码审核修复：资源可靠性与逻辑正确性
 

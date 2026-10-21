@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from decision.recommend import (  # noqa: E402
     Candidate,
     _sp,
+    build_candidates,
+    load_sale_matches,
     pick_recommendation,
 )
 from decision.settle import is_hit, settle_pick  # noqa: E402
@@ -234,3 +236,116 @@ def test_settle_pick_without_result_returns_none():
     assert settle_pick(pick, None, stake=2.0) is None
     assert settle_pick(pick, {"sp_home": 2.0, "sp_draw": 3.5, "sp_away": 4.0,
                               "ft_h": None, "ft_a": None, "win_flag": None}, stake=2.0) is None
+
+
+# ── E. DB 行读取路径（tuple 行形态）—— 生产首跑踩过的坑 ────────────────
+#
+# `store.pg.connect()` 用 psycopg3 默认的 `tuple_row` ⇒ `conn.execute()` 返回的行是
+# **普通 tuple**。原实现写的是 `dict(r)` ⇒ 生产首次跑「今日推荐单」时抛
+# `TypeError: object is not iterable`，决策层失败被 warning 吞掉 ⇒ 看板永远是空的。
+# 这一组用**真实的 tuple 行形态**把读取路径钉住。
+
+class _TupleCursor:
+    """模拟 psycopg3 默认 tuple_row 的游标。"""
+
+    def __init__(self, rows: list[tuple]):
+        self._rows = rows
+
+    def fetchall(self) -> list[tuple]:
+        return list(self._rows)
+
+
+class _TupleConn:
+    """按 SQL 关键字返回 tuple 行的假连接。"""
+
+    def __init__(self, *, sale_rows=None, archive_rows=None):
+        self._sale_rows = sale_rows or []
+        self._archive_rows = archive_rows or []
+
+    def execute(self, sql, params=None):
+        text = " ".join(str(sql).split())
+        if "fact.jc_match m" in text and "business_date" in text:
+            return _TupleCursor(self._sale_rows)
+        if "model.pred_archive_match am" in text:
+            return _TupleCursor(self._archive_rows)
+        return _TupleCursor([])
+
+
+def test_load_sale_matches_accepts_tuple_rows():
+    """tuple 行 ⇒ 能取到字段（修复前 `dict(r)` 会抛 TypeError）。"""
+    conn = _TupleConn(sale_rows=[
+        (2042111, "2026-10-21", "甲队", "乙队", "西甲",
+         {"h": "1.86", "d": "3.70", "a": "3.12"}, "2026-10-20 23:53:01+00"),
+    ])
+    rows = load_sale_matches(conn)
+    assert len(rows) == 1
+    assert rows[0]["match_id"] == 2042111
+    assert rows[0]["home_cn"] == "甲队"
+    assert rows[0]["away_cn"] == "乙队"
+    assert rows[0]["options"]["h"] == "1.86"
+
+
+def test_build_candidates_today_mode_with_tuple_rows():
+    """今日模式整条读取路径在 tuple 行下跑通（生产首跑实测的回归）。"""
+    conn = _TupleConn(
+        sale_rows=[
+            (2042111, "2026-10-21", "甲队", "乙队", "西甲",
+             {"h": "1.86", "d": "3.70", "a": "3.12"}, "2026-10-20 23:53:01+00"),
+            # 这一场 options={} ⇒ SP 不齐 ⇒ 必须跳过（不猜、不用半个选项）
+            (2042112, "2026-10-21", "丙队", "丁队", "西甲",
+             {}, "2026-10-20 23:53:01+00"),
+        ],
+        archive_rows=[
+            # (jc_match_id, p_home, p_draw, p_away, stars, confidence, low_conf, match_date, league_key, run_at)
+            (2042111, 0.55, 0.25, 0.20, "3-star", 0.72, False,
+             "2026-10-22", "laliga", "2026-10-21 01:30:02+00"),
+        ],
+    )
+    # 预测文件兜底不参与（避免依赖生产目录内容）
+    import decision.recommend as rec_mod
+
+    orig = rec_mod.latest_pred_rows
+    rec_mod.latest_pred_rows = lambda directory=None: {}
+    try:
+        cands, stats = build_candidates(conn, backfill=False)
+    finally:
+        rec_mod.latest_pred_rows = orig
+
+    assert stats["sale"] == 2          # 在售 2 场
+    assert stats["with_sp"] == 1       # 其中 1 场 SP 齐全
+    assert stats["with_prob"] == 1     # 且归档里有它的概率
+    assert len(cands) == 1
+    assert cands[0].match_id == 2042111
+    assert cands[0].sp == {"h": 1.86, "d": 3.7, "a": 3.12}
+    assert cands[0].p_model == {"h": 0.55, "d": 0.25, "a": 0.2}
+    assert cands[0].source == "archive"
+
+
+def test_today_mode_candidate_reaches_pick_stage():
+    """端到端：tuple 行 → 候选 → 推荐单（EV 达标才推）。"""
+    conn = _TupleConn(
+        sale_rows=[
+            (2042111, "2026-10-21", "甲队", "乙队", "西甲",
+             {"h": "3.00", "d": "3.70", "a": "3.12"}, "2026-10-20 23:53:01+00"),
+        ],
+        archive_rows=[
+            (2042111, 0.55, 0.25, 0.20, "3-star", 0.72, False,
+             "2026-10-22", "laliga", "2026-10-21 01:30:02+00"),
+        ],
+    )
+    import decision.recommend as rec_mod
+
+    orig = rec_mod.latest_pred_rows
+    rec_mod.latest_pred_rows = lambda directory=None: {}
+    try:
+        cands, _stats = build_candidates(conn, backfill=False)
+    finally:
+        rec_mod.latest_pred_rows = orig
+
+    # h: 0.55 × 3.00 − 1 = 0.65 ⇒ 达标；a: 0.20 × 3.12 − 1 = −0.376；d: 0.25 × 3.7 − 1 = −0.075
+    pick = pick_recommendation(cands[0], min_ev=0.05, min_p=0.10)
+    assert pick is not None
+    assert pick["option_code"] == "h"
+    assert pick["ev"] == pytest.approx(0.65)
+    assert pick["sp"] == 3.0
+

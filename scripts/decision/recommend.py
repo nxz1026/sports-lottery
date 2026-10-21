@@ -175,9 +175,27 @@ SELECT DISTINCT ON (am.jc_match_id)
 """
 
 
+# _SALE_SQL 的列序（位置索引用，见 load_sale_matches 的注释）
+_SALE_COLS = ("match_id", "business_date", "home_cn", "away_cn",
+              "league_cn", "options", "snap_ts")
+
+
 def load_sale_matches(conn: Connection) -> list[dict[str, Any]]:
-    """竞彩当前期次在售场次（带 had 最新快照的原始 options）。"""
-    return [dict(r) for r in conn.execute(_SALE_SQL).fetchall()]
+    """竞彩当前期次在售场次（带 had 最新快照的原始 options）。
+
+    ⚠️ **按位置索引取列，不要写 `dict(r)`**：`store.pg.connect()` 用 psycopg3 默认的
+    `tuple_row` ⇒ `conn.execute()` 返回的行是**普通 tuple**，`dict(tuple)` 会抛
+    `TypeError: object is not iterable`（生产首跑实测：决策层因此静默失败，
+    「今日推荐单」永远是空的）。本仓库里 `dict(row)` 只有在**显式设了
+    `cur.row_factory = dict_row`** 的地方才安全（见 `store/jc_view.py`）。
+    """
+    out: list[dict[str, Any]] = []
+    for r in conn.execute(_SALE_SQL).fetchall():
+        out.append({
+            "match_id": int(r[0]), "business_date": r[1], "home_cn": r[2],
+            "away_cn": r[3], "league_cn": r[4], "options": r[5], "snap_ts": r[6],
+        })
+    return out
 
 
 def load_archive_probs(conn: Connection, match_ids: list[int]) -> dict[int, dict[str, Any]]:
@@ -441,7 +459,7 @@ def main(argv: list[str] | None = None) -> int:
                         p["home_cn"], p["away_cn"], p["league_key"] or "-", p["option_code"],
                         p["sp"], p["p"], p["ev"], p["kelly"])
         if args.dry:
-            logger.info("（只读模式，加 --execute 才写库）")
+            logger.info("（只读模式：本次未写库）")
             return 0
         ids = write_reports(conn, picks)
         logger.info("recommend: 已写 analysis.ev_report %d 行（report_id %s）",

@@ -544,7 +544,68 @@ def main() -> int:
                     _bad4.append(f"from {_mod} import ...")
         check(f"{_rel} 顶层未 import scripts.*", [], _bad4)
 
-    # ---- 17. 守门项数自检（防「README 说的项数」与实际漂移）----
+    # ---- 18. 建议 4 补：DB 行读取形态（生产首跑真 bug 的回归锁）----
+    # psycopg3 默认 `tuple_row` ⇒ `conn.execute()` 返回的行是**普通 tuple**，
+    # `dict(row)` 会抛 `TypeError: object is not iterable`（生产首跑实测：
+    # 「今日推荐单」因此一直是空的，且失败被 warning 吞掉 ⇒ 没人发现）。
+    # 判定口径：**同一函数内既有 fetchall() 又有 dict(<单个变量>)** ⇒ 疑似把 DB 行当 dict；
+    # 只有**显式设了 `cur.row_factory = dict_row`** 的文件才放行。
+    _dbrow_bad: list[str] = []
+    for _base in ("scripts", "web"):
+        for _f in sorted((ROOT / _base).rglob("*.py")):
+            try:
+                _txt = _f.read_text(encoding="utf-8")
+            except Exception:  # noqa: BLE001 - 读不到就跳过，不误伤
+                continue
+            if "row_factory" in _txt:      # 显式设了 row_factory ⇒ dict(row) 安全
+                continue
+            try:
+                _tree = ast.parse(_txt)
+            except SyntaxError:
+                continue
+            for _fn in ast.walk(_tree):
+                if not isinstance(_fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                _has_fetch = any(
+                    isinstance(_n, ast.Call) and isinstance(_n.func, ast.Attribute)
+                    and _n.func.attr in ("fetchall", "fetchmany")
+                    for _n in ast.walk(_fn))
+                if not _has_fetch:
+                    continue
+                for _n in ast.walk(_fn):
+                    if (isinstance(_n, ast.Call) and isinstance(_n.func, ast.Name)
+                            and _n.func.id == "dict" and len(_n.args) == 1
+                            and isinstance(_n.args[0], ast.Name)):
+                        _dbrow_bad.append(f"{_f.relative_to(ROOT)}:{_n.lineno} "
+                                          f"dict({_n.args[0].id})")
+    check("scripts/web 不得把 DB 行直接 dict()（psycopg3 默认 tuple 行）", [], _dbrow_bad)
+
+    # 今日模式的读取入口必须走位置索引（与回溯模式同款写法）
+    _sale_dict_calls: list[str] = ["<load_sale_matches 不存在>"]
+    try:
+        _rec_tree = ast.parse(_rec_src)
+    except SyntaxError:
+        _rec_tree = ast.Module(body=[], type_ignores=[])
+    for _fn in ast.walk(_rec_tree):
+        if isinstance(_fn, ast.FunctionDef) and _fn.name == "load_sale_matches":
+            _sale_dict_calls = [
+                f"dict({_a.args[0].id})"
+                for _a in ast.walk(_fn)
+                if isinstance(_a, ast.Call) and isinstance(_a.func, ast.Name)
+                and _a.func.id == "dict" and len(_a.args) == 1
+                and isinstance(_a.args[0], ast.Name)
+            ]
+            break
+    check("load_sale_matches 用位置索引取列（不用 dict(row)）", [], _sale_dict_calls)
+
+    # 决策层失败必须**可见**：warning 会被吞掉（生产首跑就是这么丢的）
+    _predict_src = read(ROOT / "scripts" / "predict.py")
+    check("决策层失败必须可见（logger.error + log_error 落 events.jsonl）", True,
+          'context="predict.main.recommend"' in _predict_src
+          and "今日推荐单生成失败" in _predict_src
+          and "logger.error" in _predict_src)
+
+    # ---- 19. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。
     _guard_total = len(results) + 1
