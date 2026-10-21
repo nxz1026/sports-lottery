@@ -5,12 +5,24 @@
 | 口径 | 样本 | ≥5% 命中率 | 评价 |
 |---|---|---|---|
 | 首末差（开盘 vs 临场） | 406 场（版本数 ≥ 5） | **77%**（314 场） | **纯噪音** —— 几乎每场都「异动」 |
-| **相邻 ~10 分钟跳变** | **21,620** 个相邻对 | **0.40%**（86 次） | 可用 ⇒ 144 个采集周期 × 0.40% ≈ **0.6 次/天** |
+| **相邻快照跳变（4~20 分钟）** | **23,955** 个相邻对 | **0.405%**（97 次） | 可用 ⇒ ≈**3.2 组/天**（按场次聚合的推送粒度） |
 
-⇒ 默认阈值 **5%**（可配 3%，命中率 1.23% ⇒ ≈1.8 次/天）。
+⇒ 默认阈值 **5%**（可配 3%，命中率 1.21% ⇒ ≈9.7 组/天，噪音偏大）。
 
-**相邻对只取间隔 ~10 分钟的**（540~660 秒）：跨批次/跨天的自然间隔（1/7/20/60/120 分钟）
-不是「10 分钟内的变盘」⇒ 排除，否则会混进「隔夜重开」这类假异动。
+⚠️ **窗口为什么是 4~20 分钟、不是「恰好 10 分钟」**（生产实测，2026-10-21）：
+采集节奏**并不恒定**（实测间隔有 1/3/4/5/7/8/9/10/20/23/60/97/120 分钟）。
+若把窗口卡死在 540~660 秒 ⇒ **324 场里只有 176 场进得了窗口**（漏 45%），
+而且「恰好 10 分钟」这个前提本身就不成立。
+按间隔分桶看 ≥5% 命中率（30 天）：
+
+| 间隔桶 | 相邻对 | ≥5% 命中率 | 判定 |
+|---|---|---|---|
+| < 4 分钟 | 2,399 | 0.167% | 采集过密（多半是重扫）⇒ 排除 |
+| **4~20 分钟** | **23,955** | **0.405%** | ✅ **真变盘区间**（覆盖全部 324 场） |
+| 20~60 分钟 | 1,793 | 1.004% | 跨批次 ⇒ 开始混进假异动 |
+| > 60 分钟 | 1,824 | **9.868%** | **隔夜/重开重定价 ⇒ 纯假异动**（24 倍） |
+
+⇒ 窗口取 **240~1200 秒**：短于 4 分钟是重扫、长于 20 分钟开始进假异动。
 
 **「开盘价」口径的坑（实测 406 场里 405 场中招）**：`fact.jc_offer` 最早一版的
 `options` 常常是 `{}`（竞彩刚开盘时 had 还没值）⇒ 取「第一版快照」算 delta 会全是 NULL。
@@ -42,11 +54,15 @@ from core.log import logger
 from psycopg import Connection
 from store import pg
 
-# 默认阈值（%）：相邻跳变口径下实测命中 0.40% ⇒ ≈0.6 次/天
+# 默认阈值（%）：相邻跳变口径下实测命中 0.405% ⇒ ≈3.2 组/天（按场次聚合）
 DEFAULT_THRESHOLD_PCT = 5.0
-# 相邻对的时间间隔窗（秒）：只认「~10 分钟内的变盘」
-MIN_GAP_SEC = 540
-MAX_GAP_SEC = 660
+# 相邻对的时间间隔窗（秒）：**4~20 分钟**
+# ⚠️ 采集节奏并不恒定（实测 1/3/4/5/7/8/9/10/20/23/60/97/120 分钟都有）⇒
+#    卡死「540~660 秒」会漏掉 324 场里的 148 场（45%）。
+#    短于 4 分钟是重扫（≥5% 命中 0.167%）；长于 20 分钟开始混进假异动
+#    （20~60 分钟 1.004% / >60 分钟 9.868% ⇒ 隔夜重开重定价）。
+MIN_GAP_SEC = 240
+MAX_GAP_SEC = 1200
 # 检测窗口（小时）
 DEFAULT_LOOKBACK_HOURS = 24.0
 
@@ -225,6 +241,49 @@ def push_groups(groups: list[dict[str, Any]], threshold_pct: float) -> dict[str,
     return {"pushed": bool(res.get("ok")), "detail": res}
 
 
+def already_pushed(conn: Connection, moves: list[dict[str, Any]]) -> set[tuple]:
+    """返回**已经推过**的事件键集合（场次, 侧, 前一版, 后一版）。
+
+    ⚠️ **为什么必须查这一步**：检测窗口是 24h ⇒ 同一个异动会被**每一轮**重新检出。
+    若不查，就会**每 10 分钟把同一条异动重推一遍** ⇒ 刷屏。
+    落表侧靠 `ON CONFLICT` **不重置** `pushed` 来保证「已推」这件事不丢
+    （§6.7.3 第 ② 条：没推的绝不能标已推；推过的也不该被重置成没推）。
+    """
+    if not moves:
+        return set()
+    keys = [(m["match_id"], m["option_code"], m["prev_ts"], m["curr_ts"]) for m in moves]
+    rows = conn.execute(
+        "SELECT match_id, option_code, prev_ts, curr_ts "
+        "  FROM analysis.odds_move "
+        " WHERE pushed "
+        "   AND (match_id, option_code, prev_ts, curr_ts) IN "
+        "       (SELECT * FROM unnest(%s::bigint[], %s::text[], %s::timestamptz[], %s::timestamptz[]))",
+        ([k[0] for k in keys], [k[1] for k in keys],
+         [k[2] for k in keys], [k[3] for k in keys])).fetchall()
+    return {(r[0], r[1], r[2], r[3]) for r in rows}
+
+
+def mark_pushed(conn: Connection, groups: list[dict[str, Any]]) -> int:
+    """把**确实被推送**的那些侧逐条标成 ``pushed=true``（返回标记条数）。
+
+    ⚠️ 必须**逐条精确标记**（场次 + 侧 + 前后两版）。
+    原实现是 ``match_id = ANY(...) AND curr_ts = ANY(...)`` ⇒ **笛卡尔积**
+    ⇒ 会把「同场但不同侧 / 不同相邻对」里**没被推送**的行也标成 ``pushed=true``
+    ⇒ 正是「绝不谎报已推」这条纪律要防的事。
+    """
+    n = 0
+    for g in groups:
+        for s in g["sides"]:
+            conn.execute(
+                "UPDATE analysis.odds_move "
+                "SET pushed = true, pushed_at = now(), updated_at = now() "
+                "WHERE match_id = %s AND option_code = %s "
+                "AND prev_ts = %s AND curr_ts = %s",
+                (s["match_id"], s["option_code"], s["prev_ts"], s["curr_ts"]))
+            n += 1
+    return n
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="赔率异动检测（相邻快照跳变）→ analysis.odds_move")
     ap.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD_PCT,
@@ -232,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--lookback-hours", type=float, default=DEFAULT_LOOKBACK_HOURS,
                     help="检测窗口（小时），默认 24")
     ap.add_argument("--no-push", action="store_true", help="只落表，不推送")
+    ap.add_argument("--repush", action="store_true",
+                    help="把**已推过**的也重推一次（默认只推没推过的，避免刷屏）")
     ap.add_argument("--dry", action="store_true", help="只报计划，不写库")
     args = ap.parse_args(argv)
 
@@ -249,15 +310,23 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("（只读模式：未写库、未推送）")
             return 0
         n_written = write_moves(conn, moves)
+        # 只推**没推过**的（检测窗口 24h ⇒ 同一个异动每轮都会被重新检出；
+        # 不去重就会每 10 分钟重推同一条 ⇒ 刷屏）。--repush 才无视去重重推。
+        done = set() if args.repush else already_pushed(conn, moves)
+        new_moves = [m for m in moves
+                     if (m["match_id"], m["option_code"], m["prev_ts"], m["curr_ts"]) not in done]
+        new_groups = group_by_match(new_moves)
+        if done:
+            logger.info("odds_move: 跳过已推过的 %d 侧（剩 %d 侧待推）", len(done), len(new_moves))
         pushed = {"pushed": False, "reason": "skipped_by_flag"}
-        if not args.no_push and groups:
-            pushed = push_groups(groups, args.threshold)
+        if not args.no_push and new_groups:
+            pushed = push_groups(new_groups, args.threshold)
             if pushed.get("pushed"):
-                conn.execute(
-                    "UPDATE analysis.odds_move SET pushed = true, pushed_at = now(), updated_at = now() "
-                    "WHERE match_id = ANY(%s) AND curr_ts = ANY(%s)",
-                    (list({g["match_id"] for g in groups}),
-                     list({g["curr_ts"] for g in groups})))
+                # ⚠️ 必须**逐条精确标记**（场次+侧+前后两版）—— 见 mark_pushed 的注释。
+                n_marked = mark_pushed(conn, new_groups)
+                logger.info("odds_move: 标记 pushed %d 条", n_marked)
+        elif not args.no_push:
+            pushed = {"pushed": False, "reason": "no_new_moves"}
         logger.info("odds_move: 落表 %d 行 / 推送 %s", n_written, pushed)
     return 0
 

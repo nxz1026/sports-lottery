@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2472 passed / 72 skipped / 0 failed**（2544 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2476 passed / 72 skipped / 0 failed**（2548 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1279,12 +1279,15 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 **一条前提订正（原文是错的）**：原文说「赔率异动告警**复用既有告警 webhook**」——
 **既有 webhook 并不存在**（全仓无、crontab 无、systemd timers 无）⇒ 必须**新建**推送通道。
 另一条：告警口径**不能用**「开盘 vs 临场」的首末差（实测 ≥5% 命中 **77%**，纯噪音），
-必须用「**相邻 ~10 分钟快照的跳变**」（≥5% 命中 0.40% ⇒ ≈0.6 次/天）。
+必须用「**相邻快照的跳变**」（实测 ≥5% 命中 0.405% ⇒ **≈3.2 组/天**，按场次聚合的推送粒度）。
+⚠️ 窗口最终取 **4~20 分钟（240~1200 秒）**而不是「恰好 10 分钟」—— 实测采集间隔并不恒定
+（1/3/4/5/7/8/9/10/20/23/60/97/120 分钟都有），卡死 10 分钟会漏掉 45% 的场次；
+而 **> 60 分钟间隔的 ≥5% 命中高达 9.868%**（隔夜/重开重定价 ⇒ 假异动）⇒ 必须设上限。
 
 | 改动 | 落点 |
 |---|---|
 | 错位三分量 | `scripts/market/gap_calc.py`：`gap_decide`（决策时错位，**固定**）/ `gap_now`（当前错位，**滚动**）/ `drift_pp`（漂移，pp）。决策时盘口取 `snap_ts <= 归档 run_at` 的**最后一版三项齐全的 had**；`p_model` 取 `model.pred_archive_match` 的归档概率（**精确匹配 `jc_match_id`**，不用市场先验） |
-| 异动检测 | `scripts/market/odds_move.py`：相邻跳变检测（只认 **540~660 秒**的间隔，跨批次自然间隔不算）→ 幂等落 `analysis.odds_move`；**每侧一行**，**按场次聚合成一条**推送（不刷屏） |
+| 异动检测 | `scripts/market/odds_move.py`：相邻跳变检测（只认 **240~1200 秒**即 4~20 分钟的间隔，跨批次/隔夜重开不算）→ 幂等落 `analysis.odds_move`；**每侧一行**，**按场次聚合成一条**推送（不刷屏）；**只推没推过的**（`--repush` 才重发） |
 | 推送通道 | `scripts/market/notify.py`：**只从环境变量 `FEISHU_WEBHOOK_URL` 读**；未配置 ⇒ `{"ok": false, "reason": "not_configured"}` ⇒ `pushed` 恒 false，**绝不谎报已推** |
 | DDL | `docs/db/suggestion5_schema.sql`：`analysis.odds_move` 新表（15 列，PK `(match_id, play_type, option_code, prev_ts, curr_ts)`，3 索引，幂等，**既有表零改动**） |
 | 只读视图 | `web/services/odds_move.py`（事件 + 运维视图）、`web/services/gap.py`（三分量附加）、`web/services/notify.py`（**顶层不 import scripts**，函数内延迟 import） |
@@ -1302,11 +1305,13 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 3. **异动事件落表才是资产** —— 每条存（场次/侧/前后两版 `snap_ts`/前后 SP/跳变幅度/阈值/是否已推），
    **任何人可用同一公式复算**。
 
-**新增 32 项守门断言**（`tools/check_docs_claims.py`，156 项）—— 重点 3 条：
+**新增 34 项守门断言**（`tools/check_docs_claims.py`，158 项）—— 重点 4 条：
 ① **看板内联 JS 必须语法合法**（`node --check`）—— 本轮实测踩到：往 `dashboard.html` 插函数时
 少写一个大括号 ⇒ 整个内联脚本解析失败 ⇒ **看板所有交互全挂**（页面还"能打开"，只是什么都不响应）；
 ② **仓库任何文件都不得含飞书 webhook URL**（凭证只走 env，不入代码/文档/commit/日志）；
-③ **未配 webhook 不得谎报已推** + **告警文案必须带「不是下注理由」**。
+③ **未配 webhook 不得谎报已推** + **告警文案必须带「不是下注理由」**；
+④ **推送标记逐条精确**（不许 `ANY` 的笛卡尔积）+ **推送必须去重**（检测窗口 24h，
+不去重就会每 10 分钟重推同一条 ⇒ 刷屏）。
 
 ### v4.0 (2026-10-21) 建议 4 落地：决策层（今日推荐单 + Kelly + 竞彩官方赔率结算）
 

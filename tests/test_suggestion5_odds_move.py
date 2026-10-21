@@ -119,8 +119,25 @@ def test_detect_moves_skips_incomplete_options():
 
 
 def test_detect_moves_default_threshold_is_five_percent():
-    """默认阈值 5%（实测相邻跳变命中率 0.40% ⇒ ≈0.6 次/天）。"""
+    """默认阈值 5%（实测相邻跳变命中率 0.405% ⇒ ≈3.2 组/天）。"""
     assert DEFAULT_THRESHOLD_PCT == 5.0
+
+
+def test_detect_moves_window_is_four_to_twenty_minutes():
+    """相邻对窗口 = **4~20 分钟**（240~1200 秒）。
+
+    ⚠️ 原设计是 540~660 秒（「恰好 10 分钟」），**生产实测推翻了它**：
+    ① 采集间隔**并不恒定**（实测 1/3/4/5/7/8/9/10/20/23/60/97/120 分钟都有）
+       ⇒ 卡死 10 分钟会漏掉 324 场里的 148 场（**45%**）；
+    ② **> 60 分钟间隔的 ≥5% 命中高达 9.868%**（隔夜/重开重定价 ⇒ 假异动）
+       ⇒ 必须设上限，否则告警全是噪音。
+    """
+    from market import odds_move as om
+
+    assert om.MIN_GAP_SEC == 240
+    assert om.MAX_GAP_SEC == 1200
+    # SQL 必须把窗口作为参数传下去（不是写死在 SQL 里）
+    assert "%s" in om._PAIRS_SQL and "BETWEEN %s AND %s" in om._PAIRS_SQL
 
 
 # ── B. 落表与聚合 ─────────────────────────────────────────────────────
@@ -152,6 +169,60 @@ def test_group_by_match_aggregates_sides_per_match():
     assert len(groups) == 2
     g1 = next(g for g in groups if g["match_id"] == 1)
     assert len(g1["sides"]) == 2
+
+
+def test_already_pushed_detects_previously_pushed_events():
+    """推送必须**去重**：检测窗口 24h ⇒ 同一异动每轮都会重新检出。
+
+    ⚠️ 不去重 ⇒ 每 10 分钟重推同一条 ⇒ 刷屏。已推过的事件要从推送集合里剔除。
+    """
+    from market.odds_move import already_pushed
+
+    m1 = {"match_id": 1, "option_code": "h", "prev_ts": _ts(20), "curr_ts": _ts(30)}
+    m2 = {"match_id": 2, "option_code": "a", "prev_ts": _ts(20), "curr_ts": _ts(30)}
+    conn = _FakeConn([(1, "h", _ts(20), _ts(30))])   # m1 已推过
+    done = already_pushed(conn, [m1, m2])
+    assert done == {(1, "h", _ts(20), _ts(30))}
+    assert m2["match_id"] not in {d[0] for d in done}
+    # 查询必须带 pushed 条件 + 四元组精确匹配
+    sql = conn.executed[0][0]
+    assert "pushed" in sql and "prev_ts" in sql and "curr_ts" in sql
+
+
+def test_already_pushed_empty_moves_short_circuits():
+    """没有异动 ⇒ 不查库。"""
+    from market.odds_move import already_pushed
+
+    conn = _FakeConn()
+    assert already_pushed(conn, []) == set()
+    assert conn.executed == []
+
+
+def test_mark_pushed_updates_exact_rows_only():
+    """推送标记必须**逐条精确**（场次+侧+前后两版），不许用 ANY 的笛卡尔积。
+
+    ⚠️ 原实现是 ``match_id = ANY(...) AND curr_ts = ANY(...)``
+    ⇒ 会把「同场但不同侧 / 不同相邻对」里**没被推送**的行也标成 pushed=true
+    ⇒ 正是「绝不谎报已推」这条纪律要防的事。
+    """
+    from market.odds_move import mark_pushed
+
+    conn = _FakeConn()
+    groups = group_by_match([
+        {"match_id": 1, "option_code": "h", "prev_ts": _ts(20), "curr_ts": _ts(30),
+         "sp_prev": 2.0, "sp_curr": 2.2, "move_pct": 10.0, "league_cn": "西甲"},
+        {"match_id": 1, "option_code": "a", "prev_ts": _ts(40), "curr_ts": _ts(50),
+         "sp_prev": 4.0, "sp_curr": 4.4, "move_pct": 10.0, "league_cn": "西甲"},
+    ])
+    n = mark_pushed(conn, groups)
+    assert n == 2
+    for sql, params in conn.executed:
+        assert "ANY(" not in sql, "不许用 ANY 的笛卡尔积"
+        assert params == (1, params[1], params[2], params[3])
+    # 两条标记各自精确到（场次, 侧, 前一版, 后一版）
+    assert [p[1] for p in (c[1] for c in conn.executed)] == ["h", "a"]
+    assert conn.executed[0][1][2] == _ts(20) and conn.executed[0][1][3] == _ts(30)
+    assert conn.executed[1][1][2] == _ts(40) and conn.executed[1][1][3] == _ts(50)
 
 
 def test_format_alert_warns_moves_are_info_not_signal():

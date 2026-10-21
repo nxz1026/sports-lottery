@@ -680,6 +680,31 @@ def main() -> int:
     check("异动推送失败不阻断落库（pushed 保持 false）", True,
           "pushed" in _om_src and "push_failed" in _om_src)
 
+    # 推送标记必须**逐条精确**（场次+侧+前后两版）——
+    # 原实现用 `match_id = ANY(...) AND curr_ts = ANY(...)` ⇒ **笛卡尔积**
+    # ⇒ 会把没被推送的行也标成 pushed=true ⇒ 正是「绝不谎报已推」要防的事。
+    _mp_ok = False
+    try:
+        _mp_tree = ast.parse(_om_src)
+        for _fn in ast.walk(_mp_tree):
+            if not (isinstance(_fn, ast.FunctionDef) and _fn.name == "mark_pushed"):
+                continue
+            _sqls = [n.value for n in ast.walk(_fn)
+                     if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                     and n.value.strip().upper().startswith("UPDATE")]
+            _mp_ok = bool(_sqls) and all("ANY(" not in s for s in _sqls) and any(
+                all(k in s for k in ("option_code = %s", "prev_ts = %s", "curr_ts = %s"))
+                for s in _sqls)
+            break
+    except SyntaxError:
+        _mp_ok = False
+    check("推送标记逐条精确（不许 ANY 笛卡尔积 ⇒ 会谎报已推）", True, _mp_ok)
+
+    # 推送必须**去重**：检测窗口 24h ⇒ 同一异动每轮都会重新检出
+    # ⇒ 不去重就会每 10 分钟重推同一条 ⇒ 刷屏。
+    check("异动推送去重（只推没推过的；--repush 才重发）", True,
+          "already_pushed" in _om_src and "--repush" in _om_src)
+
     # ④ 告警文案必须带「异动是信息不是信号」（§6.6.5.1 的水位结论）
     check("告警文案带「异动是信息不是信号」的硬约束", True,
           "不是下注理由" in _om_src and "信息" in _om_src)
@@ -744,8 +769,8 @@ def main() -> int:
           all(k in _dash_html for k in ("gap_decide", "gap_now", "drift_pp")))
 
     # ⑫ 异动检测的相邻对口径必须是「~10 分钟间隔」窗口（跨批次自然间隔不算）
-    check("异动检测只取 ~10 分钟的相邻对（540~660 秒）", True,
-          "MIN_GAP_SEC = 540" in _om_src and "MAX_GAP_SEC = 660" in _om_src)
+    check("异动检测只取 4~20 分钟的相邻对（240~1200 秒）", True,
+          "MIN_GAP_SEC = 240" in _om_src and "MAX_GAP_SEC = 1200" in _om_src)
     check("异动检测默认阈值 5%（实测命中 0.40%）", True,
           "DEFAULT_THRESHOLD_PCT = 5.0" in _om_src)
 
