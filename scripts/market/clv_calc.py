@@ -39,8 +39,8 @@ from store import pg
 from market.clv import clv
 from market.devig import safe_devig
 
-# 竞彩 had 的 options 键 → 模型概率字段
-_OPTION_FIELDS = (("h", "p_home"), ("d", "p_draw"), ("a", "p_away"))
+# 竞彩 had 的选项码 → 模型概率的键（与 `analysis.clv_match.option_code` 的取值域一致）
+_OPTION_CODES = ("h", "d", "a")
 
 # 归档行 → 候选 CLV 场次（只要关联上竞彩 match_id、且概率齐）
 # 注意：**同一场会有多份归档**（每天跑一次预测 ⇒ 每天一份）⇒ 不能任意取一条，
@@ -198,10 +198,10 @@ def compute_clv(conn: Connection, date_from: str | None = None,
         if not _before_kickoff(close_ts, kickoff_bj):
             n_skipped += 1
             continue
-        p_models = {"h": p_home, "d": p_draw, "a": p_away}
+        p_models = {"h": float(p_home), "d": float(p_draw), "a": float(p_away)}
         wrote = False
-        for code, field in _OPTION_FIELDS:
-            p_model = float(p_models[field])
+        for code in _OPTION_CODES:
+            p_model = p_models[code]
             p_c = p_close.get(code)
             if p_c is None or p_c <= 0 or p_model <= 0:
                 continue  # clv() 对 0 会抛（不许 -inf 进账本）⇒ 跳过该选项

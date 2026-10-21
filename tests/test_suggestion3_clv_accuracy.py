@@ -350,6 +350,103 @@ def test_archive_no_predictions_writes_nothing():
 
 # ── D. 真库全链（表未建则 skip）────────────────────────────────────────
 
+class _FakeClvConn:
+    """`compute_clv` 的假连接：按 SQL 关键字分派，覆盖「候选 → 收盘 → 落明细 → 日汇总」全链。
+
+    存在的意义：2026-10-21 首次在生产跑这条管线时炸了 ``KeyError: 'p_home'``
+    （选项码与概率键对不上）—— 纯函数单测看不见它，只有**把整条链跑一遍**才炸得出来。
+    """
+
+    def __init__(self, src_rows, close_rows, daily_count=1):
+        self.src_rows = src_rows
+        self.close_rows = close_rows
+        self.daily_count = daily_count
+        self.inserted = []
+        self.daily_writes = 0
+
+    def execute(self, sql, params=None):
+        flat = " ".join(sql.split())
+        if "FROM model.pred_archive_match" in flat:
+            return _FakeRows(self.src_rows)
+        if "FROM fact.jc_odds_history" in flat:
+            return _FakeRows(self.close_rows)
+        if flat.startswith("INSERT INTO analysis.clv_match"):
+            self.inserted.append(params)
+            return _FakeRows([])
+        if flat.startswith("INSERT INTO analysis.clv_daily"):
+            self.daily_writes += 1
+            return _FakeRows([])
+        if "SELECT count(*) FROM analysis.clv_daily" in flat:
+            return _FakeRows([(self.daily_count,)])
+        return _FakeRows([])
+
+
+class _FakeRows:
+    def __init__(self, rows): self.rows = rows
+
+    def fetchall(self): return self.rows
+
+    def fetchone(self): return self.rows[0] if self.rows else None
+
+
+def _clv_src_row(*, run_at, kickoff_bj, jc_match_id=2041853, p=(0.5, 0.3, 0.2)):
+    """`model.pred_archive_match` + `model.pred_archive` join 出来的一行（顺序同 `_SRC_SQL`）。"""
+    return (9, "A FC|B FC", "2026-10-21", "epl", jc_match_id,
+            p[0], p[1], p[2], run_at, kickoff_bj)
+
+
+def test_compute_clv_writes_one_row_per_option():
+    """一条归档 + 一份收盘 ⇒ 落 3 行明细（h/d/a），CLV 数值 = ln(p_model/p_close)。"""
+    import math
+    from datetime import datetime, timezone
+
+    from market import clv_calc
+
+    run_at = datetime(2026, 10, 21, 1, 0, 0, tzinfo=timezone.utc)
+    kickoff = datetime(2026, 10, 22, 2, 0, 0)          # naive，BJT 墙上时钟
+    close_ts = datetime(2026, 10, 21, 10, 0, 0, tzinfo=timezone.utc)  # = BJT 10-21 18:00
+    odds = {"h": "2.00", "d": "3.50", "a": "4.00"}
+    conn = _FakeClvConn(
+        src_rows=[_clv_src_row(run_at=run_at, kickoff_bj=kickoff)],
+        close_rows=[(2041853, 8, close_ts, odds)])
+
+    stats = clv_calc.compute_clv(conn)
+    assert stats["n_candidates"] == 1
+    assert stats["n_matched"] == 1
+    assert stats["n_rows"] == 3
+    assert len(conn.inserted) == 3
+    codes = {p[5] for p in conn.inserted}
+    assert codes == {"h", "d", "a"}
+    # 去水概率：1/2 + 1/3.5 + 1/4 = 0.5+0.2857+0.25 = 1.0357 ⇒ p_close(h) = 0.4828
+    raw = {"h": 1 / 2.0, "d": 1 / 3.5, "a": 1 / 4.0}
+    total = sum(raw.values())
+    for p in conn.inserted:
+        code, p_model, p_close = p[5], float(p[6]), float(p[7])
+        assert p_model == pytest.approx({"h": 0.5, "d": 0.3, "a": 0.2}[code])
+        assert p_close == pytest.approx(raw[code] / total, abs=1e-6)
+        assert float(p[8]) == pytest.approx(math.log(p_model / p_close), abs=1e-9)
+
+
+def test_compute_clv_skips_when_close_is_after_kickoff():
+    """收盘晚于开球 ⇒ 该场跳过（不落明细），n_skipped 计数。"""
+    from datetime import datetime, timezone
+
+    from market import clv_calc
+
+    run_at = datetime(2026, 10, 21, 1, 0, 0, tzinfo=timezone.utc)
+    kickoff = datetime(2026, 10, 22, 2, 0, 0)               # BJT 10-22 02:00
+    close_ts = datetime(2026, 10, 21, 19, 0, 0, tzinfo=timezone.utc)  # BJT 10-22 03:00 ⇒ 晚于开球
+    conn = _FakeClvConn(
+        src_rows=[_clv_src_row(run_at=run_at, kickoff_bj=kickoff)],
+        close_rows=[(2041853, 8, close_ts, {"h": "2.00", "d": "3.50", "a": "4.00"})])
+
+    stats = clv_calc.compute_clv(conn)
+    assert stats["n_matched"] == 0
+    assert stats["n_rows"] == 0
+    assert stats["n_skipped"] == 1
+    assert conn.inserted == []
+
+
 @pytest.fixture()
 def db_conn():
     try:
