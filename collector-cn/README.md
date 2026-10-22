@@ -20,10 +20,10 @@ python collector.py --collect-all      # 采集全部 8 topic
 python collector.py --push-batch <topic>...   # 定时任务主路径：B1 采集 + B2 原子推 + G(A) .done 清单（league key-only tar 流式）
 ```
 
-## 计划任务（5 个）
+## 计划任务（5 个）—— **2026-10-22 起本机已停用，改手动**
 | 任务 | 周期 | VBS 参数 | topic |
 |---|---|---|---|
-| `collector_offer_10m` | 每 1 小时（2026-09-17 降频，原 10 分钟） | `offer` | 7 快 topic |
+| `collector_offer_10m` | 每 2 小时（2026-09-17 由 10 分钟降 1 小时，2026-09-21 再降 2 小时） | `offer` | 7 快 topic |
 | `collector_0930/1530/2130/2330` | 每日 4 档 | `night` | 8 topic（含 `jc_odds_history`） |
 
 全部走 `wscript scripts/collector_silent.vbs <mode>`（S4U 无窗口）；单例锁
@@ -34,6 +34,43 @@ python collector.py --push-batch <topic>...   # 定时任务主路径：B1 采�
 - `night` = 8 topic（offer 7 + jc_odds_history），4 个 daily 档（09:30/15:30/21:30/23:30）专用
 - `jc_odds_history` 单批 ~60-75s（27 场在售 QPS=1.0），只在 daily 档跑，防网络挂起时快批堆积僵尸 python（2026-09-16 死机复盘）
 - 计划任务均为"开机即跑/登录即跑"（BootTrigger+LogonTrigger）+ `StartWhenAvailable` 漏档补跑（2026-09-21）
+
+## 手动模式（2026-10-22 起，本机生效）
+**采集机是工作电脑，不是 24h 开机** ⇒ 5 个计划任务在本机**已停用**（`Enabled=False`，任务定义保留未删）。
+**机制本身完整保留**（任务定义 XML + `collector_silent.vbs` + config 一字未改），随时可恢复。
+
+**为什么值得改**：近 7 天实测（`jczq_offer`，117 次相邻批比较）——
+**54% 的批次完全空转**（采回来和上一批一模一样）；07–09 时共 36 批只有 **1 批**有产出（2.8%）；
+新增开售（111 场）**全部**落在 11–17 时且一天只有一次「开售潮」；赔率变动集中在赛前 17–24 时。
+⇒ 全天 16 批里有一半是纯空转，而用户「不是随时在看数据」。
+
+### 怎么用：双击 `scripts\refresh_now.bat`
+一键跑完整条链（**这是主路径**）：
+
+| 步 | 动作 | 落点 |
+|---|---|---|
+| 1 | `collector.py --push-batch`（8 topic）采集 + 原子推远端 | 落港 `/srv/league-staging/incoming/cn-collector` |
+| 2 | `ssh oracle 'bash ~/bin/jc-ingest-run.sh'` | `fact.jc_*` |
+| 3 | `ssh oracle '… scripts/decision/recommend.py'` | `analysis.ev_report`（今日推荐单） |
+| 4 | `ssh oracle '… scripts/decision/settle.py'` | `analysis.rec_settle`（战绩） |
+
+参数：`refresh_now.bat [fast|full] [nosettle]`
+- `fast` = 跳过 `jc_odds_history`（省 ~60s；但「赔率异动」视图不会多一个历史点）
+- `nosettle` = 跳过第 4 步
+- 日志：`logs\refresh_now.log`（双击后停在 `pause`，不会闪窗）
+
+### 怎么恢复自动：管理员 PowerShell
+```powershell
+powershell -ExecutionPolicy Bypass -File E:\2026Workplace\Code\collector-cn\scripts\tasks_backup\restore_scheduled_tasks.ps1
+```
+（用 `20261022-manual-mode\*.xml` 逐字恢复任务定义并启用；恢复前先跑一次 `scripts\collect_batch.bat night` 验证采集链路。）
+
+### 手动模式必须配的新鲜度守门（否则就是新的静默失败）
+采集端改手动后，「人忘了先采集就直接出荐单」成了新的静默失败路径：**库里最新 SP 可能还是几天前的，
+照样算得出 EV，页面看上去完全正常**。⇒ `scripts/decision/recommend.py` 加了两层闸：
+- **全局闸**：全库 `had` 最新快照超 6 小时 ⇒ **拒绝出单**（退出码 3），并打印修复命令；`--allow-stale` 可显式放行（note 里留痕）。
+- **逐场闸**：某一场自己的快照超龄 ⇒ 跳过该场（不用旧价算 EV）。
+- 页面同步显示「定价赔率快照 X 小时前」，过期标红（`web/services/recommend.py::offer_freshness`，唯一真源在 scripts 层）。
 
 ## 契约 v1.2（远端 2026-09-15 升级：新增 fetched_at 键 + 7 topic 完整推送 + .done 清单）
 

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,12 @@ from market.kelly import (  # noqa: E402
     kelly_fraction,
     suggested_stake,
 )
+
+# 定价快照（fact.jc_offer.snap_ts）必须**相对现在**造：推荐单的定价新鲜度守门按
+# 快照龄判定（默认阈值 6 小时），写死日期会随时间推移变成「超龄」⇒ 测试变红
+# （2026-10-22 实测踩到：写死的 2026-10-20 快照被守门跳过，候选变 0）。
+_FRESH_SNAP = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+_STALE_SNAP = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
 
 # ── A. Kelly / EV 纯函数 ───────────────────────────────────────────────
 
@@ -275,7 +282,7 @@ def test_load_sale_matches_accepts_tuple_rows():
     """tuple 行 ⇒ 能取到字段（修复前 `dict(r)` 会抛 TypeError）。"""
     conn = _TupleConn(sale_rows=[
         (2042111, "2026-10-21", "甲队", "乙队", "西甲",
-         {"h": "1.86", "d": "3.70", "a": "3.12"}, "2026-10-20 23:53:01+00"),
+         {"h": "1.86", "d": "3.70", "a": "3.12"}, _FRESH_SNAP),
     ])
     rows = load_sale_matches(conn)
     assert len(rows) == 1
@@ -290,10 +297,10 @@ def test_build_candidates_today_mode_with_tuple_rows():
     conn = _TupleConn(
         sale_rows=[
             (2042111, "2026-10-21", "甲队", "乙队", "西甲",
-             {"h": "1.86", "d": "3.70", "a": "3.12"}, "2026-10-20 23:53:01+00"),
+             {"h": "1.86", "d": "3.70", "a": "3.12"}, _FRESH_SNAP),
             # 这一场 options={} ⇒ SP 不齐 ⇒ 必须跳过（不猜、不用半个选项）
             (2042112, "2026-10-21", "丙队", "丁队", "西甲",
-             {}, "2026-10-20 23:53:01+00"),
+             {}, _FRESH_SNAP),
         ],
         archive_rows=[
             # (jc_match_id, p_home, p_draw, p_away, stars, confidence, low_conf, match_date, league_key, run_at)
@@ -326,7 +333,7 @@ def test_today_mode_candidate_reaches_pick_stage():
     conn = _TupleConn(
         sale_rows=[
             (2042111, "2026-10-21", "甲队", "乙队", "西甲",
-             {"h": "3.00", "d": "3.70", "a": "3.12"}, "2026-10-20 23:53:01+00"),
+             {"h": "3.00", "d": "3.70", "a": "3.12"}, _FRESH_SNAP),
         ],
         archive_rows=[
             (2042111, 0.55, 0.25, 0.20, "3-star", 0.72, False,

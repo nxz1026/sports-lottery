@@ -100,6 +100,11 @@ const RECOMMEND_PAYLOAD = {
   },
   pricing_note: '定价用竞彩官方 SP。',
   calendar_note: '日历口径：BJT。',
+  offer_freshness: {
+    threshold_hours: 6, latest_snap: '2026-10-22 14:48:07+00', age_hours: 0.54,
+    stale: false, arrival_ts: '2026-10-22 14:50:05+00', arrival_age_hours: 0.47,
+    arrival_stale: false, degraded: false,
+  },
 };
 const ACCURACY_PAYLOAD = {
   leagues: { epl: { '7d': { reconciled: 20, direction_accuracy: 0.55, score_accuracy: 0.2, over_under_accuracy: 0.5 }, '30d': {} } },

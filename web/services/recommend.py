@@ -141,8 +141,36 @@ def record(min_n: int = 5) -> dict[str, Any]:
                 "by_day": [], "detail": []}
 
 
+def offer_freshness(threshold_hours: float | None = None) -> dict[str, Any]:
+    """定价赔率快照的新鲜度（页面要**显式显示**，别让用户以为盘口是实时的）。
+
+    **唯一真源 = `scripts/decision/recommend.py::offer_freshness`**（函数内延迟 import；
+    web 层顶层不得 import scripts.*）⇒ 页面显示与生成端守门是同一张表、同一阈值，
+    不会出现「页面说新鲜、生成端说过期」的两套口径。
+
+    读失败 → degraded=True、字段为 None，**不编数**。
+    """
+    out: dict[str, Any] = {
+        "threshold_hours": None, "latest_snap": None, "age_hours": None,
+        "stale": None, "arrival_ts": None, "arrival_age_hours": None,
+        "arrival_stale": None, "degraded": False,
+    }
+    try:
+        from decision.recommend import DEFAULT_MAX_OFFER_AGE_HOURS
+        from decision.recommend import offer_freshness as _of
+        from store import pg
+
+        th = DEFAULT_MAX_OFFER_AGE_HOURS if threshold_hours is None else threshold_hours
+        with pg.read_conn("ro") as conn:
+            out.update(_of(conn, th))
+    except Exception as exc:  # noqa: BLE001 - 只读视图，任何异常降级
+        logger.warning("web.recommend 读赔率新鲜度失败（降级）：%s", exc)
+        out["degraded"] = True
+    return out
+
+
 def snapshot() -> dict[str, Any]:
-    """看板一次拿全：今日推荐单 + 战绩。"""
+    """看板一次拿全：今日推荐单 + 战绩 + 定价赔率新鲜度。"""
     picks = today_picks()
     rec = record()
     return {
@@ -150,11 +178,16 @@ def snapshot() -> dict[str, Any]:
         "picks": picks,
         "n_picks": len(picks),
         "record": rec,
+        "offer_freshness": offer_freshness(),
         "pricing_note": ("定价 = 竞彩官方 SP（决策时刻那一版）；结算 = 竞彩官方结算 SP。"
                          "⚠️ 本模型概率为「市场锚定」，EV 含 ESPN↔竞彩 跨市场定价差，"
                          "不等于模型有同等真实优势。"
                          "⚠️ 竞彩 had 三侧含水（实测等额三侧投注每元回报 ≈ 0.75 ⇒ 水位约 25~33%），"
                          "单边投注要先扛掉这笔水 ⇒ EV 必须显著高于水位才谈得上盈利。"),
-        "calendar_note": ("推荐单在每次预测跑完后生成（生产 timer 09:30）；"
-                          "09:30 之前为空是节奏，不是故障。"),
+        "calendar_note": ("推荐单是**手动生成**的（scripts/decision/recommend.py）："
+                          "生产上没有任何 cron / systemd 跑它。"
+                          "采集端 2026-10-22 起也改成手动（国内机 scripts\\refresh_now.bat 一键跑完"
+                          "「采集 → 推送 → 远端装载 → 出荐单」）。"
+                          "所以「今日推荐单」为空 = 还没跑，不是故障；"
+                          "要看实时盘口，请先跑一次采集刷新。"),
     }

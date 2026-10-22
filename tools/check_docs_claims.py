@@ -1326,6 +1326,68 @@ def main() -> int:
     check("README 记录了 279 纠正后的目标（皇家贝蒂斯 #2355）", True,
           "皇家贝蒂斯" in readme and "2355" in readme)
 
+    # ---- 22. 采集端手动模式 + 定价赔率新鲜度守门（§6.13.5）----
+    # 触发：用户「我本机是我的工作电脑，不是每天 24h 都开的」⇒ 采集端改按需手动。
+    _cn_readme = read(ROOT / "collector-cn" / "README.md")
+    _refresh_bat = ROOT / "collector-cn" / "scripts" / "refresh_now.bat"
+    check("一键手动刷新脚本在库（双击就跑完整条链）", True, _refresh_bat.is_file())
+    _rb = read(_refresh_bat) if _refresh_bat.is_file() else ""
+    check("一键脚本覆盖 4 步：采集+推送 / 远端装载 / 出荐单 / 结算", True,
+          "--push-batch" in _rb and "jc-ingest-run.sh" in _rb
+          and "decision/recommend.py" in _rb and "decision/settle.py" in _rb)
+    check("一键脚本是纯 ASCII（cmd 按 OEM 码页解析，中文会截断字符串字面量）", True,
+          _refresh_bat.is_file()
+          and all(b < 128 for b in _refresh_bat.read_bytes()))
+    check("一键脚本结束/失败都 pause（双击不闪窗）", True,
+          _rb.count("pause") >= 3)
+    _tasks_bak = ROOT / "collector-cn" / "scripts" / "tasks_backup" / "20261022-manual-mode"
+    _task_xmls = sorted(p.name for p in _tasks_bak.glob("*.xml")) if _tasks_bak.is_dir() else []
+    check("5 个计划任务的 XML 备份在库（机制保留、可逐字恢复）", True,
+          len(_task_xmls) == 5
+          and all(f"collector_{n}.xml" in _task_xmls
+                  for n in ("0930", "1530", "2130", "2330"))
+          and "collector_offer_10m.xml" in _task_xmls)
+    _restore = ROOT / "collector-cn" / "scripts" / "tasks_backup" / "restore_scheduled_tasks.ps1"
+    check("一键恢复脚本存在（Register-ScheduledTask + Enable）", True,
+          _restore.is_file()
+          and "Register-ScheduledTask" in read(_restore)
+          and "Enable-ScheduledTask" in read(_restore))
+    check("collector-cn/README 有「手动模式」章节", True,
+          "手动模式" in _cn_readme and "refresh_now.bat" in _cn_readme)
+    check("collector-cn/README 的频率矛盾已订正（不许再写「每 1 小时（2026-09-17 降频」）", True,
+          not stale_lines(_cn_readme, ["每 1 小时（2026-09-17 降频"]))
+    check("collector-cn/README 记了实测依据（54% 空转 ⇒ 不是拍脑袋改）", True,
+          "54%" in _cn_readme and "2.8%" in _cn_readme)
+    check("路线图有 §6.13.5（采集端改手动 + 新鲜度守门）", True,
+          "#### 6.13.5" in _roadmap)
+    check("路线图 §6.13.5 记了关键数字（54% 空转 / 6 小时阈值 / 退出码 3）", True,
+          "54%" in _roadmap and "退出码 **3**" in _roadmap and "6 小时" in _roadmap)
+
+    _rec_src = read(ROOT / "scripts" / "decision" / "recommend.py")
+    check("荐单有全局新鲜度闸（拒绝出单 + --allow-stale 显式放行）", True,
+          "STALE_EXIT_CODE" in _rec_src and "--allow-stale" in _rec_src
+          and "--max-offer-age-hours" in _rec_src)
+    check("荐单守门默认阈值 = 6 小时（与文档一致）", True,
+          "DEFAULT_MAX_OFFER_AGE_HOURS = 6.0" in _rec_src)
+    check("荐单有逐场闸（超龄场次跳过，计入 stale_skipped）", True,
+          "stale_skipped" in _rec_src)
+    check("荐单守门同时看采集到港时间（ops.file_arrival，与 web freshness 同源）", True,
+          "ops.file_arrival" in _rec_src)
+    _web_rec = read(ROOT / "web" / "services" / "recommend.py")
+    check("web 层新鲜度委托 scripts 唯一真源（不复制一份 SQL）", True,
+          "from decision.recommend import" in _web_rec
+          and "fact.jc_offer" not in _web_rec)
+    check("荐单生成时间的旧话不再复现（web 服务层 + 看板）", True,
+          not stale_lines(_web_rec, ["推荐单在每次预测跑完后生成"])
+          and not stale_lines(read(ROOT / "static" / "dashboard.html"),
+                              ["推荐单在每次预测跑完后生成"]))
+    check("看板显式显示定价赔率快照新鲜度", True,
+          "offer_freshness" in read(ROOT / "static" / "dashboard.html"))
+    check("看板冒烟 fixture 含 offer_freshness（前端不因缺字段炸）", True,
+          "offer_freshness" in read(ROOT / "tools" / "dashboard_smoke.js"))
+    check("README 记了手动模式主路径（refresh_now.bat）", True,
+          "refresh_now.bat" in readme and "手动" in readme)
+
     # ---- 21. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。

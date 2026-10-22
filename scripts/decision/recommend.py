@@ -25,7 +25,7 @@ import glob
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +57,75 @@ def _sp(v: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return f if f > 1.0 else None
+
+
+# ── 定价赔率新鲜度守门（采集端改手动模式配套，2026-10-22）──────────────
+#
+# 为什么需要这道闸：采集端从「计划任务自动采」改成「手动跑」之后，
+# 「人忘了先采集就直接出荐单」成了新的**静默失败**路径 ——
+# 库里最新 SP 可能还是几天前的，照样算得出 EV，页面看上去完全正常
+# （不报错、不空态、ROI 照样有数字）。这就是本项目反复治理的
+# 「跑完了 ≠ 跑对了」的另一种形态 ⇒ 必须在**生成端**堵住，不能靠人记得。
+#
+# 两层闸：
+#   ① **全局闸**：全库 had 最新快照距今 > 阈值 ⇒ 拒绝出荐单（退出码 3），
+#      并打印「先采集」的修复命令。--allow-stale 可显式放行（note 里留痕）。
+#   ② **逐场闸**：某一场自己的 had 快照距今 > 阈值 ⇒ 跳过该场
+#      （不用旧价给这一场算 EV），计入 stats['stale_skipped']。
+#
+# ⚠️ 为什么 snap_ts 能当「采集时刻」用：fact.jc_offer 的主键是
+# (match_id, play_type, snap_ts) ⇒ **每次采集都新插一行**，
+# 不存在「赔率没动就不更新、snap_ts 停在旧值」的情况
+# （生产实测：1758 个不同 snap_ts × 5 个 play_type × 471 场）。
+DEFAULT_MAX_OFFER_AGE_HOURS = 6.0
+STALE_EXIT_CODE = 3          # 与「配额耗尽(3)」区分：文档里写明即可
+
+_FRESH_SQL = "SELECT max(snap_ts) FROM fact.jc_offer WHERE play_type = 'had'"
+_ARRIVAL_SQL = "SELECT max(arrived_at) FROM ops.file_arrival WHERE topic = 'jczq_offer'"
+
+
+def _age_hours(ts: Any) -> float | None:
+    """时间戳 → 距今小时数。None = 缺失/不可解析（调用方按最坏情况处理）。"""
+    if ts is None:
+        return None
+    if isinstance(ts, str):
+        try:
+            ts = datetime.fromisoformat(ts)
+        except ValueError:
+            return None
+    if not isinstance(ts, datetime):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - ts).total_seconds() / 3600.0
+
+
+def offer_freshness(conn: Connection,
+                    max_age_hours: float = DEFAULT_MAX_OFFER_AGE_HOURS) -> dict[str, Any]:
+    """定价赔率新鲜度（两个口径：库内快照 / 采集到港）。
+
+    返回 {"latest_snap", "age_hours", "stale", "threshold_hours",
+          "arrival_ts", "arrival_age_hours", "arrival_stale"}。
+
+    - age_hours 为 None（一条 had 快照都没有）⇒ stale=True（宁可拦，不可拿旧价出单）。
+    - arrival_* 走 ops.file_arrival（采集侧到港时间），与 web 的
+      /api/v1/jc/freshness 同一数据源 ⇒ 两处口径一致。
+    """
+    row = conn.execute(_FRESH_SQL).fetchone()
+    latest = row[0] if row else None
+    age = _age_hours(latest)
+    arow = conn.execute(_ARRIVAL_SQL).fetchone()
+    arrival = arow[0] if arow else None
+    arr_age = _age_hours(arrival)
+    return {
+        "latest_snap": str(latest) if latest is not None else None,
+        "age_hours": round(age, 2) if age is not None else None,
+        "stale": age is None or age > max_age_hours,
+        "threshold_hours": max_age_hours,
+        "arrival_ts": str(arrival) if arrival is not None else None,
+        "arrival_age_hours": round(arr_age, 2) if arr_age is not None else None,
+        "arrival_stale": arr_age is None or arr_age > max_age_hours,
+    }
 
 
 @dataclass
@@ -323,6 +392,8 @@ def write_reports(conn: Connection, picks: list[dict[str, Any]]) -> list[int]:
             extra.append("该场标记 low_confidence")
         if p.get("source") == "predfile":
             extra.append("概率来自最新预测文件按名匹配（无当日归档）")
+        if p.get("stale_note"):
+            extra.append(p["stale_note"])
         note = _NOTE_TMPL.format(
             side=side_cn, sp=p["sp"], p=round(p["p"], 4), ev=round(p["ev"], 4),
             kelly=round(p["kelly"], 4), stake=p["stake"],
@@ -347,13 +418,20 @@ def write_reports(conn: Connection, picks: list[dict[str, Any]]) -> list[int]:
 
 # ── 主流程 ──────────────────────────────────────────────────────────
 def build_candidates(conn: Connection, *, backfill: bool = False,
-                     to_date: str | None = None) -> tuple[list[Candidate], dict[str, int]]:
+                     to_date: str | None = None,
+                     max_offer_age_hours: float | None = DEFAULT_MAX_OFFER_AGE_HOURS,
+                     allow_stale: bool = False) -> tuple[list[Candidate], dict[str, Any]]:
     """装配候选场次。``backfill=True`` 走「历史归档 + 决策时刻可见价」回溯模式。
 
     今日模式：竞彩当前期次在售场次 × 模型概率（归档优先，预测文件按名兜底）。
     回溯模式：历史归档里关联上竞彩的场次 × 决策时刻（run_at）可见的 SP。
+
+    ``max_offer_age_hours``：**逐场**定价快照龄闸（见模块上方口径说明）。
+    None = 不限龄（只用于回溯模式与测试）；``allow_stale=True`` 时也放行超龄场次。
     """
-    stats = {"sale": 0, "with_sp": 0, "with_prob": 0, "backfill_src": 0}
+    stats: dict[str, Any] = {"sale": 0, "with_sp": 0, "with_prob": 0,
+                              "backfill_src": 0, "stale_skipped": 0,
+                              "offer_age_hours": None}
     cands: list[Candidate] = []
 
     if backfill:
@@ -385,6 +463,15 @@ def build_candidates(conn: Connection, *, backfill: bool = False,
     stats["sale"] = len(sale)
     rows: list[dict[str, Any]] = []
     for r in sale:
+        # 逐场定价快照龄闸：这场自己的价太久没更新 ⇒ 不用旧价算 EV
+        age = _age_hours(r["snap_ts"])
+        if age is not None:
+            prev_age = stats.get("offer_age_hours")
+            stats["offer_age_hours"] = age if prev_age is None else max(prev_age, age)
+        if (not allow_stale and max_offer_age_hours is not None
+                and age is not None and age > max_offer_age_hours):
+            stats["stale_skipped"] += 1
+            continue
         opts = r["options"] or {}
         sp = {code: _sp(opts.get(code)) for code, _ in _SIDES}
         if any(v is None for v in sp.values()):
@@ -446,14 +533,41 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--min-ev", type=float, default=MIN_EV, help="单位 EV 阈值（默认 0.05）")
     ap.add_argument("--min-p", type=float, default=MIN_P, help="模型概率下限（默认 0.10）")
     ap.add_argument("--dry", action="store_true", help="只报计划，不写库")
+    ap.add_argument("--max-offer-age-hours", type=float, default=DEFAULT_MAX_OFFER_AGE_HOURS,
+                    help="定价赔率快照最大年龄（小时）；超龄即拒绝出单（默认 6）")
+    ap.add_argument("--allow-stale", action="store_true",
+                    help="放行超龄定价快照（会在 note 里标注用的是几小时前的赔率）")
     args = ap.parse_args(argv)
 
     with pg.write_conn("app") as conn:
-        cands, stats = build_candidates(conn, backfill=args.backfill, to_date=args.to_date)
+        fresh = offer_freshness(conn, args.max_offer_age_hours)
+        logger.info("recommend: 定价赔率快照 %s（距今 %s 小时 / 阈值 %s 小时）；采集到港 %s（距今 %s 小时）",
+                    fresh["latest_snap"] or "无", fresh["age_hours"],
+                    fresh["threshold_hours"], fresh["arrival_ts"] or "无",
+                    fresh["arrival_age_hours"])
+        # ① 全局闸：定价快照整体超龄 ⇒ 拒绝出单（拿旧价算 EV 是静默失败，不是「没数据」）
+        if fresh["stale"] and not args.allow_stale:
+            logger.error(
+                "recommend: 拒绝出单 —— 定价赔率快照已 %s 小时未更新（阈值 %s 小时）。"
+                "采集端改手动后这是新增的静默失败路径：旧价算出来的 EV 页面看着完全正常。"
+                "请先跑一次采集（国内机 scripts\\refresh_now.bat，或 collector.py --push-batch <topic>...），"
+                "等远端装载完再出单；确需放行请加 --allow-stale（会在 note 里留痕）。",
+                fresh["age_hours"] if fresh["age_hours"] is not None else "∞",
+                fresh["threshold_hours"])
+            return STALE_EXIT_CODE
+        cands, stats = build_candidates(conn, backfill=args.backfill, to_date=args.to_date,
+                                        max_offer_age_hours=args.max_offer_age_hours,
+                                        allow_stale=args.allow_stale)
         picks = [p for p in (pick_recommendation(c, min_ev=args.min_ev, min_p=args.min_p)
                              for c in cands) if p]
-        logger.info("recommend: 候选 %d（SP 齐 %d / 有模型概率 %d）→ 达标 %d 条",
-                    stats["sale"], stats["with_sp"], stats["with_prob"], len(picks))
+        if args.allow_stale and fresh["stale"]:
+            stale_note = (f"⚠️ 定价赔率快照已 {fresh['age_hours']} 小时未更新"
+                          f"（阈值 {fresh['threshold_hours']} 小时，--allow-stale 放行）")
+            for p in picks:
+                p["stale_note"] = stale_note
+        logger.info("recommend: 候选 %d（SP 齐 %d / 有模型概率 %d / 跳过超龄定价 %d）→ 达标 %d 条",
+                    stats["sale"], stats["with_sp"], stats["with_prob"],
+                    stats["stale_skipped"], len(picks))
         for p in picks:
             logger.info("  · %s vs %s [%s] %s SP=%.2f p=%.3f EV=%+.3f Kelly=%.3f",
                         p["home_cn"], p["away_cn"], p["league_key"] or "-", p["option_code"],

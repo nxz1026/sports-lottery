@@ -43,7 +43,7 @@ python tools/check_docs_claims.py            # 文档声明校验（README/AGENT
 
 ## Testing instructions
 
-- 单测：`python -m pytest tests -q`（当前基线 **2782 collected / 2707 passed / 75 skipped / 0 failed**）
+- 单测：`python -m pytest tests -q`（当前基线 **2805 collected / 2730 passed / 75 skipped / 0 failed**）
 - **脚本需 `PYTHONPATH=scripts`**（或 `sys.path` 注入），否则裸 `import core.*` 失败；
   `pytest` 本身不需要 —— 各测试文件自行注入 `sys.path`
 - 新增行为必须补测；沿用现有命名 `tests/test_<module>.py`
