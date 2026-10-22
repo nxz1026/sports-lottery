@@ -1250,6 +1250,13 @@ def main() -> int:
           "54" in _sec613 and "12 场" in _sec613 and "rc=0" in _sec613)
     check("§6.13 记了采集端回补的生产验收（452 行 ups / jc_result 462 / 结算 32 条）", True,
           "452" in _sec613 and "462" in _sec613 and "32/32" in _sec613)
+    # 契约版本号：代码固定写 v1.3，文档正文历史上写的是 v1.2（重构前旧号）⇒ 必须对齐
+    _contract_doc = read(ROOT / "docs" / "project" / "国内采集机实施文档-v1.md")
+    check("采集契约文档的版本号与代码一致（v1.3）", True,
+          'CONTRACT = "v1.3"' in read(ROOT / "collector-cn" / "collector.py")
+          and "契约版本：v1.3" in _contract_doc)
+    check("契约文档不再声称「远端按版本号判断解析器分支」（实测远端 0 处读该字段）", True,
+          not stale_lines(_contract_doc, ["远端按版本号判断解析器分支"]))
     check("§6.13 记了 279 的纠正目标（皇家贝蒂斯 #2355 / af_id 543）", True,
           "皇家贝蒂斯" in _sec613 and "2355" in _sec613 and "543" in _sec613)
     check("§6.13 记了 65 场赛果缺口 + 4 日窗口 + 回补 CLI", True,
