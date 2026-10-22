@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS ref.team_sporttery (
 );
 COMMENT ON TABLE ref.team_sporttery IS '竞彩官方 team id → ref.team 队行的多对一映射（§6.10.1）；'
                                        'aliases->>''sporttery'' 仍只是「主 id」，本表才是多 id 的真源';
-COMMENT ON COLUMN ref.team_sporttery.jc_id IS '竞彩官方 teamId；同一家俱乐部在竞彩可能有多个 id（例：毕尔巴鄂竞技 506 / 贝西克塔斯 279）';
+COMMENT ON COLUMN ref.team_sporttery.jc_id IS '竞彩官方 teamId；同一家俱乐部在竞彩可能有多个 id 与多个中文名（例：Real Betis = 皇家贝蒂斯 = 贝西克塔斯，竞彩给 505「皇家贝蒂斯」（欧战场次名）与 279「贝西克塔斯」（西甲场次名）两个 id ⇒ 两个 id 都指向 #2355）';
 CREATE INDEX IF NOT EXISTS idx_team_sporttery_team ON ref.team_sporttery (team_id);
 
 -- ---------------------------------------------------------------- 2) 存量迁移（幂等）
@@ -51,11 +51,21 @@ WHERE t.jc_id IS NOT NULL AND t.aliases ? 'sporttery'
 ON CONFLICT (sport, jc_id) DO NOTHING;
 
 -- ---------------------------------------------------------------- 3) 已知的一队两 id（幂等）
---    贝西克塔斯 sid 279 = 毕尔巴鄂竞技 sid 506（#2351）：
---    依据是 279 的 2 场对手是马赛、霍芬海姆 ⇒ 欧联 ⇒ 西甲劲旅毕尔巴鄂竞技。
+--    Real Betis = 皇家贝蒂斯 = 贝西克塔斯，竞彩给**两个 id**：
+--      505「皇家贝蒂斯」（欧战场次名）= 主 id ⇒ 已由 §2 的存量迁移带进来；
+--      279「贝西克塔斯」（西甲场次名）= 次 id ⇒ 本节补。
+--    ⇒ 两个 id 都指向 #2355（af_id=543，已对 raw.af_raw 里 API-Football 的官方名
+--       「Real Betis」核实过 —— ref.team.af_id 是俱乐部身份的真主键）。
+--
+--    ⚠️ 2026-10-22 订正：本节原先写的是 `279 → 2351`（毕尔巴鄂竞技），
+--       依据是「279 的 2 场对手是马赛、霍芬海姆 ⇒ 欧联 ⇒ 西甲劲旅毕尔巴鄂竞技」
+--       —— **从对手反推球队**的猜测，正是本文件第 17~20 行纪律明令禁止的做法；
+--       而竞彩 payload 里的字面就是「**贝西克塔斯**」（贝西克塔斯同样是踢欧联的
+--       西甲球队 ⇒ 推断错误）。已由 docs/db/suggestion13_betis_id_repoint.sql 纠正。
 INSERT INTO ref.team_sporttery (sport, jc_id, team_id)
-SELECT 'football', 279, 2351
-WHERE EXISTS (SELECT 1 FROM ref.team t WHERE t.team_id = 2351 AND t.sport = 'football')
+SELECT 'football', 279, t.team_id
+FROM ref.team t
+WHERE t.sport = 'football' AND t.af_id = 543
 ON CONFLICT (sport, jc_id) DO NOTHING;
 
 -- ---------------------------------------------------------------- 4) 授权（与 ref.team 完全同口径）
@@ -88,7 +98,7 @@ COMMIT;
 --   WHERE aliases ? 'sporttery' AND jc_id IS NOT NULL;                       -- 预期 152（ref.team 一行未改）
 -- SELECT count(*) AS dup_ids FROM (                                         -- **必须 0**：一个 id 指向两支行
 --   SELECT jc_id FROM ref.team_sporttery GROUP BY sport, jc_id HAVING count(*) > 1) d;
--- SELECT count(*) AS teams_with_multi_ids FROM (                            -- 预期 1（#2351：506 + 279）
+-- SELECT count(*) AS teams_with_multi_ids FROM (                            -- 预期 1（#2355：505 + 279）
 --   SELECT team_id FROM ref.team_sporttery GROUP BY team_id HAVING count(*) > 1) m;
 -- SELECT count(*) AS jc_matches_both_mapped FROM fact.jc_match
 --   WHERE home_team_id IS NOT NULL AND away_team_id IS NOT NULL;             -- 预期 227（原 226）
