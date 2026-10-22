@@ -1248,6 +1248,8 @@ def main() -> int:
           "实际产出" in _sec613 and "假阴性" in _sec613)
     check("§6.13 记了别名修复的生产验收数字（54 行 / 12 场 + 审计 rc=0）", True,
           "54" in _sec613 and "12 场" in _sec613 and "rc=0" in _sec613)
+    check("§6.13 记了采集端回补的生产验收（452 行 ups / jc_result 462 / 结算 32 条）", True,
+          "452" in _sec613 and "462" in _sec613 and "32/32" in _sec613)
     check("§6.13 记了 279 的纠正目标（皇家贝蒂斯 #2355 / af_id 543）", True,
           "皇家贝蒂斯" in _sec613 and "2355" in _sec613 and "543" in _sec613)
     check("§6.13 记了 65 场赛果缺口 + 4 日窗口 + 回补 CLI", True,
