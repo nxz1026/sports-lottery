@@ -1456,10 +1456,10 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**守门断言累计 303 项**（`tools/check_docs_claims.py`，303 项；建议 6 再加 21 项、顺手修再加 7 项、
+**守门断言累计 304 项**（`tools/check_docs_claims.py`，304 项；建议 6 再加 21 项、顺手修再加 7 项、
 复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项、**§6.12 事故修复再加 15 项**、
 **§6.12.5/6.12.6 赔率口径修正再加 5 项**、**六联赛重训对拍再加 4 项**、**§6.13 本轮再加 30 项**、
-**§6.13.5 采集端改手动 + 新鲜度守门再加 20 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+**§6.13.5 采集端改手动 + 新鲜度守门再加 21 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
 回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
 物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字、
 **「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）、
@@ -1934,6 +1934,7 @@ naive/aware 时间戳直接比、`p_model` 误取市场先验、CLI 漏 `__main_
   - **机制完整保留**（任务定义 XML + `collector_silent.vbs` + config 一字未改）；恢复命令见 `collector-cn/scripts/tasks_backup/restore_scheduled_tasks.ps1`（需管理员）
   - **主路径 = 双击 `collector-cn/scripts/refresh_now.bat`**：采集+推送 → 远端装载 → 出荐单 → 结算，一条链跑完（日志 `logs/refresh_now.log`）
   - **配套新增「定价赔率新鲜度守门」**（`scripts/decision/recommend.py`）：手动模式下「忘了先采集就出荐单」是新的静默失败路径（页面看着完全正常）。全局闸：全库 `had` 最新快照超 6h ⇒ 拒绝出单（退出码 3，打印修复命令，`--allow-stale` 可显式放行并在 note 留痕）；逐场闸：该场快照超龄 ⇒ 跳过该场。页面同步显示「定价赔率快照 X 小时前」，过期标红
+  - **顺带修掉一个数据丢失级缺陷**：篮球赛果 `jclq_result` 的 pageSize=30 时接口 `total=42 / pages=2` ⇒ **每批只取第 1 页 30 场、漏 12 场真实比赛**（埃菲斯vs拜仁、巴黎vs博洛尼亚、皇马vs阿斯维尔 等）⇒ 已改 pageSize=100（重采实测 30 → 42 行）
 - 推送：`ssh oracle-league`（`league@140.83.62.161`，专用 keypair，受限 shell tar 流式白名单）→ `/srv/league-staging/incoming/cn-collector/`（topic 子目录 + `.done` 清单，属主 league:league）；`ssh oracle`（ubuntu）仅运维
 - `.done` 行格式：`topic/<file>.jsonl\t<rowcount>\t<sha256>`（相对路径必带 `topic/` 前缀）
 - 契约版本：v1.3（2026-09-16 升级：`topic/` 前缀修复 + `jc_odds_history` topic + 8-topic daily 批）

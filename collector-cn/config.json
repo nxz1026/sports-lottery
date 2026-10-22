@@ -45,8 +45,9 @@
       ]
     },
     "jclq_result": {
+      "_why_page_size": "2026-10-22 实测：pageSize=30 时接口 total=42 / pages=2 —— **每批只拿第 1 页 30 场，漏 12 场篮球赛果**（埃菲斯vs拜仁、巴黎vs博洛尼亚、皇马vs阿斯维尔、巴萨vs奥林匹亚 等，均为真实比赛）。翻页参数本身是生效的（pageNo=2 会返回另外 12 行），但采集主路径只取第 1 页 ⇒ 改成 pageSize=100（一次拿全 42 场，pages=1）。若接口拒绝大 pageSize，collector._fetch_with_page_fallback 会**自动退回 30**（自愈，不静默）。",
       "candidates": [
-        "https://webapi.sporttery.cn/gateway/uniform/basketball/getUniformMatchResultV2.qry?matchBeginDate={today_minus_7}&matchEndDate={today}&leagueId=&pageSize=30&pageNo=1&isFix=0"
+        "https://webapi.sporttery.cn/gateway/uniform/basketball/getUniformMatchResultV2.qry?matchBeginDate={today_minus_7}&matchEndDate={today}&leagueId=&pageSize=100&pageNo=1&isFix=0"
       ]
     },
     "lottery_draw": {

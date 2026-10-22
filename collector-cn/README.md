@@ -100,7 +100,7 @@ powershell -ExecutionPolicy Bypass -File E:\2026Workplace\Code\collector-cn\scri
 | jc_issue | `lottery/getFootBallConcernV1.qry?param=<gameKey>,0` | gameKey=90/900129/98/94 |
 | jc_issue_result | `lottery/getFootBallDrawInfoV2.qry?isVerify=1&param=94,0;90,0;98,0` | 含奖级/销量/滚存 |
 | jclq_offer | `uniform/basketball/getMatchCalculatorV1.qry?channel=c` | 彩种已停售，value 提示停止销售 |
-| jclq_result | `uniform/basketball/getUniformMatchResultV2.qry` | V2，历史开奖可查 |
+| jclq_result | `uniform/basketball/getUniformMatchResultV2.qry` | V2，历史开奖可查。**pageSize 必须 ≥ 100**（2026-10-22 实测：pageSize=30 时接口 `total=42 / pages=2` ⇒ 只取第 1 页 30 场、**漏 12 场真实比赛**；改 100 后一次拿全 42 场） |
 | lottery_draw | `lottery/getHistoryPageListV1.qry?gameNo=<no>&provinceId=0&isVerify=1&termLimits=30` | gameNo=85/35/350133/04（文档 3501/3502 无数据） |
 | jc_odds_history | `uniform/football/getOddsHistoryV1.qry?channel=c&matchId=<id>` | 新（v1.3）：一行 = 一场在售足球 × 整条赔率走势（6 块 + 元键原样），matchId 取自 getMatchCalculatorV1 的 Selling 场次；定时 8-topic 批 |
 

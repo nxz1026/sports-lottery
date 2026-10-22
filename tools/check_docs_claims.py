@@ -1308,6 +1308,11 @@ def main() -> int:
     _basket = _cfg.get("topics", {}).get("jclq_result", {}).get("candidates", [])
     check("篮球的 7 日窗口没被动过（不许被足球的改动带跑）", True,
           any("{today_minus_7}" in u and "{today}" in u for u in _basket))
+    # 篮球赛果：pageSize=30 时接口 total=42/pages=2 ⇒ 每批只拿第 1 页 30 场，**漏 12 场**
+    # （2026-10-22 实测：埃菲斯vs拜仁、巴黎vs博洛尼亚、皇马vs阿斯维尔 等真实比赛）。
+    # 翻页参数本身生效（pageNo=2 会返回另外 12 行），但采集主路径只取第 1 页 ⇒ 必须 pageSize=100。
+    check("篮球赛果采集 pageSize=100（pageSize=30 时 total=42 只取到 30 场，漏 12 场）", True,
+          all("pageSize=100" in u for u in _basket) and len(_basket) == 1)
     _collector = read(ROOT / "collector-cn" / "collector.py")
     check("采集器有 pageSize 自愈兜底（失败自动退回，不静默）", True,
           "_fetch_with_page_fallback" in _collector and "page_size_fallbacks" in _collector)
