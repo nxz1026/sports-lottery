@@ -12,13 +12,24 @@
     python scripts/ingest/jc_name_join_audit.py
 退出码：0 = 全部可达；1 = 有队名 join 必 miss（**不许静默**，要让门禁看见）。
 
-口径：
-  - 「模型侧可产出名」= ``to_cn()`` 的四级链能产出的中文名：
+口径（⚠️ 两个口径，主判据是**实际产出**）：
+  - 「模型侧**实际产出过**的队名」= ``model.pred_archive_match`` 里真实出现过的
+    home_cn / away_cn（限模型覆盖的联赛）—— **这是硬证据**：模型当时到底叫什么。
+  - 「模型侧**理论可产出**名」= ``to_cn()`` 的四级链能产出的中文名：
     ① ``references/team_cn_official.json`` 的值 ② ``references/team_translations.json`` 的值
     ③ ``core.config.COUNTRY_CN`` 的值 ④ 别名表的目标名
-  - 「可达」= 竞彩名的 canon 集（本体 + 别名表桥接）∩ 模型侧可产出名 ≠ ∅
+    ⇒ 只在**还没有任何实际产出**时兜底（刚上线、还没跑过预测）。
+  - 「可达」= 竞彩名的 canon 集（本体 + 别名表桥接）∩ 上述集合 ≠ ∅
   - 只审计**模型覆盖的联赛**（``ref.league`` 的 6 个：英超/西甲/意甲/德甲/法甲/欧冠）——
     模型不覆盖的联赛（日/韩/巴/美…）本来就没有预测，join miss 是正常语义。
+
+⚠️ **为什么主判据必须是「实际产出」而不是「理论集合」**（2026-10-22 生产实测的教训）：
+第一版审计用理论集合当主判据 ⇒ 报「零缺口」⇒ **其实漏了 5 条**：
+``帕德博恩07`` / ``美因茨05``（ESPN displayName 带数字后缀，翻译后残留）、
+``巴黎圣日耳曼``（竞彩「巴黎圣日尔曼」）、``热刺``（竞彩「托特纳姆热刺」）、
+``赫塔菲``（竞彩「赫塔费」）。原因：LLM 缓存/COUNTRY_CN 里**有**「帕德博恩」「美因茨」，
+理论集合判它「可达」⇒ 审计通过；**但模型实际产出的是「帕德博恩07」** ⇒ 实际 join 不上。
+⇒ **「理论能产出」≠「实际会产出」** —— 审计必须对着真实产出说话。
 """
 from __future__ import annotations
 
@@ -32,8 +43,12 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from core.config import COUNTRY_CN, FOOTBALL_DIR  # noqa: E402
+from core.leagues import LEAGUE_CONFIG  # noqa: E402
 from core.log import logger  # noqa: E402
 from core.team_alias import alias_table, canon_names, norm_name  # noqa: E402
+
+# 模型覆盖的联赛 key（足球；NBA 是独立入口 bball，不在此表）
+_MODEL_LEAGUE_KEYS = sorted(LEAGUE_CONFIG.keys())
 
 # 竞彩侧的联赛缩写（fact.jc_match.league_abbr）↔ ref.league.cn_name
 _NAMES_SQL = """
@@ -44,6 +59,22 @@ FROM (
     UNION ALL
     SELECT m.away_cn, m.match_id FROM fact.jc_match m
      WHERE m.away_cn IS NOT NULL AND m.away_cn <> '' AND m.league_abbr = ANY(%s)
+) t
+GROUP BY 1
+ORDER BY 1
+"""
+
+# 模型侧**实际产出过**的队名（生产硬证据）：归档里真实出现过的 home_cn / away_cn
+_ACTUAL_NAMES_SQL = """
+SELECT n, count(*) AS n_rows
+FROM (
+    SELECT am.home_cn AS n FROM model.pred_archive_match am
+      JOIN model.pred_archive ar ON ar.archive_id = am.archive_id
+     WHERE ar.league_key = ANY(%s) AND am.home_cn IS NOT NULL AND am.home_cn <> ''
+    UNION ALL
+    SELECT am.away_cn FROM model.pred_archive_match am
+      JOIN model.pred_archive ar ON ar.archive_id = am.archive_id
+     WHERE ar.league_key = ANY(%s) AND am.away_cn IS NOT NULL AND am.away_cn <> ''
 ) t
 GROUP BY 1
 ORDER BY 1
@@ -87,14 +118,42 @@ def model_side_names() -> set[str]:
     return out
 
 
-def unreachable(names: dict[str, int], model_side: set[str]) -> list[tuple[str, int]]:
-    """返回 (竞彩名, 受影响场次数)：模型永远产不出来的队名。"""
-    known = {norm_name(m) for m in model_side}
+def unreachable(names: dict[str, int], model_side: set[str],
+                 actual: set[str] | None = None) -> list[tuple[str, int]]:
+    """返回 (竞彩名, 受影响场次数)：模型产不出来的队名。
+
+    ``actual`` = 模型侧**实际产出过**的队名（生产硬证据）。
+    给了它就以它为主判据 —— **「理论能产出」≠「实际会产出」**
+    （ESPN displayName 残留数字后缀等坑，见模块 docstring 的实测记录）。
+    ``actual`` 为空（还没跑过预测）时才退回理论集合。
+    """
+    known = {norm_name(m) for m in (actual if actual else model_side)}
     out = []
     for name, n_matches in names.items():
         if not ({norm_name(c) for c in canon_names(name)} & known):
             out.append((name, n_matches))
     return sorted(out, key=lambda kv: (-kv[1], kv[0]))
+
+
+def close_candidates(name: str, model_side: set[str], limit: int = 3) -> list[str]:
+    """给不可达的竞彩名找出「最像的模型侧名字」（提示用，不是判据）。
+
+    判定：去掉数字后缀后相等 / 双向子串 / 共有 ≥2 字连续子串。
+    例：竞彩「帕德博恩」→ 候选「帕德博恩07」；竞彩「赫塔费」→ 候选「赫塔菲」。
+    """
+    def strip_num(s: str) -> str:
+        return s.rstrip("0123456789")
+
+    out: list[str] = []
+    for cand in sorted(model_side):
+        a, b = norm_name(name), norm_name(cand)
+        if not a or not b:
+            continue
+        if strip_num(a) == strip_num(b) or b in a or a in b:
+            out.append(cand)
+        elif len(a) >= 2 and len(b) >= 2 and any(a[i:i + 2] in b for i in range(len(a) - 1)):
+            out.append(cand)
+    return out[:limit]
 
 
 def allowed_source_names(row_name: str) -> set[str]:
@@ -145,22 +204,29 @@ def main(argv: list[str] | None = None) -> int:
             leagues = [r[0] for r in conn.execute(
                 "SELECT cn_name FROM ref.league WHERE sport = 'football'").fetchall()]
             rows = conn.execute(_NAMES_SQL, (leagues, leagues)).fetchall()
+            actual_rows = conn.execute(
+                _ACTUAL_NAMES_SQL, (_MODEL_LEAGUE_KEYS, _MODEL_LEAGUE_KEYS)).fetchall()
             map_rows = conn.execute(_MAPPING_SQL).fetchall()
     except Exception as exc:  # noqa: BLE001 — 连不上就明说，绝不假装「零缺口」
         logger.error("连不上库（%s 角色）：%s: %s", args.conn, type(exc).__name__, exc)
         return 2
 
     names = {r[0]: int(r[1]) for r in rows}
+    actual = {r[0] for r in actual_rows}
     model_side = model_side_names()
-    bad = unreachable(names, model_side)
+    # 主判据 = **实际产出名**（理论集合只在还没跑过预测时兜底）
+    bad = unreachable(names, model_side, actual or None)
     bad_map = mapping_violations(map_rows)
 
     print(f"审计范围：模型覆盖的 {len(leagues)} 个联赛（{', '.join(leagues)}）")
-    print(f"竞彩队名 {len(names)} 个；模型侧可产出名 {len(model_side)} 个")
+    print(f"竞彩队名 {len(names)} 个；模型侧**实际产出**名 {len(actual)} 个"
+          f"（理论可产出名 {len(model_side)} 个）")
     if bad:
-        print(f"❌ {len(bad)} 个竞彩队名模型永远产不出来（对应场次会被静默丢出荐单/CLV）：")
+        print(f"❌ {len(bad)} 个竞彩队名模型实际产不出来（对应场次会被静默丢出荐单/CLV）：")
         for name, n in bad:
-            print(f"   {name}（影响 {n} 场）")
+            cands = close_candidates(name, actual or model_side)
+            tail = f"　← 最像的模型侧名：{', '.join(cands)}" if cands else ""
+            print(f"   {name}（影响 {n} 场）{tail}")
         print("修法：往 core/team_alias.py 与 web/services/team_match.py 的别名表加桥接"
               "（键=竞彩侧用词，值=预测侧用词），两侧必须同时改。")
     else:

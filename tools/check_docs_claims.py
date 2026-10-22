@@ -1253,9 +1253,15 @@ def main() -> int:
     # 别名两侧必须镜像（漏一侧 = 静默漏场次，且零报错）
     _alias_src = read(ROOT / "scripts" / "core" / "team_alias.py")
     _alias_web = read(ROOT / "web" / "services" / "team_match.py")
-    check("3 个别名缺口两侧都补上了（scripts/ 与 web/ 必须镜像）", True,
+    check("8 个别名缺口两侧都补上了（scripts/ 与 web/ 必须镜像）", True,
           all(t in _alias_src and t in _alias_web
-              for t in ("巴伦西亚", "云达不来梅", "贝西克塔斯")))
+              for t in ("巴伦西亚", "云达不来梅", "贝西克塔斯", "巴黎圣日尔曼",
+                        "帕德博恩", "托特纳姆热刺", "美因茨", "赫塔费")))
+    # 审计脚本的主判据必须是「模型实际产出过的名字」，不是「理论可产出集合」
+    # （第一版用理论集合 ⇒ 漏报 5 条，见路线图 §6.13.1 的订正框）
+    _audit_src = read(ROOT / "scripts" / "ingest" / "jc_name_join_audit.py")
+    check("队名审计的主判据是「模型实际产出名」（不许退回理论集合）", True,
+          "model.pred_archive_match" in _audit_src and "_ACTUAL_NAMES_SQL" in _audit_src)
     # 官方队名表只允许动 _comment：Real Betis 的值必须仍是「皇家贝蒂斯」
     _official = read(ROOT / "scripts" / "references" / "team_cn_official.json")
     check("官方队名表 Real Betis 的值仍是「皇家贝蒂斯」（不许被「改对」成贝西克塔斯）", True,
