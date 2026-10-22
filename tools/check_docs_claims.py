@@ -1241,8 +1241,13 @@ def main() -> int:
     _i7 = _roadmap.find("## 7. ")
     _sec613 = _roadmap[_i613:_i7] if 0 <= _i613 < _i7 else ""
     check("路线图有 §6.13 本轮收尾章节", True, bool(_sec613))
-    check("§6.13 记了 3 个队名别名缺口（不许只写「修好了」）", True,
-          all(t in _sec613 for t in ("巴伦西亚", "云达不来梅", "贝西克塔斯")))
+    check("§6.13 记了 8 个队名别名缺口（不许只写「修好了」）", True,
+          all(t in _sec613 for t in ("巴伦西亚", "云达不来梅", "贝西克塔斯", "巴黎圣日尔曼",
+                                    "帕德博恩", "托特纳姆热刺", "美因茨", "赫塔费")))
+    check("§6.13 记了「理论能产出 ≠ 实际会产出」这条口径订正（第一批审计的假阴性）", True,
+          "实际产出" in _sec613 and "假阴性" in _sec613)
+    check("§6.13 记了别名修复的生产验收数字（54 行 / 12 场 + 审计 rc=0）", True,
+          "54" in _sec613 and "12 场" in _sec613 and "rc=0" in _sec613)
     check("§6.13 记了 279 的纠正目标（皇家贝蒂斯 #2355 / af_id 543）", True,
           "皇家贝蒂斯" in _sec613 and "2355" in _sec613 and "543" in _sec613)
     check("§6.13 记了 65 场赛果缺口 + 4 日窗口 + 回补 CLI", True,
