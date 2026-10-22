@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2730 passed / 75 skipped / 0 failed**（2805 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 采集端改手动+新鲜度守门 +23**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2737 passed / 75 skipped / 0 failed**（2812 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 手动模式+新鲜度守门+采集端原子性 +30**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1456,10 +1456,10 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**守门断言累计 304 项**（`tools/check_docs_claims.py`，304 项；建议 6 再加 21 项、顺手修再加 7 项、
+**守门断言累计 307 项**（`tools/check_docs_claims.py`，307 项；建议 6 再加 21 项、顺手修再加 7 项、
 复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项、**§6.12 事故修复再加 15 项**、
 **§6.12.5/6.12.6 赔率口径修正再加 5 项**、**六联赛重训对拍再加 4 项**、**§6.13 本轮再加 30 项**、
-**§6.13.5 采集端改手动 + 新鲜度守门再加 21 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+**§6.13.5 采集端改手动 + 新鲜度守门 + 原子性再加 24 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
 回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
 物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字、
 **「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）、
@@ -1935,6 +1935,7 @@ naive/aware 时间戳直接比、`p_model` 误取市场先验、CLI 漏 `__main_
   - **主路径 = 双击 `collector-cn/scripts/refresh_now.bat`**：采集+推送 → 远端装载 → 出荐单 → 结算，一条链跑完（日志 `logs/refresh_now.log`）
   - **配套新增「定价赔率新鲜度守门」**（`scripts/decision/recommend.py`）：手动模式下「忘了先采集就出荐单」是新的静默失败路径（页面看着完全正常）。全局闸：全库 `had` 最新快照超 6h ⇒ 拒绝出单（退出码 3，打印修复命令，`--allow-stale` 可显式放行并在 note 留痕）；逐场闸：该场快照超龄 ⇒ 跳过该场。页面同步显示「定价赔率快照 X 小时前」，过期标红
   - **顺带修掉一个数据丢失级缺陷**：篮球赛果 `jclq_result` 的 pageSize=30 时接口 `total=42 / pages=2` ⇒ **每批只取第 1 页 30 场、漏 12 场真实比赛**（埃菲斯vs拜仁、巴黎vs博洛尼亚、皇马vs阿斯维尔 等）⇒ 已改 pageSize=100（重采实测 30 → 42 行）
+  - **再修一个文件损坏级缺陷（2026-10-23 查日志时挖出）**：采集端**两处 TOCTOU** ⇒ Boot+Logon 把多个计划任务在同一刻拉起时（实测 21:49 一次拉起 4 个），多个批次会**同时拿到单例锁**、给同一 topic 选到**同一个文件名** ⇒ 两个进程各写一半 ⇒ **文件内容交织、变成非法 JSON**（远端装载报 `JSONDecodeError`，坏文件留在盘上反复报错）⇒ 两处都改用 **O_EXCL 独占创建**（`open(path,"x")`），回归测试 `tests/test_collector_atomicity.py`（并发写不撞名 + 4 个真进程抢锁只有一个赢家）
 - 推送：`ssh oracle-league`（`league@140.83.62.161`，专用 keypair，受限 shell tar 流式白名单）→ `/srv/league-staging/incoming/cn-collector/`（topic 子目录 + `.done` 清单，属主 league:league）；`ssh oracle`（ubuntu）仅运维
 - `.done` 行格式：`topic/<file>.jsonl\t<rowcount>\t<sha256>`（相对路径必带 `topic/` 前缀）
 - 契约版本：v1.3（2026-09-16 升级：`topic/` 前缀修复 + `jc_odds_history` topic + 8-topic daily 批）

@@ -34,6 +34,12 @@ python collector.py --push-batch <topic>...   # 定时任务主路径：B1 采�
 - `night` = 8 topic（offer 7 + jc_odds_history），4 个 daily 档（09:30/15:30/21:30/23:30）专用
 - `jc_odds_history` 单批 ~60-75s（27 场在售 QPS=1.0），只在 daily 档跑，防网络挂起时快批堆积僵尸 python（2026-09-16 死机复盘）
 - 计划任务均为"开机即跑/登录即跑"（BootTrigger+LogonTrigger）+ `StartWhenAvailable` 漏档补跑（2026-09-21）
+- ⚠️ **原子性（2026-10-23 生产实测修）**：写批次文件与拿单例锁**都必须是 O_EXCL 独占创建**
+  （`open(path, "x")`）。原来的「`exists()` → `open(path,"w")`」两步不是原子的 ⇒
+  Boot+Logon 把多个任务在同一刻拉起时（实测 21:49 一次拉起 4 个），
+  多个批次会**同时拿到锁**、**给同一 topic 选到同一个文件名** ⇒ 两个进程各写一半 ⇒
+  **文件内容交织、变成非法 JSON**（远端装载报 `JSONDecodeError`，且坏文件留在盘上反复报错）。
+  回归测试见 `tests/test_collector_atomicity.py`（并发写不撞名 + 并发抢锁只有一个赢家）。
 
 ## 手动模式（2026-10-22 起，本机生效）
 **采集机是工作电脑，不是 24h 开机** ⇒ 5 个计划任务在本机**已停用**（`Enabled=False`，任务定义保留未删）。

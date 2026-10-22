@@ -1321,6 +1321,31 @@ def main() -> int:
     check("采集器有回补 CLI（--backfill-range）且与日常批共用推送", True,
           "--backfill-range" in _collector and "backfill_range" in _collector
           and "_push_paths" in _collector)
+    # 原子性：写批次文件与拿单例锁都必须用 O_EXCL 独占创建（2026-10-23 生产实测修）
+    # ⚠️ 断言必须走 **AST**，不能靠字符串匹配：新代码的 docstring 里逐字引用了旧写法
+    #    （教学价值），不剥离注释/文档字符串的话，断言会命中自己的说明 ⇒ 假失败
+    #    （本轮真踩到了两次：一次是 `#` 注释，一次是 docstring）。
+    _collector_code = ""
+    _open_modes: list[tuple[int, str]] = []
+    try:
+        _tree = ast.parse(_collector)
+    except SyntaxError:
+        _tree = None
+    if _tree is not None:
+        for _node in ast.walk(_tree):
+            if (isinstance(_node, ast.Call) and isinstance(_node.func, ast.Name)
+                    and _node.func.id == "open" and len(_node.args) >= 2
+                    and isinstance(_node.args[1], ast.Constant)
+                    and isinstance(_node.args[1].value, str)):
+                _open_modes.append((_node.lineno, _node.args[1].value))
+    _w_modes = [(ln, m) for ln, m in _open_modes if "w" in m and "x" not in m]
+    check("采集器写批次文件用 O_EXCL 独占创建（序号分配不撞名 ⇒ 文件不交织）", True,
+          any(m == "x" for _ln, m in _open_modes))
+    check("采集器单例锁用 O_EXCL 独占创建（同一秒启动的多个批次不会同时拿到锁）", True,
+          any(m == "x" for _ln, m in _open_modes)
+          and _collector.count('open(lock, "x"') >= 1)
+    check("采集器写批次文件不许再用非原子的 open(w) 两步式（AST 判定，免疫注释/文档字符串）",
+          True, not _w_modes)
 
     # README / 路线图：旧话必须带订正标记；v4.6 段必须存在
     check("README/路线图 不再把「补数据属待排期」当现状陈述", True,

@@ -330,22 +330,44 @@ def _pack_probe(rec: dict, tag: str) -> None:
 
 
 def write_batch(topic: str, rows: list) -> Path:
-    """落 out/<topic>/<utc>__<batch>.jsonl；0 行产 .empty。追加不覆盖（batch 序号递增）。"""
+    """落 out/<topic>/<utc>__<batch>.jsonl；0 行产 .empty。追加不覆盖（batch 序号递增）。
+
+    ⚠️ **序号分配必须原子**（2026-10-23 生产实测修）：
+    原来「`while (out_dir / f"{ts}__{batch:03d}.jsonl").exists(): batch += 1`」
+    然后 `open(path, "w")` 是**两步**，两个进程会选到**同一个序号**、各自
+    `open("w")`（截断）写同一个路径 ⇒ **文件内容互相交织、变成非法 JSON**。
+    真实后果：2026-10-13/19/21 各有一批 `lottery_draw` / `jczq_offer` 坏在远端
+    （远端装载报 `JSONDecodeError: Expecting ',' delimiter`，且该坏文件**留在盘上**，
+    每次重装都会重复上报同一批错误）。根因链：`_acquire_singleton_lock` 的
+    「exists() → write_text()」同样不原子 ⇒ 同一秒启动的多个批次**同时拿到锁**，
+    同时采集、同时撞名。
+
+    ⇒ 现在用 **O_EXCL 独占创建** 分配序号：抢不到就换下一个；抢到了就直接写。
+    （`.jsonl` 与 `.empty` 共用同一套序号空间：同一序号下两种后缀都存在时，
+    说明历史批已占用该序号 ⇒ 跳过。）
+    """
     out_dir = ROOT / "out" / topic
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = fname_ts()
-    batch = 1
-    while (out_dir / f"{ts}__{batch:03d}.jsonl").exists():
-        batch += 1
-    if rows:
-        path = out_dir / f"{ts}__{batch:03d}.jsonl"
-        with open(path, "w", encoding="utf-8") as f:
+    suffix = ".jsonl" if rows else ".empty"
+    for batch in range(1, 1000):
+        base = f"{ts}__{batch:03d}"
+        if (out_dir / f"{base}.jsonl").exists() or (out_dir / f"{base}.empty").exists():
+            continue
+        path = out_dir / f"{base}{suffix}"
+        try:
+            fh = open(path, "x", encoding="utf-8")   # O_EXCL：独占创建，原子
+        except FileExistsError:
+            continue
+        except OSError:
+            continue
+        try:
             for r in rows:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    else:
-        path = out_dir / f"{ts}__{batch:03d}.empty"
-        path.touch()
-    return path
+                fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+        finally:
+            fh.close()
+        return path
+    raise RuntimeError(f"write_batch: {ts} 的批次序号用尽（1..999）")
 
 
 def _date_vars(base_date: str | None = None) -> dict[str, str]:
@@ -719,22 +741,50 @@ def _acquire_singleton_lock() -> bool:
     """单例锁：同机同一时间只允许一个 collector 批次在跑。
     任务 IgnoreNew 已挡调度层重叠；此锁兜底 wscript 被 PT30M 杀后 python 僵尸还活着、
     下一轮新 wscript 又拉一个 python 的堆积场景（历史死机前 1GB+ 根因）。
-    锁文件 .collector.lock 写本进程 pid；旧 pid 已死 → 接管；还活着 → 返回 False。"""
+    锁文件 .collector.lock 写本进程 pid；旧 pid 已死 → 接管；还活着 → 返回 False。
+
+    ⚠️ **必须原子拿锁**（2026-10-23 生产实测修）：原来「`if lock.exists()` →
+    `lock.write_text()`」是**两步**，同一秒启动的 N 个批次会**同时判定"没有锁"**、
+    各自写自己的 pid ⇒ N 个批次**同时采集**。真实后果：Boot+Logon 触发器把多个
+    计划任务在同一刻拉起（实测 21:49 一次拉起 4 个），其中三批在**同一分钟内**跑 ⇒
+    它们给同一 topic 选了**同一个文件名**（序号分配同样不原子，见 `write_batch`）
+    ⇒ 两个进程 `open("w")` 写同一路径 ⇒ **文件内容互相交织、变成非法 JSON**，
+    远端装载报 JSONDecodeError 且坏文件留在盘上反复上报。
+
+    ⇒ 现在用 **O_EXCL 独占创建**拿锁：只有能独占创建成功的那个进程算拿到锁；
+    锁已存在时再走「旧 pid 是否还活着」的判定（死 pid → 接管）。
+    """
     import ctypes
     lock = ROOT / ".collector.lock"
     my_pid = os.getpid()
-    if lock.exists():
+    try:
+        fh = open(lock, "x", encoding="utf-8")   # O_EXCL：原子拿锁
+    except FileExistsError:
+        pass
+    except OSError:
+        return False
+    else:
         try:
-            old_pid = int(lock.read_text(encoding="utf-8").strip() or "0")
-        except (ValueError, OSError):
-            old_pid = 0
-        if old_pid and old_pid != my_pid:
-            K32 = ctypes.windll.kernel32
-            h = K32.OpenProcess(0x0400, 0, old_pid)
-            if h:
-                K32.CloseHandle(h)
-                return False
-    lock.write_text(str(my_pid), encoding="utf-8")
+            fh.write(str(my_pid))
+        finally:
+            fh.close()
+        return True
+    # 锁已存在 ⇒ 旧 pid 是否还活着？
+    try:
+        old_pid = int(lock.read_text(encoding="utf-8").strip() or "0")
+    except (ValueError, OSError):
+        old_pid = 0
+    if old_pid and old_pid != my_pid:
+        K32 = ctypes.windll.kernel32
+        h = K32.OpenProcess(0x0400, 0, old_pid)
+        if h:
+            K32.CloseHandle(h)
+            return False
+    # 旧 pid 已死 ⇒ 接管（罕见路径；真正的护栏是 write_batch 的原子独占创建）
+    try:
+        lock.write_text(str(my_pid), encoding="utf-8")
+    except OSError:
+        return False
     return True
 
 
