@@ -1205,6 +1205,21 @@ def main() -> int:
     check("路线图 §6.12.5 记了「闸门基线也踩了坑」（0.55 是含平局口径）", True,
           "0.55" in _sec612 and "含平局" in _sec612)
 
+    # ---- 20b. 六个联赛的模型必须全部用修后数据重训（§6.12.6 末节）----
+    # 这条守的是「漏跑」：上一轮只重训了 epl/ucl/laliga，bundesliga/seriea/ligue1
+    # 带着修前权重继续上线 —— 文档里若不写出来，下一个人会以为六个都重训过。
+    check("路线图 §6.12.6 记了 6 个联赛全部重训（漏跑也要写出来）", True,
+          all(lg in _sec6126 for lg in ("epl", "ucl", "laliga", "bundesliga", "seriea", "ligue1"))
+          and "6/6 联赛准确率与 Brier 双双改善" in _sec6126)
+    check("路线图 §6.12.6 标了「in-sample ≠ 泛化指标」（不许把同批对拍当泛化）", True,
+          "in-sample" in _sec6126 and "不是泛化能力指标" in _sec6126)
+    check("路线图 §6.12.6 记了服务侧生效路径（子进程 ⇒ 进程内缓存不跨次沿用）", True,
+          "subprocess.Popen" in _sec6126 and "_ML_MODEL_CACHE" in _sec6126)
+    _m6124 = re.search(r"####\s*6\.12\.4.*?(?=\n####|\n---)", _roadmap, re.S)
+    _sec6124 = _m6124.group(0) if _m6124 else ""
+    check("路线图 §6.12.4 有「6 联赛全重训 + 不劣化 + 新进程读盘一致」的验收标准", True,
+          "逐个不同" in _sec6124 and "不劣化" in _sec6124 and "新进程" in _sec6124)
+
     # ---- 21. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。
