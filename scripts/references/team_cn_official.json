@@ -1,5 +1,5 @@
 {
-  "_comment": "竞彩官方中文队名表（单一真源：web/routers/ticket.py 与 web/services/team_match.py 按中文名把竞彩场次 join 到模型预测，故中文名必须与竞彩逐字相等）。键 = 数据源 displayName（ESPN / API-Football / football-data 各源拼写都列全）；值 = 中国体育彩票官方中文队名。取值依据 = 生产库 fact.jc_match 的 396 个去重竞彩队名（人工逐支核对）。本表由 core/i18n.py::to_cn 在 COUNTRY_CN 与 LLM 翻译缓存**之前**查询 —— 因为 COUNTRY_CN 里写的是通用叫法（曼城/曼联/热刺/巴黎圣日耳曼），与竞彩官方叫法（曼彻斯特城/曼彻斯特联/托特纳姆热刺/巴黎圣日尔曼）不一致，join 必然 miss。不要把本表并入 references/team_translations.json —— 那个文件是 LLM 缓存，save_translations() 会整文件重写，混进去会被冲掉。",
+  "_comment": "竞彩官方中文队名表（单一真源：web/routers/ticket.py 与 web/services/team_match.py 按中文名把竞彩场次 join 到模型预测，故中文名必须与竞彩逐字相等）。键 = 数据源 displayName（ESPN / API-Football / football-data 各源拼写都列全）；值 = 中国体育彩票官方中文队名。取值依据 = 生产库 fact.jc_match 的 396 个去重竞彩队名（人工逐支核对）。本表由 core/i18n.py::to_cn 在 COUNTRY_CN 与 LLM 翻译缓存**之前**查询 —— 因为 COUNTRY_CN 里写的是通用叫法（曼城/曼联/热刺/巴黎圣日耳曼），与竞彩官方叫法（曼彻斯特城/曼彻斯特联/托特纳姆热刺/巴黎圣日尔曼）不一致，join 必然 miss。不要把本表并入 references/team_translations.json —— 那个文件是 LLM 缓存，save_translations() 会整文件重写，混进去会被冲掉。　⚠️ **同一俱乐部在竞彩可能有两个官方 id + 两个中文名**（例：Real Betis = 皇家贝蒂斯 = 贝西克塔斯，竞彩 id 505 = 欧战场次名『皇家贝蒂斯』/ 279 = 西甲场次名『贝西克塔斯』）⇒ **本表只登记模型侧会用的那个名**（『皇家贝蒂斯』），另一侧的『贝西克塔斯』**走 core/team_alias.py 的别名表**桥接（键 = 竞彩侧用词，值 = 预测侧用词）⇒ **不要把本表的值改成『贝西克塔斯』**，那会让 6 场欧战场次 join miss。",
   "_source": "fact.jc_match 396 个去重竞彩队名（2026-10-20 Oracle 生产库）+ 人工逐支核对",
   "_generated": "2026-10-20",
   "AEK Athens": "雅典AEK",
