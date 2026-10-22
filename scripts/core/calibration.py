@@ -98,14 +98,55 @@ def load_historical_past_matches(days: int = 30, league: str | None = None) -> l
         except (json.JSONDecodeError, OSError):
             pass
 
-    seen: set[str] = set()
+    seen: dict[str, dict[str, Any]] = {}
     unique: list[dict[str, Any]] = []
     for m in all_past:
         key = f"{m.get('kickoff_utc','')}_{m.get('home','')}_{m.get('away','')}"
-        if key not in seen:
-            seen.add(key)
+        existing = seen.get(key)
+        if existing is None:
+            seen[key] = m
             unique.append(m)
+            continue
+        # 同键重复：**不能"先到先得"丢字段**。
+        # `predictions/*.json` 的 past_matches 排在前面且**没有赔率字段**，
+        # 而 `references/historical_past_matches.json` 里同一场可能已回填了真实先验
+        # ⇒ 旧口径下先验被逐条遮蔽（生产实测 epl 89/89、ucl 233/233 全被遮蔽），
+        # ⇒ 训练集里赔率特征恒为常数（[0.5, 0.25, 0.25, 0]），
+        # ⇒ 线上预测用的是真实先验 ⇒ **训练/服务口径漂移**。
+        # 修法：把「这一份缺、另一份有」的赔率字段补进来（只补缺，不覆盖已有值）。
+        _merge_missing_odds(existing, m)
     return unique
+
+
+# 赔率相关字段：同一场比赛在两处来源里可能出现，必须能互相补齐。
+_ODDS_FIELDS: tuple[str, ...] = (
+    "home_true_prob", "draw_true_prob", "away_true_prob",
+    "home_ml_implied", "draw_implied", "away_ml_implied",
+    "odds_data_available",
+)
+
+
+def _odds_field_missing(name: str, value: Any) -> bool:
+    """某个赔率字段是否「还没填」。
+
+    ``None`` / 空白串算没填；``0.0`` 是**有效值**（不是缺失）。
+    ``odds_data_available`` 是布尔标记：``False`` 表示「没有赔率」⇒ 算没填。
+    """
+    if value is None:
+        return True
+    if name == "odds_data_available":
+        return value is not True
+    return isinstance(value, str) and not value.strip()
+
+
+def _merge_missing_odds(dst: dict[str, Any], src: dict[str, Any]) -> int:
+    """把 ``src`` 里「有值而 ``dst`` 里没有」的赔率字段补进 ``dst``。返回补了几项。"""
+    filled = 0
+    for name in _ODDS_FIELDS:
+        if _odds_field_missing(name, dst.get(name)) and not _odds_field_missing(name, src.get(name)):
+            dst[name] = src[name]
+            filled += 1
+    return filled
 
 
 def append_historical_past_matches(league: str, past_matches: list[dict[str, Any]],

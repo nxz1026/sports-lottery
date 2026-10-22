@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+import core.calibration as calibration_mod
 from core.calibration import _parse_score, append_historical_past_matches, build_calibration, compute_calibration_offset
 
 
@@ -205,6 +206,84 @@ class TestHistoricalPastMatches(unittest.TestCase):
             self.assertEqual(n, 0)
             # historical_past_matches.json 不应被创建
             self.assertFalse((base / "references" / "historical_past_matches.json").exists())
+
+    def test_duplicate_key_merges_odds_fields(self):
+        """同键重复时**不能"先到先得"丢字段**（§6.12.6 训练/服务漂移的根因）。
+
+        `predictions/*.json` 的 past_matches 排在前面且没有赔率，
+        `references/historical_past_matches.json` 里同一场可能已回填真实先验
+        ⇒ 旧口径下先验被遮蔽 ⇒ 训练集赔率特征恒为常数。
+        """
+        import json as _json
+
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            preds = base / "predictions"
+            refs = base / "references"
+            preds.mkdir(parents=True)
+            refs.mkdir(parents=True)
+
+            match = {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "A", "away": "B", "score": "2-1"}
+            # predictions 版本：**没有**赔率字段
+            (preds / "prediction_2026-01-02_00.json").write_text(
+                _json.dumps({"league": "epl", "past_matches": [dict(match)]}), encoding="utf-8")
+            # references 版本：同一场，**有**回填的先验
+            (refs / "historical_past_matches.json").write_text(
+                _json.dumps([{**match, "league": "epl", "home_true_prob": 0.61,
+                              "draw_true_prob": 0.22, "away_true_prob": 0.17,
+                              "home_ml_implied": 0.65, "draw_implied": 0.24,
+                              "away_ml_implied": 0.18, "odds_data_available": True}]),
+                encoding="utf-8")
+
+            old_preds, old_root = calibration_mod.PREDICTIONS_DIR, calibration_mod.FOOTBALL_DIR
+            calibration_mod.PREDICTIONS_DIR = preds
+            calibration_mod.FOOTBALL_DIR = base
+            try:
+                rows = calibration_mod.load_historical_past_matches(days=3650, league="epl")
+            finally:
+                calibration_mod.PREDICTIONS_DIR, calibration_mod.FOOTBALL_DIR = old_preds, old_root
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["home_true_prob"], 0.61)
+            self.assertEqual(rows[0]["away_true_prob"], 0.17)
+            self.assertTrue(rows[0]["odds_data_available"])
+            # 其它字段仍取先到的那一份（不被 references 覆盖）
+            self.assertEqual(rows[0]["score"], "2-1")
+
+    def test_duplicate_key_keeps_existing_odds(self):
+        """已有赔率的那一份**不被覆盖**（只补缺）。"""
+        import json as _json
+
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            preds = base / "predictions"
+            refs = base / "references"
+            preds.mkdir(parents=True)
+            refs.mkdir(parents=True)
+
+            match = {"kickoff_utc": "2026-01-01T12:00:00Z", "home": "A", "away": "B", "score": "2-1"}
+            (preds / "prediction_2026-01-02_00.json").write_text(
+                _json.dumps({"league": "epl", "past_matches": [
+                    {**match, "home_true_prob": 0.55, "odds_data_available": True}]}),
+                encoding="utf-8")
+            (refs / "historical_past_matches.json").write_text(
+                _json.dumps([{**match, "league": "epl", "home_true_prob": 0.99,
+                              "draw_true_prob": 0.005, "away_true_prob": 0.005,
+                              "odds_data_available": True}]),
+                encoding="utf-8")
+
+            old_preds, old_root = calibration_mod.PREDICTIONS_DIR, calibration_mod.FOOTBALL_DIR
+            calibration_mod.PREDICTIONS_DIR = preds
+            calibration_mod.FOOTBALL_DIR = base
+            try:
+                rows = calibration_mod.load_historical_past_matches(days=3650, league="epl")
+            finally:
+                calibration_mod.PREDICTIONS_DIR, calibration_mod.FOOTBALL_DIR = old_preds, old_root
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["home_true_prob"], 0.55)  # 先到的那份不被覆盖
+            self.assertEqual(rows[0]["draw_true_prob"], 0.005)  # 缺的被补上
+            self.assertEqual(rows[0]["away_true_prob"], 0.005)
 
     def test_multi_league_dedup_by_league_kickoff_pair(self):
         """R23 #5：多 league 时 dedup key 含 league — 同一 (kickoff, home, away) 在

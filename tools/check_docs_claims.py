@@ -1187,7 +1187,25 @@ def main() -> int:
           and "ON CONFLICT (sport, jc_id) DO NOTHING" in _s12_write
           and "IS NULL" in _s12_write)
 
-    # ---- 20. 守门项数自检（防「README 说的项数」与实际漂移）----
+    # ---- 20. 训练集去重不许遮蔽回填的先验（§6.12.6 的第二个缺陷）----
+    _calib = read(ROOT / "scripts" / "core" / "calibration.py")
+    check("训练集去重必须补齐赔率字段（不许「先到先得」丢字段）", True,
+          "_merge_missing_odds" in _calib
+          and "_ODDS_FIELDS" in _calib)
+    check("赔率字段的「缺失」判定要区分 0.0 / False 与 None", True,
+          "odds_data_available" in _calib and "_odds_field_missing" in _calib)
+    _sec6126 = ""
+    _m6126 = re.search(r"####\s*6\.12\.6.*?(?=\n####|\n---)", _roadmap, re.S)
+    if _m6126:
+        _sec6126 = _m6126.group(0)
+    check("路线图 §6.12.6 记录了训练集去重遮蔽先验的根因与实测口径", True,
+          "遮蔽" in _sec6126 and "89/89" in _sec6126)
+    check("路线图 §6.12.6 记录了回填后的生产验收数字（409 条 / odds_accuracy）", True,
+          "409" in _sec6126 and "0.725" in _sec6126)
+    check("路线图 §6.12.5 记了「闸门基线也踩了坑」（0.55 是含平局口径）", True,
+          "0.55" in _sec612 and "含平局" in _sec612)
+
+    # ---- 21. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。
     _guard_total = len(results) + 1
