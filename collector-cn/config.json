@@ -17,8 +17,13 @@
       ]
     },
     "jczq_result": {
+      "_why_window": "2026-10-22 起改为**4 个单日窗口**（D-3 / D-2 / D-1 / D 各一条 URL）。原因：竞彩赛果接口按 matchBeginDate=matchEndDate=开球日 过滤，而**跨日完赛**（北京时间深夜开球、次日凌晨结束）的场次赛果**次日**才发布 ⇒ 只查当天 ⇒ 那类场次的赛果**永久丢失**（生产实测 457 场里丢 65 场，含 12 条推荐单永远结算不了）。多查前几天 ⇒ D 日的场次在 D+1 日会带着最终赛果再被捞一次。",
+      "_page_size": "pageSize 由 30 提到 100（单日 30 场会顶到分页上限）。若接口拒绝大 pageSize，collector._fetch_with_page_fallback 会**自动退回 30**（自愈，不静默）。",
       "candidates": [
-        "https://webapi.sporttery.cn/gateway/uniform/football/getUniformMatchResultV1.qry?matchBeginDate={today}&matchEndDate={today}&leagueId=&pageSize=30&pageNo=1&isFix=0&matchPage=1&pcOrWap=1"
+        "https://webapi.sporttery.cn/gateway/uniform/football/getUniformMatchResultV1.qry?matchBeginDate={today_minus_3}&matchEndDate={today_minus_3}&leagueId=&pageSize=100&pageNo=1&isFix=0&matchPage=1&pcOrWap=1",
+        "https://webapi.sporttery.cn/gateway/uniform/football/getUniformMatchResultV1.qry?matchBeginDate={today_minus_2}&matchEndDate={today_minus_2}&leagueId=&pageSize=100&pageNo=1&isFix=0&matchPage=1&pcOrWap=1",
+        "https://webapi.sporttery.cn/gateway/uniform/football/getUniformMatchResultV1.qry?matchBeginDate={yesterday}&matchEndDate={yesterday}&leagueId=&pageSize=100&pageNo=1&isFix=0&matchPage=1&pcOrWap=1",
+        "https://webapi.sporttery.cn/gateway/uniform/football/getUniformMatchResultV1.qry?matchBeginDate={today}&matchEndDate={today}&leagueId=&pageSize=100&pageNo=1&isFix=0&matchPage=1&pcOrWap=1"
       ]
     },
     "jc_issue": {

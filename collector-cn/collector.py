@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -347,24 +348,111 @@ def write_batch(topic: str, rows: list) -> Path:
     return path
 
 
-def collect(topic: str) -> int:
+def _date_vars(base_date: str | None = None) -> dict[str, str]:
+    """占位符取值表（**唯一真源**：config.json 的 URL 模板里用这些键）。
+
+    ``base_date``（YYYY-MM-DD）用于**历史回补**：把「今天」挪到那一天，
+    于是 ``--date 2026-09-17`` 就能按那天的窗口去查（见 --backfill-range）。
+
+    ⚠️ 为什么要有 ``{today_minus_2}``：足球赛果 jczq_result 查的是
+    **matchDate（开球日）**；跨日完赛（北京时间深夜开球、次日凌晨结束）的场次，
+    赛果**次日**才发布，而次日查询按 matchDate 过滤就再也捞不到它
+    ⇒ 天天只查当天 ⇒ 那类场次的赛果**永久丢失**（生产实测 457 场里丢 65 场）。
+    ⇒ 必须**多查前几天**（每天查 D-3..D 共 4 个单日窗口），把「D 日的场次」在
+    D+1 日再查一遍 ⇒ 那时它已经有最终赛果了。
+    """
+    if base_date:
+        d0 = datetime.strptime(base_date, "%Y-%m-%d").replace(tzinfo=CN_TZ)
+    else:
+        d0 = datetime.now(CN_TZ)
+
+    def off(n: int) -> str:
+        return (d0 - timedelta(days=n)).strftime("%Y-%m-%d")
+
+    return {
+        "{today}": off(0),
+        "{yesterday}": off(1),
+        "{today_minus_2}": off(2),
+        "{today_minus_3}": off(3),
+        "{today_minus_7}": off(7),
+    }
+
+
+def _resolve(url_template: str, base_date: str | None = None) -> str:
+    """把 URL 模板里的日期占位符替换成实际日期。"""
+    for k, v in _date_vars(base_date).items():
+        url_template = url_template.replace(k, v)
+    return url_template
+
+
+def _page_size_of(url: str) -> int:
+    """从 URL 里取 pageSize（用于「疑似被分页截断」自检；取不到按 0 = 不判）。"""
+    m = re.search(r"pageSize=(\d+)", url)
+    return int(m.group(1)) if m else 0
+
+
+def _response_ok(rec: dict) -> bool:
+    """一次抓取是否「成功」（HTTP 200 且业务 errorCode=0 / success=true）。"""
+    if rec.get("http_status", 0) != 200:
+        return False
+    try:
+        return _ok(json.loads(rec["body"].decode("utf-8", errors="replace")))
+    except (ValueError, KeyError, AttributeError):
+        return False
+
+
+def _fetch_with_page_fallback(url: str) -> tuple[dict, dict | None]:
+    """抓一次；**pageSize 太大被接口拒绝时自动退回 30**（自愈，不静默）。
+
+    为什么要这层：jczq_result 的 pageSize 由 30 提到 100（单日 30 场会顶到分页上限），
+    但官方接口是否接受 pageSize=100 **未经验证** ⇒ 万一被拒，赛果 topic 直接瘫掉。
+    ⇒ 这里在失败时用 pageSize=30 再试一次，并把降级写进 status + 打印告警。
+
+    返回 (rec, fallback_info)；fallback_info 为 None 表示没用降级。
+    """
+    rec = fetch(url)
+    if _response_ok(rec):
+        return rec, None
+    page_size = _page_size_of(url)
+    if page_size <= 30:
+        return rec, None                      # 本来就是 30 ⇒ 失败另有原因，照常产错误行
+    fb_url = re.sub(r"pageSize=\d+", "pageSize=30", url)
+    fb = fetch(fb_url)
+    info = {"from": url, "to": fb_url, "http_status": rec.get("http_status", 0),
+            "fallback_ok": _response_ok(fb)}
+    print(f"[fallback] {url} 失败（http={rec.get('http_status', 0)}）⇒ 退回 pageSize=30：{fb_url}")
+    return fb, info
+
+
+def collect(topic: str, base_date: str | None = None) -> int:
     spec = CONFIG["topics"].get(topic)
     if not spec:
         print(f"[collect] 未知 topic: {topic}")
         return 1
     snap_ts = now_utc()
-    today = datetime.now(CN_TZ).strftime("%Y-%m-%d")
-    yesterday = (datetime.now(CN_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
-    today_minus_3 = (datetime.now(CN_TZ) - timedelta(days=3)).strftime("%Y-%m-%d")
-    today_minus_7 = (datetime.now(CN_TZ) - timedelta(days=7)).strftime("%Y-%m-%d")
     rows = []
-    for url in spec["candidates"]:
-        url = (url.replace("{today}", today).replace("{yesterday}", yesterday)
-               .replace("{today_minus_3}", today_minus_3).replace("{today_minus_7}", today_minus_7))
-        rec = fetch(url)
-        rows.extend(_PARSERS[topic](url, rec, snap_ts))
+    truncated = []
+    fallbacks = []
+    for tpl in spec["candidates"]:
+        url = _resolve(tpl, base_date)
+        rec, fb = _fetch_with_page_fallback(url)
+        if fb:
+            fallbacks.append(fb)
+            url = fb["to"]
+        got = _PARSERS[topic](url, rec, snap_ts)
+        # 分页自检：单页返回条数 == pageSize ⇒ **可能被截断**（不静默：写进 status + 告警）
+        page_size = _page_size_of(url)
+        if page_size and len(got) >= page_size:
+            truncated.append({"url": url, "rows": len(got), "page_size": page_size})
+            print(f"[collect] ⚠️ {url} 返回 {len(got)} 行（= pageSize {page_size}）"
+                  f"⇒ 可能被分页截断，请改大 pageSize 或加 pageNo")
+        rows.extend(got)
     path = write_batch(topic, rows)
     _update_status(last_collect=topic, last_collect_at=now_utc())
+    if truncated:
+        _update_status(page_limit_warnings=truncated)
+    if fallbacks:
+        _update_status(page_size_fallbacks=fallbacks)
     print(f"[collect] {topic}: {len(rows)} 行 → {path}")
     return 0
 
@@ -387,25 +475,29 @@ def collect_batch(topics: list) -> tuple[int, list]:
     return rc, paths
 
 
-def collect_topic(topic: str) -> Path:
+def collect_topic(topic: str, base_date: str | None = None) -> Path:
     """单 topic 采集 + 落文件，返回产出路径（.jsonl 或 .empty）。"""
     spec = CONFIG["topics"].get(topic)
     if not spec:
         print(f"[collect] 未知 topic: {topic}")
         raise ValueError(topic)
     snap_ts = now_utc()
-    today = datetime.now(CN_TZ).strftime("%Y-%m-%d")
-    yesterday = (datetime.now(CN_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
-    today_minus_3 = (datetime.now(CN_TZ) - timedelta(days=3)).strftime("%Y-%m-%d")
-    today_minus_7 = (datetime.now(CN_TZ) - timedelta(days=7)).strftime("%Y-%m-%d")
     rows = []
-    for url in spec["candidates"]:
-        url = (url.replace("{today}", today).replace("{yesterday}", yesterday)
-               .replace("{today_minus_3}", today_minus_3).replace("{today_minus_7}", today_minus_7))
+    truncated = []
+    for tpl in spec["candidates"]:
+        url = _resolve(tpl, base_date)
         rec = fetch(url)
-        rows.extend(_PARSERS[topic](url, rec, snap_ts))
+        got = _PARSERS[topic](url, rec, snap_ts)
+        page_size = _page_size_of(url)
+        if page_size and len(got) >= page_size:
+            truncated.append({"url": url, "rows": len(got), "page_size": page_size})
+            print(f"[collect_topic] ⚠️ {url} 返回 {len(got)} 行（= pageSize {page_size}）"
+                  f"⇒ 可能被分页截断")
+        rows.extend(got)
     path = write_batch(topic, rows)
     _update_status(last_collect=topic, last_collect_at=now_utc())
+    if truncated:
+        _update_status(page_limit_warnings=truncated)
     print(f"[collect] {topic}: {len(rows)} 行 → {path}")
     return path
 
@@ -423,12 +515,10 @@ def probe() -> int:
     ]
     alt_refs = [REFERER, "https://www.sporttery.cn/", "https://static.sporttery.cn/"]
     idx = 0
-    today = datetime.now(CN_TZ).strftime("%Y-%m-%d")
-    yesterday = (datetime.now(CN_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
     for topic, spec in CONFIG["topics"].items():
-        for url in spec["candidates"]:
+        for tpl in spec["candidates"]:
             idx += 1
-            url = url.replace("{today}", today).replace("{yesterday}", yesterday)
+            url = _resolve(tpl)
             rec = fetch(url)
             if rec.get("http_status") and "html" in rec.get("content_type", "").lower():
                 for k in (1, 2):
@@ -486,6 +576,121 @@ def _manifest(paths: list) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _stream_local_tar(local_args: list, timeout: int, label: str = "push") -> int:
+    """本地 tar（stdout 打流）→ ssh(league key-only) 远端 tar 解到 remote_base。
+    返回 ssh rc；本地 tar 失败抛异常（数据没打包成功，不可推）。"""
+    remote_base = f"{REMOTE_ROOT}/{HOST}"
+    p_local = subprocess.Popen(
+        local_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p_ssh = subprocess.Popen(
+        ["ssh", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+         "-i", str(Path.home() / ".ssh" / "collector-league"),
+         SSH_ALIAS, f"tar -C {remote_base} -xzf -"],
+        stdin=p_local.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    p_local.stdout.close()
+    _out, err = p_ssh.communicate(timeout=timeout)
+    p_local.wait(timeout=timeout)
+    if p_local.returncode != 0:
+        p_local_err = p_local.stderr.read(errors="replace")
+        p_ssh.kill()
+        print(f"[{label}] 本地 tar 失败 rc={p_local.returncode}: {p_local_err.strip()}")
+        return 1
+    if p_ssh.returncode != 0:
+        print(f"[{label}] ssh 流式失败 rc={p_ssh.returncode}: {err.decode(errors='replace').strip()}")
+    return p_ssh.returncode
+
+
+def _push_paths(paths: list, label: str = "push_batch") -> int:
+    """把 out/ 下这批文件按 B2 契约推远端（① 数据先落位 ② .done 清单最后到）。
+
+    与 push_batch 共用同一套推法 —— 回补批（backfill_range）也走这里，
+    免得「回补用一套推法、日常用另一套」两处漂移。
+    """
+    out_dir = ROOT / "out"
+    batch_ts = now_utc().rstrip("Z").replace(":", "-")
+    done = f"{batch_ts}Z.done"
+    manifest = _manifest(paths)
+    # .done 以最终时间戳名直接落本地 out/（受限 shell 远端只有 tar -xzf，无法改名；本地保留作幂等锚）
+    (out_dir / done).write_text(manifest, encoding="utf-8")
+    # ① 数据文件：-C out 使 arcname = topic/<file>.jsonl，与远端 .done 相对路径一致
+    rel = [str(p.relative_to(out_dir)) for p in paths]
+    r1 = _stream_local_tar(["tar", "-czf", "-", "-C", str(out_dir), *rel], timeout=180, label=label)
+    if r1 != 0:
+        return 1
+    # ② .done 清单（B2 最后一步）：单独推，远端名 = done；数据文件流里不含 .done
+    r2 = _stream_local_tar(["tar", "-czf", "-", "-C", str(out_dir), done], timeout=60, label=label)
+    if r2 != 0:
+        return 1
+    print(f"[{label}] 完成：{len(paths)} 个文件 + {done}")
+    return 0
+
+
+def _dates_between(start: str, end: str) -> list[str]:
+    """[start, end] 闭区间的日期列表（YYYY-MM-DD）。"""
+    d0 = datetime.strptime(start, "%Y-%m-%d")
+    d1 = datetime.strptime(end, "%Y-%m-%d")
+    if d1 < d0:
+        raise ValueError(f"end({end}) 早于 start({start})")
+    out, cur = [], d0
+    while cur <= d1:
+        out.append(cur.strftime("%Y-%m-%d"))
+        cur += timedelta(days=1)
+    return out
+
+
+def backfill_range(start: str, end: str, topic: str = "jczq_result",
+                   pages: int = 3, push: bool = True) -> int:
+    """**历史回补**：按日期区间逐日重抓（每日期翻 pageNo=1..pages 页）并推远端。
+
+    为什么需要（2026-10-22 生产实测）：
+      ① 日常窗口改成 D-3..D 之后，只能修好**从改动生效之后**的场次；
+      ② 已经丢掉的那些场次（生产 457 场里 65 场，14%）只能**按历史日期重抓**补回来；
+      ③ 官方接口按日期过滤 ⇒ 必须**逐日**查（不能一次查一个月：单页会被总场次顶掉）。
+
+    翻页：单日场次可能超过 pageSize ⇒ 每日期抓 pageNo=1..pages，按 matchId 去重。
+    产物：out/<topic>/<ts>__001.jsonl（契约同日常批）⇒ 远端装载器照常装载。
+    """
+    spec = CONFIG["topics"].get(topic)
+    if not spec or not spec.get("candidates"):
+        print(f"[backfill] 未知 topic: {topic}")
+        return 1
+    tpl0 = spec["candidates"][0]
+    snap_ts = now_utc()
+    rows: list = []
+    seen_ids: set = set()
+    n_pages = 0
+    for day in _dates_between(start, end):
+        for page in range(1, max(1, pages) + 1):
+            # 该日期的所有日期占位符统一替换成 day ⇒ matchBeginDate=matchEndDate=day
+            url = tpl0
+            for k, _v in _date_vars(day).items():
+                url = url.replace(k, day)
+            url = re.sub(r"pageNo=\d+", f"pageNo={page}", url)
+            rec, fb = _fetch_with_page_fallback(url)
+            if fb:
+                url = fb["to"]
+            got = _PARSERS[topic](url, rec, snap_ts)
+            n_pages += 1
+            fresh = 0
+            for row in got:
+                payload = row.get("payload") or {}
+                mid = payload.get("matchId")
+                if mid is not None:
+                    if mid in seen_ids:
+                        continue
+                    seen_ids.add(mid)
+                fresh += 1
+                rows.append(row)
+            print(f"[backfill] {day} page{page}: {len(got)} 行（新增 {fresh}）")
+    path = write_batch(topic, rows)
+    print(f"[backfill] {start}~{end}：{n_pages} 次请求，去重后 {len(rows)} 行 → {path}")
+    _update_status(last_backfill=f"{topic} {start}~{end}", last_backfill_at=now_utc(),
+                    last_backfill_rows=len(rows))
+    if not push:
+        return 0
+    return _push_paths([path], "backfill_range")
+
+
 def push_batch(topics: list) -> int:
     """B1+B2+G(A)：采集全部指定 topic → tar 流式推远端 → 最后写 .done 清单。
 
@@ -503,49 +708,10 @@ def push_batch(topics: list) -> int:
     if not out_dir.exists():
         print("[push_batch] out/ 不存在")
         return 1
-    batch_ts = now_utc().rstrip("Z").replace(":", "-")
-    done = f"{batch_ts}Z.done"
-    manifest = _manifest(paths)
-    # .done 以最终时间戳名直接落本地 out/（受限 shell 远端只有 tar -xzf，无法改名；本地保留作幂等锚）
-    done_local = out_dir / done
-    done_local.write_text(manifest, encoding="utf-8")
-    remote_base = f"{REMOTE_ROOT}/{HOST}"
-
-    def stream_local_tar(local_args: list, timeout: int) -> int:
-        """本地 tar（stdout 打流）→ ssh(league key-only) 远端 tar 解到 remote_base。
-        返回 ssh rc；本地 tar 失败抛异常（数据没打包成功，不可推）。"""
-        p_local = subprocess.Popen(
-            local_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        p_ssh = subprocess.Popen(
-            ["ssh", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
-             "-i", str(Path.home() / ".ssh" / "collector-league"),
-             SSH_ALIAS, f"tar -C {remote_base} -xzf -"],
-            stdin=p_local.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        p_local.stdout.close()
-        _out, err = p_ssh.communicate(timeout=timeout)
-        p_local.wait(timeout=timeout)
-        if p_local.returncode != 0:
-            p_local_err = p_local.stderr.read(errors="replace")
-            p_ssh.kill()
-            print(f"[push_batch] 本地 tar 失败 rc={p_local.returncode}: {p_local_err.strip()}")
-            return 1
-        if p_ssh.returncode != 0:
-            print(f"[push_batch] ssh 流式失败 rc={p_ssh.returncode}: {err.decode(errors='replace').strip()}")
-        return p_ssh.returncode
-
     if rc != 0:
         print(f"[push_batch] collect rc={rc}（部分 topic 失败，仍推已产出文件）")
-    # ① 数据文件：-C out 使 arcname = topic/<file>.jsonl，与远端 .done 相对路径一致
-    rel = [str(p.relative_to(out_dir)) for p in paths]
-    r1 = stream_local_tar(["tar", "-czf", "-", "-C", str(out_dir), *rel], timeout=180)
-    if r1 != 0:
-        return 1
-    # ② .done 清单（B2 最后一步）：单独推，远端名 = done；数据文件流里不含 .done
-    r2 = stream_local_tar(["tar", "-czf", "-", "-C", str(out_dir), done], timeout=60)
-    if r2 != 0:
-        return 1
-    print(f"[push_batch] 完成：{topics} + {done}")
-    return rc
+    pushed = _push_paths(paths, "push_batch")
+    return rc if pushed == 0 else pushed
 
 
 
@@ -588,6 +754,11 @@ def main() -> int:
     ap.add_argument("--collect-all", action="store_true", help="采集全部 8 topic")
     ap.add_argument("--push-batch", nargs="+", metavar="TOPIC",
                     help="B1+B2+G(A)：采集指定 topic 批 + 原子推远端 + .done 清单")
+    ap.add_argument("--backfill-range", nargs=2, metavar=("START", "END"),
+                    help="历史回补：逐日重抓该日期区间（含翻页）并推远端（YYYY-MM-DD）")
+    ap.add_argument("--backfill-topic", default="jczq_result", help="回补的 topic（缺省 jczq_result）")
+    ap.add_argument("--backfill-pages", type=int, default=3, help="每个日期抓几页（缺省 3）")
+    ap.add_argument("--no-push", action="store_true", help="回补只落盘不推远端")
     ap.add_argument("--mode-log", metavar="MODE", default="",
                     help="静默模式：stdout/stderr 同时追加写 logs/collector_<MODE>.log（计划任务无窗口时诊断用）")
     args = ap.parse_args()
@@ -613,6 +784,10 @@ def main() -> int:
             return collect_all()
         if args.push_batch:
             return push_batch(args.push_batch)
+        if args.backfill_range:
+            return backfill_range(args.backfill_range[0], args.backfill_range[1],
+                                  topic=args.backfill_topic, pages=args.backfill_pages,
+                                  push=not args.no_push)
         ap.print_help()
         return 1
     finally:
