@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import json
 import re
 import shutil
 import subprocess
@@ -1219,6 +1220,91 @@ def main() -> int:
     _sec6124 = _m6124.group(0) if _m6124 else ""
     check("路线图 §6.12.4 有「6 联赛全重训 + 不劣化 + 新进程读盘一致」的验收标准", True,
           "逐个不同" in _sec6124 and "不劣化" in _sec6124 and "新进程" in _sec6124)
+
+    # ---- 22. §6.13 本轮收尾：队名漏配 / 279 纠正 / 采集多日窗口 / 文档漂移 ----
+    # 本轮的核心教训：**「补能力」与「把『说它不存在』的地方一起翻过来」必须同时做** ——
+    # 否则文档和守门会拿一句已经过期的假话当护栏（§6.11.1 已经吃过一次亏）。
+    _i6113 = _roadmap.find("#### 6.11.3 ")
+    _i612 = _roadmap.find("### 6.12 ")
+    _sec6113 = _roadmap[_i6113:_i612] if 0 <= _i6113 < _i612 else ""
+    # 只取 §6.11.3 的**表格行**（以 | 开头）：节内的说明性引用块可以提到旧话。
+    _t6113 = [ln for ln in _sec6113.splitlines() if ln.startswith("| ") and "---" not in ln]
+    check("路线图有 §6.11.3 剩余遗留清单章节", True, bool(_sec6113))
+    check("§6.11.3 遗留表不许再把已完成的项写成「待排期 / 暂不批量做」", True,
+          not [ln for ln in _t6113 if ("待排期" in ln or "暂不批量做" in ln)])
+    check("§6.11.3 遗留表把 home_true_prob 回填标成已完成", True,
+          any("home_true_prob" in ln and "已完成" in ln for ln in _t6113))
+    check("§6.11.3 遗留表把竞彩映射缺口标成已完成", True,
+          any("竞彩映射缺口" in ln and "已完成" in ln for ln in _t6113))
+
+    _i613 = _roadmap.find("### 6.13 ")
+    _i7 = _roadmap.find("## 7. ")
+    _sec613 = _roadmap[_i613:_i7] if 0 <= _i613 < _i7 else ""
+    check("路线图有 §6.13 本轮收尾章节", True, bool(_sec613))
+    check("§6.13 记了 3 个队名别名缺口（不许只写「修好了」）", True,
+          all(t in _sec613 for t in ("巴伦西亚", "云达不来梅", "贝西克塔斯")))
+    check("§6.13 记了 279 的纠正目标（皇家贝蒂斯 #2355 / af_id 543）", True,
+          "皇家贝蒂斯" in _sec613 and "2355" in _sec613 and "543" in _sec613)
+    check("§6.13 记了 65 场赛果缺口 + 4 日窗口 + 回补 CLI", True,
+          "65" in _sec613 and "today_minus_3" in _sec613 and "--backfill-range" in _sec613)
+    check("§6.13 写明了「改完 ≠ 生效」（要国内机重部署 + 回补）", True,
+          "国内机" in _sec613 and "≠" in _sec613)
+
+    # 别名两侧必须镜像（漏一侧 = 静默漏场次，且零报错）
+    _alias_src = read(ROOT / "scripts" / "core" / "team_alias.py")
+    _alias_web = read(ROOT / "web" / "services" / "team_match.py")
+    check("3 个别名缺口两侧都补上了（scripts/ 与 web/ 必须镜像）", True,
+          all(t in _alias_src and t in _alias_web
+              for t in ("巴伦西亚", "云达不来梅", "贝西克塔斯")))
+    # 官方队名表只允许动 _comment：Real Betis 的值必须仍是「皇家贝蒂斯」
+    _official = read(ROOT / "scripts" / "references" / "team_cn_official.json")
+    check("官方队名表 Real Betis 的值仍是「皇家贝蒂斯」（不许被「改对」成贝西克塔斯）", True,
+          '"皇家贝蒂斯"' in _official and '"贝西克塔斯"' not in _official)
+    # 静默失败必须变成可复算的审计命令
+    _audit_src = read(ROOT / "scripts" / "ingest" / "jc_name_join_audit.py")
+    check("队名 join 有只读复算审计脚本（退出码 1 = 有缺口，不许静默）", True,
+          "def main" in _audit_src and "return 1" in _audit_src)
+
+    # 279 重指：SQL 是唯一真源，CLI 不复制语句；DDL 源文件已翻过来
+    _s10 = read(ROOT / "docs" / "db" / "suggestion10_team_sporttery_map.sql")
+    check("suggestion10 的 279 改按 af_id=543 定位（不再写死 team_id）", True,
+          "af_id = 543" in _s10 and "SELECT 'football', 279, 2351" not in _s10)
+    _repoint_cli = read(ROOT / "scripts" / "ingest" / "jc_team_id_repoint.py")
+    check("279 重指 CLI 读同一份 .sql（不复制语句 ⇒ 不会两处改一处）", True,
+          "suggestion13_betis_id_repoint.sql" in _repoint_cli
+          and "UPDATE ref.team_sporttery" not in _repoint_cli)
+
+    # 采集端：4 个单日窗口 + pageSize 自愈 + 截断告警 + 回补 CLI
+    _cfg = json.loads(read(ROOT / "collector-cn" / "config.json"))
+    _jc_urls = _cfg.get("topics", {}).get("jczq_result", {}).get("candidates", [])
+    check("竞彩赛果采集改成 4 个单日窗口（D-3/D-2/D-1/今天）", True, len(_jc_urls) == 4)
+    check("竞彩赛果采集的 4 个窗口都带 pageSize=100", True,
+          all("pageSize=100" in u for u in _jc_urls))
+    _want_days = ("{today_minus_3}", "{today_minus_2}", "{yesterday}", "{today}")
+    check("竞彩赛果采集的 4 个窗口各自 matchBeginDate=matchEndDate=同一天", True,
+          len(_jc_urls) == len(_want_days)
+          and all(("matchBeginDate=" + d + "&matchEndDate=" + d) in u
+                  for u, d in zip(_jc_urls, _want_days)))
+    _basket = _cfg.get("topics", {}).get("jclq_result", {}).get("candidates", [])
+    check("篮球的 7 日窗口没被动过（不许被足球的改动带跑）", True,
+          any("{today_minus_7}" in u and "{today}" in u for u in _basket))
+    _collector = read(ROOT / "collector-cn" / "collector.py")
+    check("采集器有 pageSize 自愈兜底（失败自动退回，不静默）", True,
+          "_fetch_with_page_fallback" in _collector and "page_size_fallbacks" in _collector)
+    check("采集器有分页截断自检（疑似截断不许静默）", True,
+          "page_limit_warnings" in _collector)
+    check("采集器有回补 CLI（--backfill-range）且与日常批共用推送", True,
+          "--backfill-range" in _collector and "backfill_range" in _collector
+          and "_push_paths" in _collector)
+
+    # README / 路线图：旧话必须带订正标记；v4.6 段必须存在
+    check("README/路线图 不再把「补数据属待排期」当现状陈述", True,
+          not stale_lines(readme, ["补数据属待排期"])
+          and not stale_lines(_roadmap, ["补数据属待排期"]))
+    check("README 有 v4.6 段（记本轮三项 + 队名漏配）", True,
+          "### v4.6" in readme and "队名 join 静默漏场次" in readme)
+    check("README 记录了 279 纠正后的目标（皇家贝蒂斯 #2355）", True,
+          "皇家贝蒂斯" in readme and "2355" in readme)
 
     # ---- 21. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
