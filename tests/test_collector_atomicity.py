@@ -28,13 +28,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR = REPO_ROOT / "collector-cn" / "collector.py"
 
-WINDOWS = sys.platform == "win32"
-
+# ⚠️ 本文件**不做平台跳过**（2026-10-23 订正）：初版把两条锁测试标成
+# 「仅 Windows 可测」，根因是存活判定只认 `ctypes.windll`。现在采集端存活判定
+# 走 `_pid_alive()`（Windows 走 OpenProcess / POSIX 走 os.kill(pid, 0)）
+# ⇒ Windows 与 Linux（Oracle）**两侧都能跑**，平台差异由生产代码自己吸收。
 
 def _load_mod():
     spec = importlib.util.spec_from_file_location("collector_atomic_test", COLLECTOR)
@@ -192,9 +192,14 @@ def test_singleton_lock_concurrent_only_one_holder(tmp_path):
     assert len(spans) == 1, f"持锁区间应只有 1 段，实际 {len(spans)}: {spans}"
 
 
-@pytest.mark.skipif(not WINDOWS, reason="存活判定走 Windows OpenProcess，仅 Windows 可测")
 def test_singleton_lock_refuses_when_other_process_alive(tmp_path, monkeypatch):
-    """锁被**另一个活进程**持有时必须返回 False。"""
+    """锁被**另一个活进程**持有时必须返回 False（跨平台）。
+
+    ⚠️ 2026-10-23 踩过：这条原本带 `skipif(not WINDOWS)`，因为当时存活判定
+    只认 `ctypes.windll`（Windows 专有）⇒ Linux 上子进程直接 AttributeError 崩掉。
+    现在存活判定走 `_pid_alive()`（Windows 走 OpenProcess / POSIX 走 os.kill(0)）
+    ⇒ **全平台可测**，不再需要跳过。
+    """
     mod = _mod_at(tmp_path, monkeypatch)
     holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     try:

@@ -40,6 +40,14 @@ python collector.py --push-batch <topic>...   # 定时任务主路径：B1 采�
   多个批次会**同时拿到锁**、**给同一 topic 选到同一个文件名** ⇒ 两个进程各写一半 ⇒
   **文件内容交织、变成非法 JSON**（远端装载报 `JSONDecodeError`，且坏文件留在盘上反复报错）。
   回归测试见 `tests/test_collector_atomicity.py`（并发写不撞名 + 并发抢锁只有一个赢家）。
+- ⚠️ **存活判定必须跨平台（2026-10-23 订正）**：拿锁后要判断「旧 pid 是否还活着」，
+  **不许直接写 `ctypes.windll`**（Windows 专有）。采集端跑在 Windows 工作机，但
+  `collector.py` 同时是**仓库里的生产代码**，其回归测试会在 **Linux（Oracle）** 上跟着全量
+  pytest 一起跑 ⇒ 只认 windll 会让 Oracle 上直接 `AttributeError` 崩掉、测试变红。
+  现在走 `_pid_alive()`：**Windows 走 `OpenProcess`**；**POSIX 走 `os.kill(pid, 0)`**
+  （只做存在性+权限探测，不发真信号）。
+  ⚠️ **Windows 上不能用 `os.kill(pid, 0)`** —— 那边 `os.kill` 对非 `CTRL_*` 信号会调
+  `TerminateProcess` ⇒ **会把目标进程杀掉**。
 
 ## 手动模式（2026-10-22 起，本机生效）
 **采集机是工作电脑，不是 24h 开机** ⇒ 5 个计划任务在本机**已停用**（`Enabled=False`，任务定义保留未删）。

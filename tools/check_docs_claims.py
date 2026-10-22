@@ -1346,6 +1346,37 @@ def main() -> int:
           and _collector.count('open(lock, "x"') >= 1)
     check("采集器写批次文件不许再用非原子的 open(w) 两步式（AST 判定，免疫注释/文档字符串）",
           True, not _w_modes)
+    # 存活判定必须**跨平台**：采集端跑在 Windows 工作机，但 collector.py 同时是
+    # 仓库里的生产代码，其回归测试会在 **Linux（Oracle）** 上跟着全量 pytest 跑。
+    # 初版只认 `ctypes.windll`（Windows 专有）⇒ Oracle 上子进程 AttributeError 崩掉、
+    # 两条锁测试 failed（2026-10-23 实测）。现在走 `_pid_alive()`：
+    #   Windows → OpenProcess；POSIX → os.kill(pid, 0)（只探测不发信号）。
+    # ⚠️ Windows 上**不能用** os.kill(pid, 0)：那边 os.kill 对非 CTRL_* 信号会
+    #    调 TerminateProcess ⇒ 会把目标进程杀掉。
+    _ctypes_windll_lines: list[int] = []
+    _has_pid_alive_fn = False
+    _has_os_kill_call = False
+    _pid_alive_span: tuple[int, int] | None = None
+    if _tree is not None:
+        for _node in ast.walk(_tree):
+            if isinstance(_node, ast.FunctionDef) and _node.name == "_pid_alive":
+                _has_pid_alive_fn = True
+                _pid_alive_span = (_node.lineno, _node.end_lineno or _node.lineno)
+            if (isinstance(_node, ast.Attribute) and _node.attr == "windll"):
+                _ctypes_windll_lines.append(_node.lineno)
+            if (isinstance(_node, ast.Call) and isinstance(_node.func, ast.Attribute)
+                    and _node.func.attr == "kill"):
+                _has_os_kill_call = True
+    check("采集端进程存活判定跨平台（Windows 走 OpenProcess / POSIX 走 os.kill(0)）",
+          True, _has_pid_alive_fn and _has_os_kill_call)
+    # 精确判定：所有 ctypes.windll 引用都必须落在 _pid_alive 的行区间内
+    # （不许散落到别的函数 ⇒ 那些函数一进 Linux 就 AttributeError）
+    _windll_outside = [
+        ln for ln in _ctypes_windll_lines
+        if _pid_alive_span is None or not (_pid_alive_span[0] <= ln <= _pid_alive_span[1])
+    ]
+    check("采集端不许在 _pid_alive 之外裸用 ctypes.windll（Windows 专有，会让 Linux 侧测试崩）",
+          True, not _windll_outside)
 
     # README / 路线图：旧话必须带订正标记；v4.6 段必须存在
     check("README/路线图 不再把「补数据属待排期」当现状陈述", True,

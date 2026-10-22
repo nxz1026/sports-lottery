@@ -737,6 +737,42 @@ def push_batch(topics: list) -> int:
 
 
 
+def _pid_alive(pid: int) -> bool:
+    """进程 pid 是否还活着（**跨平台**）。
+
+    ⚠️ 为什么不能只写 Windows 版：采集端跑在**国内 Windows 工作机**，但
+    `collector-cn/collector.py` 同时是**仓库里的生产代码**，其回归测试会在
+    **Linux（Oracle）** 上跟着全量 pytest 一起跑。若存活判定只认
+    `ctypes.windll.kernel32`，Linux 上会在这一行抛 `AttributeError` ⇒
+    **Linux 上跑不动采集端的锁测试**（2026-10-23 实测踩到：Oracle 上 2 failed）。
+
+    - **Windows**：走 `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`。
+      ⚠️ **不能用 `os.kill(pid, 0)`**：Windows 上 `os.kill` 对非 CTRL_* 信号
+      会调用 `TerminateProcess` ⇒ **会把目标进程杀掉**（signal 0 也不例外）。
+    - **POSIX**：`os.kill(pid, 0)` 只做存在性+权限探测，不发真信号。
+      `ProcessLookupError` ⇒ 已死；`PermissionError` ⇒ 存在但无权限 ⇒ 活着。
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        K32 = ctypes.windll.kernel32
+        h = K32.OpenProcess(0x0400, 0, pid)
+        if h:
+            K32.CloseHandle(h)
+            return True
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True          # 存在但不允许发信号 ⇒ 进程还在
+    except OSError:
+        return False
+    return True
+
+
 def _acquire_singleton_lock() -> bool:
     """单例锁：同机同一时间只允许一个 collector 批次在跑。
     任务 IgnoreNew 已挡调度层重叠；此锁兜底 wscript 被 PT30M 杀后 python 僵尸还活着、
@@ -754,7 +790,6 @@ def _acquire_singleton_lock() -> bool:
     ⇒ 现在用 **O_EXCL 独占创建**拿锁：只有能独占创建成功的那个进程算拿到锁；
     锁已存在时再走「旧 pid 是否还活着」的判定（死 pid → 接管）。
     """
-    import ctypes
     lock = ROOT / ".collector.lock"
     my_pid = os.getpid()
     try:
@@ -774,12 +809,8 @@ def _acquire_singleton_lock() -> bool:
         old_pid = int(lock.read_text(encoding="utf-8").strip() or "0")
     except (ValueError, OSError):
         old_pid = 0
-    if old_pid and old_pid != my_pid:
-        K32 = ctypes.windll.kernel32
-        h = K32.OpenProcess(0x0400, 0, old_pid)
-        if h:
-            K32.CloseHandle(h)
-            return False
+    if old_pid and old_pid != my_pid and _pid_alive(old_pid):
+        return False
     # 旧 pid 已死 ⇒ 接管（罕见路径；真正的护栏是 write_batch 的原子独占创建）
     try:
         lock.write_text(str(my_pid), encoding="utf-8")
