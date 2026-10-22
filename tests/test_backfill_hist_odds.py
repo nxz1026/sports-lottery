@@ -31,16 +31,25 @@ for _p in (str(REPO_ROOT), str(SCRIPTS)):
 import backfill_hist_odds as bf  # noqa: E402
 from core.data.parse import remove_vig  # noqa: E402
 
-# 十进制赔率（生产 summary 里就是这套形态：homeTeamOdds/drawOdds/awayTeamOdds.odds.value）
+# 赛前赔率（生产实测口径）：ESPN 的赛前 1x2 在 summary["pickcenter"] 里，
+# 三侧是**美式** moneyLine ⇒ 下面用十进制书写，测试桩会换算成美式再喂回去。
 HOME_DEC = 2.10
 DRAW_DEC = 3.40
 AWAY_DEC = 4.00
 
 
+def _decimal_to_american(decimal: float) -> float:
+    """十进制 → 美式（ESPN 的 moneyLine 就是美式）。"""
+    if decimal >= 2.0:
+        return round((decimal - 1.0) * 100.0)
+    return round(-100.0 / (decimal - 1.0))
+
+
 # ────────────────────────── 假数据源 ──────────────────────────
 
 def _event(event_id: str, home: str, away: str, date: str,
-           home_id: str = "", away_id: str = "") -> dict:
+           home_id: str = "", away_id: str = "",
+           home_score: str = "2", away_score: str = "1") -> dict:
     """造一个 ESPN scoreboard event（结构对齐实测返回）。"""
     return {
         "id": event_id,
@@ -49,8 +58,10 @@ def _event(event_id: str, home: str, away: str, date: str,
         "competitions": [{
             "id": event_id,
             "competitors": [
-                {"homeAway": "home", "team": {"id": home_id, "displayName": home}},
-                {"homeAway": "away", "team": {"id": away_id, "displayName": away}},
+                {"homeAway": "home", "team": {"id": home_id, "displayName": home},
+                 "score": home_score},
+                {"homeAway": "away", "team": {"id": away_id, "displayName": away},
+                 "score": away_score},
             ],
             "odds": [None],  # 已完赛场次的 scoreboard 就是没有赔率（实测）
         }],
@@ -104,12 +115,15 @@ class FakeESPN:
 
     def __init__(self, events: dict[tuple[str, str], list[dict]] | None = None,
                  odds: dict[str, tuple[float | None, float | None, float | None]] | None = None,
-                 errors: dict[str, Exception] | None = None) -> None:
+                 errors: dict[str, Exception] | None = None,
+                 live_odds: dict[str, tuple[float | None, float | None, float | None]] | None = None) -> None:
         # events: {(slug, dates): [event, ...]}；odds: {event_id: (home, draw, away)}
         # odds 里任一元素为 None ⇒ summary 里就**缺那一侧**（模拟 ESPN 少给一侧）。
+        # live_odds: 只给**终场/滚球价**的 event（模拟生产踩到的那个坑）。
         self.events = events or {}
         self.odds = odds or {}
         self.errors = errors or {}
+        self.live_odds = live_odds or {}
         self.calls: list[str] = []
 
     def __call__(self, url: str, timeout: float = 25) -> dict:
@@ -121,13 +135,33 @@ class FakeESPN:
             event_id = self._parse_event(url)
             if event_id in self.errors:
                 raise self.errors[event_id]
-            return {"odds": [self._summary(self.odds.get(event_id))]}
+            if event_id in self.live_odds:
+                return {"odds": [self._live_summary(self.live_odds[event_id])]}
+            return {"pickcenter": [self._summary(self.odds.get(event_id))]}
         raise AssertionError(f"测试里出现未预期的 URL：{url}")
 
     @staticmethod
     def _summary(decimals: tuple[float | None, float | None, float | None] | None) -> dict:
+        """赛前价：pickcenter 形态，三侧**美式** moneyLine（生产实测口径）。"""
         if decimals is None:
-            return {"provider": {"name": "Bet 365"}}
+            return {"provider": {"name": "DraftKings"}}
+        home, draw, away = decimals
+        summary: dict = {"provider": {"id": "100", "name": "DraftKings"}}
+        for key, value in (("homeTeamOdds", home), ("drawOdds", draw), ("awayTeamOdds", away)):
+            if value is None:
+                continue
+            summary[key] = {"moneyLine": _decimal_to_american(value)}
+        return summary
+
+    @staticmethod
+    def _live_summary(decimals: tuple[float | None, float | None, float | None] | None) -> dict:
+        """终场/滚球价：odds[] 形态，三侧**十进制** odds.value（生产实测口径）。
+
+        ⚠️ 这是 2026-10-21 被证伪的旧口径 —— 谁赢谁 500/1 ⇒ 回填会造出
+        「热门 100% 全胜」的假象 ⇒ 脚本必须**不采信**它。
+        """
+        if decimals is None:
+            return {"provider": {"id": "2000", "name": "Bet 365"}}
         home, draw, away = decimals
         summary: dict = {"provider": {"id": "2000", "name": "Bet 365"}}
         for key, value in (("homeTeamOdds", home), ("drawOdds", draw), ("awayTeamOdds", away)):
@@ -558,27 +592,79 @@ def test_league_slug_mapping_is_the_agreed_one():
     }
 
 
-# ────────────────────────── 11. 生产实测形态（summary odds 的三种怪癖）──────────────────────────
+# ────────────────────────── 11. 生产实测形态（赛前价 vs 终场价）──────────────────────────
 
-def test_decimal_odds_reads_flat_draw_side():
-    """Bet365 的 drawOdds 把 value **直接挂在侧上**（没有嵌套 odds）⇒ 也要认。"""
-    assert bf._decimal_odds({"summary": "20/1", "value": 21.0, "handicap": 0.0}) == 21.0
-    assert bf._decimal_odds({"team": {"x": 1}, "odds": {"summary": "1/66", "value": 1.015}}) == 1.015
-
-
-def test_decimal_odds_rejects_american_moneyline():
-    """``moneyLine`` 是美式赔率 ⇒ 绝不认（否则隐含概率全错）。"""
-    assert bf._decimal_odds({"moneyLine": -500, "favorite": True}) is None
-    assert bf._decimal_odds({"moneyLine": 600.0}) is None
-    # 赔率 ≤ 1（隐含概率 ≥ 1）没有数学意义 ⇒ 当缺失
-    assert bf._decimal_odds({"value": 1.0}) is None
-    assert bf._decimal_odds({"value": 0.8}) is None
-    # handicap ≠ 0 ⇒ 那是让球盘不是 1x2
-    assert bf._decimal_odds({"odds": {"value": 1.9, "handicap": -1.5}}) is None
+def test_american_moneyline_converts_to_decimal():
+    """赛前价是**美式** moneyLine ⇒ 必须自己换算成十进制。"""
+    assert bf.american_to_decimal(-500) == pytest.approx(1.2)
+    assert bf.american_to_decimal(600.0) == pytest.approx(7.0)
+    assert bf.american_to_decimal(145) == pytest.approx(2.45)
+    assert bf.american_to_decimal(+200) == pytest.approx(3.0)
+    # 非数字 / 0 / 换算出来 ≤ 1 ⇒ 当缺失
+    assert bf.american_to_decimal(None) is None
+    assert bf.american_to_decimal("abc") is None
+    assert bf.american_to_decimal(0) is None
 
 
-def test_bet365_block_is_found_even_when_not_first():
-    """实测：odds 块顺序不固定，DraftKings 块可能排在 Bet365 前面 ⇒ 必须逐块扫。"""
+def test_live_odds_block_is_never_used_for_backfill():
+    """⚠️ 终场/滚球价（``odds[].*.odds.value``）**绝不能**被采信。
+
+    生产实测的坑：多特蒙德 4-1 毕尔巴鄂 ⇒ ``home=1/500(1.002)``、``away=450/1``；
+    布拉格斯拉维亚 2-3 朗斯 ⇒ ``home=500/1(501.0)``、``away=1/66``。
+    用它回填会造出「概率更高的一方 100% 全胜」的假象（实测 281/281）。
+    """
+    entry = _entry()
+    fake = FakeESPN(
+        events={("eng.1", "2025"): [_event("740641", "Arsenal", "Chelsea", "2025-09-20")]},
+        live_odds={"740641": (1.002, 51.0, 451.0)},
+    )
+
+    stats = _fill_in_place([entry], fake)
+
+    assert stats["filled"] == 0
+    assert stats["no_odds"] == 1
+    assert entry["home_true_prob"] is None
+    assert entry["odds_data_available"] is False
+
+
+def test_pickcenter_is_preferred_over_live_odds():
+    """同一份 summary 里 pickcenter（赛前）与 odds[]（终场）并存 ⇒ 取赛前的。"""
+    entry = _entry()
+    live_block = {
+        "provider": {"id": "2000", "name": "Bet 365"},
+        "homeTeamOdds": {"odds": {"summary": "1/500", "value": 1.002}},
+        "drawOdds": {"summary": "50/1", "value": 51.0},
+        "awayTeamOdds": {"odds": {"summary": "450/1", "value": 451.0}},
+    }
+
+    class _MixedESPN(FakeESPN):
+        def __call__(self, url, timeout=25):
+            if "summary" in url:
+                self.calls.append(url)
+                return {
+                    "odds": [live_block],
+                    "pickcenter": [{
+                        "provider": {"id": "100", "name": "DraftKings"},
+                        "homeTeamOdds": {"moneyLine": 110.0},
+                        "drawOdds": {"moneyLine": 240.0},
+                        "awayTeamOdds": {"moneyLine": 300.0},
+                    }],
+                }
+            return super().__call__(url, timeout)
+
+    fake = _MixedESPN(
+        events={("eng.1", "2025"): [_event("740641", "Arsenal", "Chelsea", "2025-09-20")]},
+    )
+
+    _fill_in_place([entry], fake)
+
+    assert entry["home_ml_implied"] == round(1 / HOME_DEC, 4)
+    assert entry["draw_implied"] == round(1 / DRAW_DEC, 4)
+    assert entry["away_ml_implied"] == round(1 / AWAY_DEC, 4)
+
+
+def test_odds_block_moneyline_is_used_as_fallback():
+    """没有 pickcenter 时，``odds[]`` 里带**块级 moneyLine** 的非滚球块可作兜底。"""
     entry = _entry()
     draftkings = {
         "provider": {"id": "100", "name": "DraftKings"},
@@ -586,47 +672,68 @@ def test_bet365_block_is_found_even_when_not_first():
         "drawOdds": {"moneyLine": 600.0},
         "awayTeamOdds": {"moneyLine": 1400},
     }
-    bet365 = {
-        "provider": {"id": "2000", "name": "Bet 365"},
-        "homeTeamOdds": {"odds": {"summary": "1/150", "value": 1.007}},
-        "drawOdds": {"summary": "28/1", "value": 29.0},
-        "awayTeamOdds": {"odds": {"summary": "80/1", "value": 81.0}},
-    }
 
-    class _MultiBlockESPN(FakeESPN):
+    class _OnlyOddsESPN(FakeESPN):
         def __call__(self, url, timeout=25):
             if "summary" in url:
                 self.calls.append(url)
-                return {"odds": [draftkings, bet365]}
+                return {"odds": [draftkings]}
             return super().__call__(url, timeout)
 
-    fake = _MultiBlockESPN(
+    fake = _OnlyOddsESPN(
         events={("eng.1", "2025"): [_event("740641", "Arsenal", "Chelsea", "2025-09-20")]},
     )
 
     _fill_in_place([entry], fake)
 
-    assert entry["home_ml_implied"] == round(1 / 1.007, 4)
-    assert entry["draw_implied"] == round(1 / 29.0, 4)
-    assert entry["away_ml_implied"] == round(1 / 81.0, 4)
-    assert entry["home_true_prob"] is not None
+    assert entry["home_ml_implied"] == round(1 / 1.2, 4)
+    assert entry["draw_implied"] == round(1 / 7.0, 4)
+    assert entry["away_ml_implied"] == round(1 / 15.0, 4)
+
+
+def test_live_provider_block_is_skipped():
+    """provider 名含 ``live`` 的块（ESPN BET - Live Odds）是滚球 ⇒ 跳过。"""
+    entry = _entry()
+    live_provider = {
+        "provider": {"id": "59", "name": "ESPN BET - Live Odds"},
+        "homeTeamOdds": {"moneyLine": -10000},
+        "drawOdds": {"moneyLine": 600.0},
+        "awayTeamOdds": {"moneyLine": 1400},
+    }
+
+    class _LiveProviderESPN(FakeESPN):
+        def __call__(self, url, timeout=25):
+            if "summary" in url:
+                self.calls.append(url)
+                return {"odds": [live_provider]}
+            return super().__call__(url, timeout)
+
+    fake = _LiveProviderESPN(
+        events={("eng.1", "2025"): [_event("740641", "Arsenal", "Chelsea", "2025-09-20")]},
+    )
+
+    stats = _fill_in_place([entry], fake)
+
+    assert stats["filled"] == 0
+    assert entry["home_true_prob"] is None
 
 
 def test_implausible_odds_block_is_rejected():
     """实测踩过的坑：ESPN 偶尔给不自洽的块（平局 1.364 ⇒ 平局概率 73%）⇒ 整块丢掉。"""
     entry = _entry()
+    # draw -175 ⇒ 十进制 1.571 ⇒ 平局概率 63%，足球不可能 ⇒ 整块丢掉
     garbled = {
-        "provider": {"id": "2000", "name": "Bet 365"},
-        "homeTeamOdds": {"odds": {"summary": "11/4", "value": 3.75}},
-        "drawOdds": {"summary": "4/11", "value": 1.364},
-        "awayTeamOdds": {"odds": {"summary": "16/1", "value": 17.0}},
+        "provider": {"id": "100", "name": "DraftKings"},
+        "homeTeamOdds": {"moneyLine": 275.0},
+        "drawOdds": {"moneyLine": -175.0},
+        "awayTeamOdds": {"moneyLine": 1600.0},
     }
 
     class _GarbledESPN(FakeESPN):
         def __call__(self, url, timeout=25):
             if "summary" in url:
                 self.calls.append(url)
-                return {"odds": [garbled]}
+                return {"pickcenter": [garbled]}
             return super().__call__(url, timeout)
 
     fake = _GarbledESPN(
@@ -639,6 +746,34 @@ def test_implausible_odds_block_is_rejected():
     assert stats["no_odds"] == 1
     assert entry["home_true_prob"] is None
     assert entry["odds_data_available"] is False
+
+
+def test_prematch_implied_probability_cap_rejects_certain_winner():
+    """任一侧隐含概率 > 97% ⇒ 那是终场价（赛前不可能）⇒ 整块丢掉。"""
+    entry = _entry()
+    # home 1.005 ⇒ 隐含 99.5% ⇒ 典型的终场价特征
+    certain = {
+        "provider": {"id": "100", "name": "DraftKings"},
+        "homeTeamOdds": {"moneyLine": -20000},
+        "drawOdds": {"moneyLine": 5000.0},
+        "awayTeamOdds": {"moneyLine": 50000.0},
+    }
+
+    class _CertainESPN(FakeESPN):
+        def __call__(self, url, timeout=25):
+            if "summary" in url:
+                self.calls.append(url)
+                return {"pickcenter": [certain]}
+            return super().__call__(url, timeout)
+
+    fake = _CertainESPN(
+        events={("eng.1", "2025"): [_event("740641", "Arsenal", "Chelsea", "2025-09-20")]},
+    )
+
+    stats = _fill_in_place([entry], fake)
+
+    assert stats["filled"] == 0
+    assert entry["home_true_prob"] is None
 
 
 def test_off_market_block_is_rejected():
@@ -672,17 +807,17 @@ def test_orientation_mismatch_is_rejected():
     """赔率块的主/客 team id 与 event 不一致 ⇒ 整块丢掉（镜像概率 = 脏数据）。"""
     entry = _entry()
     swapped = {
-        "provider": {"id": "2000", "name": "Bet 365"},
-        "homeTeamOdds": {"teamId": "999", "odds": {"value": 1.5}},
-        "drawOdds": {"value": 4.0},
-        "awayTeamOdds": {"teamId": "382", "odds": {"value": 6.0}},
+        "provider": {"id": "100", "name": "DraftKings"},
+        "homeTeamOdds": {"teamId": "999", "moneyLine": -400.0},
+        "drawOdds": {"moneyLine": 300.0},
+        "awayTeamOdds": {"teamId": "382", "moneyLine": 500.0},
     }
 
     class _SwappedESPN(FakeESPN):
         def __call__(self, url, timeout=25):
             if "summary" in url:
                 self.calls.append(url)
-                return {"odds": [swapped]}
+                return {"pickcenter": [swapped]}
             return super().__call__(url, timeout)
 
     fake = _SwappedESPN(
@@ -700,17 +835,17 @@ def test_matching_orientation_is_accepted():
     """主/客 team id 对得上 ⇒ 正常填（方向闸不能误杀好数据）。"""
     entry = _entry()
     ok = {
-        "provider": {"id": "2000", "name": "Bet 365"},
-        "homeTeamOdds": {"teamId": "382", "odds": {"value": 1.5}},
-        "drawOdds": {"value": 4.0},
-        "awayTeamOdds": {"teamId": "364", "odds": {"value": 6.0}},
+        "provider": {"id": "100", "name": "DraftKings"},
+        "homeTeamOdds": {"teamId": "382", "moneyLine": -400.0},
+        "drawOdds": {"moneyLine": 300.0},
+        "awayTeamOdds": {"teamId": "364", "moneyLine": 500.0},
     }
 
     class _OkESPN(FakeESPN):
         def __call__(self, url, timeout=25):
             if "summary" in url:
                 self.calls.append(url)
-                return {"odds": [ok]}
+                return {"pickcenter": [ok]}
             return super().__call__(url, timeout)
 
     fake = _OkESPN(
@@ -721,4 +856,131 @@ def test_matching_orientation_is_accepted():
     stats = _fill_in_place([entry], fake)
 
     assert stats["filled"] == 1
-    assert entry["home_ml_implied"] == round(1 / 1.5, 4)
+    assert entry["home_ml_implied"] == round(1 / 1.25, 4)
+
+
+# ────────────────────────── 12. 比分一致性校验 ──────────────────────────
+
+def test_score_mismatch_is_skipped():
+    """event 的最终比分与样本 score 不一致 ⇒ 整场不填（同名同日期的别的赛事会骗过纯键匹配）。"""
+    entry = _entry(score="2-1")
+    fake = FakeESPN(
+        # 同一队名同日期，但 ESPN 那场的比分是 5-0 ⇒ 不是样本这一场
+        events={("eng.1", "2025"): [_event("740641", "Arsenal", "Chelsea", "2025-09-20",
+                                           home_score="5", away_score="0")]},
+        odds={"740641": (HOME_DEC, DRAW_DEC, AWAY_DEC)},
+    )
+
+    stats = _fill_in_place([entry], fake)
+
+    assert stats["filled"] == 0
+    assert stats["score_mismatch"] == 1
+    assert stats["unmatched"] == 1
+    assert entry["home_true_prob"] is None
+    assert fake.summary_calls() == [], "比分都对不上 ⇒ 不该去请求 summary"
+
+
+def test_matching_score_is_accepted():
+    """event 比分与样本一致 ⇒ 正常填（这道闸不能误杀好数据）。"""
+    entry = _entry(score="2-1")
+    fake = FakeESPN(
+        events={("eng.1", "2025"): [_event("740641", "Arsenal", "Chelsea", "2025-09-20",
+                                           home_score="2", away_score="1")]},
+        odds={"740641": (HOME_DEC, DRAW_DEC, AWAY_DEC)},
+    )
+
+    stats = _fill_in_place([entry], fake)
+
+    assert stats["filled"] == 1
+    assert stats["score_mismatch"] == 0
+
+
+# ────────────────────────── 13. 统计合理性闸 ──────────────────────────
+
+def _make_entries(n: int, winners: str) -> list[dict]:
+    """造 n 条样本：winners = "home" ⇒ 主队全赢；"away" ⇒ 客队全赢；"mixed" ⇒ 有输有赢。"""
+    entries = []
+    for i in range(n):
+        if winners == "home":
+            score, decimals = "2-1", (1.30, 5.0, 9.0)
+        elif winners == "away":
+            score, decimals = "1-2", (5.0, 4.0, 1.80)
+        else:
+            score, decimals = ("2-1" if i % 2 == 0 else "1-2"), (2.2, 3.3, 3.3)
+        entries.append(_entry(score=score, home=f"H{i}", away=f"A{i}",
+                              home_en=f"Home {i} FC", away_en=f"Away {i} FC",
+                              date=f"2025-09-{(i % 28) + 1:02d}"))
+    return entries
+
+
+def _fake_for_entries(entries: list[dict], decimals: tuple[float, float, float]) -> FakeESPN:
+    """给一批条目造对应的 ESPN 桩（每条一个 event，比分与样本一致）。"""
+    events = []
+    odds = {}
+    for i, entry in enumerate(entries):
+        event_id = f"evt{i}"
+        home_score, away_score = entry["score"].split("-")
+        events.append(_event(event_id, entry["home_en"], entry["away_en"],
+                             entry["kickoff_utc"][:10],
+                             home_score=home_score, away_score=away_score))
+        odds[event_id] = decimals
+    return FakeESPN(events={("eng.1", "2025"): events}, odds=odds)
+
+
+def _fill_and_audit(entries: list[dict], decimals: tuple[float, float, float]) -> list[dict]:
+    """跑一遍回填（用桩数据源），返回被就地填过的 entries。"""
+    fake = _fake_for_entries(entries, decimals)
+    stats, failures = bf.run_backfill(entries, fake, timeout=25, sleep=0, max_workers=2)
+    assert failures == []
+    assert stats.filled == len(entries)
+    return entries
+
+
+def test_audit_rejects_perfect_favorite_win_rate():
+    """概率更高的一方全胜（真实足球不可能）⇒ 体检不通过。"""
+    entries = _make_entries(60, "home")
+    audit = bf.validate_filled_sample(_fill_and_audit(entries, (1.30, 5.0, 9.0)))
+
+    assert audit.ok is False
+    assert any("热门胜率" in problem for problem in audit.problems)
+
+
+def test_audit_passes_for_realistic_sample():
+    """有输有赢的真实分布 ⇒ 体检通过。"""
+    entries = _make_entries(60, "mixed")
+    audit = bf.validate_filled_sample(_fill_and_audit(entries, (2.2, 3.3, 3.3)))
+
+    assert audit.ok is True
+    assert audit.problems == []
+
+
+def test_audit_flags_collapsed_draw_rate():
+    """有赔率子集的平局率远低于全样本 ⇒ 体检不通过（终场价会把平局挤没）。"""
+    entries = _make_entries(60, "mixed")
+    # 这些平局样本的日期在 10 月 ⇒ 匹配不上 9 月的 event ⇒ 不会被回填，
+    # 但仍然计入「全样本」的比分分布 ⇒ 全样本平局率 50%、有赔率子集 0%。
+    draws = [_entry(score="1-1", home=f"D{i}", away=f"E{i}",
+                    home_en=f"Draw {i} FC", away_en=f"Drawn {i} FC",
+                    date=f"2025-10-{(i % 28) + 1:02d}") for i in range(60)]
+    fake = _fake_for_entries(entries, (2.2, 3.3, 3.3))
+    stats, failures = bf.run_backfill(entries, fake, timeout=25, sleep=0, max_workers=2)
+    assert failures == []
+
+    audit = bf.validate_filled_sample(entries + draws)
+
+    assert audit.ok is False
+    assert any("平局率" in problem for problem in audit.problems)
+
+
+def test_cli_refuses_to_write_when_audit_fails(tmp_path, capsys):
+    """体检不过 ⇒ 退出码 1 且**文件一个字节都不动**。"""
+    entries = _make_entries(60, "home")
+    path = _write_sample(tmp_path / "sample.json", entries)
+    before = path.read_bytes()
+    fake = _fake_for_entries(entries, (1.30, 5.0, 9.0))
+
+    exit_code = _run_cli(path, fake, ["--execute"])
+
+    assert exit_code == 1
+    assert path.read_bytes() == before, "体检不过就不许写盘"
+    assert "统计体检不通过" in capsys.readouterr().err

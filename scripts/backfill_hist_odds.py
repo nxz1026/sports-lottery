@@ -14,27 +14,30 @@
 1. **ESPN scoreboard 对已完赛场次不返回赔率**：
    ``https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard?dates=20250920``
    实测 ``events[i].competitions[0].odds == [null]`` ⇒ 赔率**不能**从 scoreboard 拿。
-2. **ESPN summary 有历史赔率**：
-   ``https://site.web.api.espn.com/apis/site/v2/sports/soccer/eng.1/summary?event=740641``
-   实测 ``odds[0].homeTeamOdds.odds.value`` / ``drawOdds.odds.value`` /
-   ``awayTeamOdds.odds.value`` 是**十进制赔率**（如 1.015 / 21.0 / 501.0）。
-   event id 从 scoreboard 的 ``events[i].id`` 取。
-   **实测补充（务必照此实现）**：
-   - ``summary["odds"]`` 是**一家博彩公司一块**的列表，**块顺序不固定**
-     （同一场比赛 DraftKings 块可能排在 Bet365 块前面）⇒ 不能只取 ``odds[0]``；
-   - 只有 Bet365（``provider.id == "2000"``）那种块给**十进制** 1x2，
-     其余块给的是 ``moneyLine``（**美式**赔率）⇒ 混用会算错隐含概率；
-   - Bet365 块里 ``drawOdds`` 的 ``value`` **直接挂在侧上**（没有嵌套的 ``odds``），
-     而 ``homeTeamOdds`` / ``awayTeamOdds`` 是 ``{"odds": {"value": ...}}`` ⇒ 两种形态都要认。
-5. **实测：ESPN 偶尔给出不自洽的赔率块**（同一场比赛 ``home 3.75 / draw 1.364 /
-   away 17.0`` ⇒ 隐含概率 27% / 73% / 6%）。抽水和（1.06）看着正常，光看抽水抓不住它；
-   平局价 1.364 意味着「平局概率 73%」，足球不可能 ⇒ 这种块**整块丢掉**（宁可少一场，
-   也不把垃圾当市场真值写进样本）。另有一类块三侧都是 ``value=0`` / ``summary="OFF"``
-   （该场没开盘）⇒ 同样当缺失处理。
-3. scoreboard 的 ``dates`` 只吃单日 ``YYYYMMDD``；整日历年 ``YYYY`` 也支持，
+   event id 从 scoreboard 的 ``events[i].id`` 取；**比分也在 scoreboard 里**
+   （``competitors[i].score``），本脚本用它做「赔率所属赛事 ↔ 样本赛事」的比分一致性校验。
+2. ⚠️ **ESPN summary 里 ``odds[]`` 的三侧 ``odds.value`` 是终场/滚球价，不是赛前价** ——
+   **这一条是 2026-10-21 复核时推翻的旧结论**（旧实现就是采信了它，才闹出下面的假象）：
+   实测「多特蒙德 4-1 毕尔巴鄂竞技」⇒ ``home=1/500(1.002)``、``away=450/1(451.0)``、
+   ``draw=50/1(51.0)``；实测「布拉格斯拉维亚 2-3 朗斯」⇒ ``home=500/1(501.0)``、
+   ``away=1/66(1.015)``。两场都是**谁赢谁被看好到 500/1** ⇒ 那是赛果已知后的价格。
+   用它回填 ⇒ 样本里「概率更高的一方」**281/281 全胜（100%）**，而真实足球约 55%。
+   ⇒ **绝不能**用它当赛前 1x2。
+3. ✅ **赛前 1x2 在 ``summary["pickcenter"][]``**（ESPN 比赛页赔率表）：
+   ``pickcenter[i].homeTeamOdds.moneyLine`` / ``drawOdds.moneyLine`` /
+   ``awayTeamOdds.moneyLine`` 是**美式**赔率（正数 +X / 负数 -X）⇒ 需自己换算成十进制。
+   实测「布拉格斯拉维亚 vs 朗斯」pickcenter 给 ``home=+180 / draw=+250 / away=+145``
+   ⇒ 十进制 2.80 / 3.50 / 2.45，**讲得通**；而同一场 summary 的 ``odds[]`` 给 501 / 21 / 1.015
+   ⇒ 讲不通。**同一份 summary 里两个字段给的是同一场比赛的两种价，千万别拿错。**
+4. **兜底源**：``summary["odds"][]`` 里带 ``open`` / ``current`` 的块（DraftKings / ESPN BET）
+   的块级 ``moneyLine`` 也是美式赛前价；但**"ESPN BET - Live Odds"（provider id 59）是滚球**
+   ⇒ 认 provider 名含 ``live`` 的块直接跳过。
+5. **实测：ESPN 偶尔给出不自洽的赔率块**。抽水和看着正常不代表可信 —— 平局价 < 2.0
+   （足球 1x2 的平局价下限）⇒ 整块丢掉（宁可少一场，也不把垃圾当市场真值）。
+6. scoreboard 的 ``dates`` 只吃单日 ``YYYYMMDD``；整日历年 ``YYYY`` 也支持，
    但**必须显式放大 limit**（默认 50 会**静默截断**整年赛程）⇒ 本脚本固定用 400。
    日期跨度大时按**年**分批请求即可。
-4. ESPN 公开接口无 key、无配额，但仍然礼貌限速（默认每个请求之间 sleep 0.3s）。
+7. ESPN 公开接口无 key、无配额，但仍然礼貌限速（默认每个请求之间 sleep 0.3s）。
 
 口径（严格照仓库既有实现，不另起炉灶）
 --------------------------------------
@@ -50,9 +53,13 @@
 - **不碰** ``ml_home_close`` / ``draw_ml``：那两个字段在既有口径里是**美式赔率字符串**，
   而 summary 只给十进制赔率 ⇒ 混填就是口径污染。
 - 缺任一侧赔率 ⇒ **整场放弃**（不填一半），只计入「命中但未填」。
-- 赔率块还要过三道合理性闸（见 ``_plausible_1x2`` / ``_orientation_ok``）：
-  抽水和 ∈ [1.0, 1.35]、平局价 ≥ 2.0、主客方向与 event 的 team id 一致 ——
-  任一条不过就**整块丢掉**（脏数据写进样本比不写更糟）。
+- 赔率块还要过三道合理性闸（见 ``_plausible_prematch`` / ``_orientation_ok``）：
+  抽水和 ∈ [1.0, 1.5]、平局价 ≥ 2.0、任一侧隐含概率 ≤ 0.97（赛前不可能有 97% 的确定热门）
+  —— 任一条不过就**整块丢掉**（脏数据写进样本比不写更糟）。
+- **比分一致性**：赔率所属 event 的最终比分必须与样本 ``score`` 一致，不一致 ⇒ 整场不填
+  （同队名同日期的不同赛事会骗过纯键匹配）。
+- **统计合理性闸**（``validate_filled_sample``）：回填完的样本若出现「概率更高的一方
+  几乎全胜」或「平局率塌到全样本的零头」⇒ **拒绝写盘**（这正是终场价假象的特征）。
 - 未知 league 值 ⇒ 明确跳过并计数告警（不瞎猜 slug，猜错 = 跨联赛错配）。
 
 用法
@@ -61,13 +68,15 @@
     python scripts/backfill_hist_odds.py --leagues epl,ucl --limit 20      # 小样本调试
     python scripts/backfill_hist_odds.py --execute                         # 真写回文件
 
-退出码：0 = 正常（干跑 / 写回都一样）；1 = 抓取失败率过高（数据不全）；
+退出码：0 = 正常（干跑 / 写回都一样）；
+1 = 数据不全（抓取失败率过高）**或统计体检不通过**（拒绝写盘）；
 2 = 参数或输入错误（文件不存在 / 不是合法 JSON / 未知联赛参数）。
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import threading
 import time
@@ -115,12 +124,22 @@ SCOREBOARD_LIMIT = 400
 # 稳定给**十进制** 1x2（其余块给美式 moneyLine）⇒ 优先选它，整份样本口径一致。
 PREFERRED_PROVIDER_ID = "2000"
 
-# ── 1x2 三元组的合理性下限（实测踩过的坑，见 _plausible_1x2 的 docstring）──
+# ── 赛前 1x2 的合理性闸（实测踩过的坑，见 _plausible_prematch 的 docstring）──
 # 1x2 的平局赔率不可能低于 2.0（否则 P(平) > 50%，足球联赛不可能出现）。
 MIN_DECIMAL_DRAW_ODDS = 2.0
-# 三侧隐含概率之和 = 1 + 抽水；正常 1x2 在 1.02~1.15，> 1.35 不是正常 1x2。
+# 三侧隐含概率之和 = 1 + 抽水。正常 1x2 在 1.02~1.12；
+# 但**强弱悬殊**的场次（热门 1.07）长赔会被压得很贵，抽水能到 1.4 ⇒ 上限放宽到 1.5。
 MIN_OVERROUND = 1.0
-MAX_OVERROUND = 1.35
+MAX_OVERROUND = 1.5
+# 任一侧的**原始隐含概率**上限：赛前不存在 97% 以上的确定热门。
+# 这条闸专门拦「终场/滚球价」（实测那种价是 1.002 / 1.008 ⇒ 隐含 99.8%）。
+MAX_PREMATCH_IMPLIED = 0.97
+# 统计合理性闸：热门（概率更高的一方）在非平局场次里的胜率，
+# 真实足球约 0.55；若观测值高到二项检验 p < 阈值 ⇒ 判定赔率口径有问题 ⇒ 拒绝写盘。
+FAVORITE_WIN_BASELINE = 0.55
+FAVORITE_WIN_PVALUE_LIMIT = 1e-6
+# 平局率塌陷闸：回填子集的平局率若显著低于全样本平局率 ⇒ 同样拒绝写盘。
+DRAWRATE_PVALUE_LIMIT = 1e-4
 
 DEFAULT_FILE = "scripts/references/historical_past_matches.json"
 DEFAULT_SLEEP = 0.3
@@ -190,6 +209,9 @@ class EventRef:
     # 主/客的 ESPN team id：用来核对赔率块的主客方向（方向反了 = 镜像概率 = 脏数据）
     home_team_id: str = ""
     away_team_id: str = ""
+    # 最终比分（ESPN 的 score 是裸数字字符串）：用来核对「赔率所属赛事 ↔ 样本赛事」是不是同一场
+    home_score: str = ""
+    away_score: str = ""
 
 
 @dataclass
@@ -211,6 +233,7 @@ class BackfillStats:
     already_filled: int = 0
     skipped_non_dict: int = 0
     skipped_league_filter: int = 0
+    score_mismatch: int = 0
     leagues: Counter = field(default_factory=Counter)
 
     def as_dict(self) -> dict[str, Any]:
@@ -225,6 +248,7 @@ class BackfillStats:
             "already_filled": self.already_filled,
             "skipped_non_dict": self.skipped_non_dict,
             "skipped_league_filter": self.skipped_league_filter,
+            "score_mismatch": self.score_mismatch,
             "leagues": dict(self.leagues),
         }
 
@@ -251,18 +275,31 @@ def match_key(entry: dict) -> tuple[str, str, str]:
 
 # ── scoreboard：建 event 索引 ─────────────────────────────────────────────
 
+def american_to_decimal(value: Any) -> float | None:
+    """美式赔率 → 十进制赔率。``-150`` ⇒ 1.667；``+200`` ⇒ 3.0。
+
+    ESPN 的 ``moneyLine`` 是美式（正数 +X / 负数 -X），不是十进制 ⇒ 必须换算，
+    直接当十进制用会把隐含概率算错一个数量级。
+
+    非数字 / 0 ⇒ 返回 None（这一侧没价）。
+    """
+    try:
+        ml = float(value)
+    except (TypeError, ValueError):
+        return None
+    if ml == 0.0:
+        return None
+    decimal = 1.0 + ml / 100.0 if ml > 0 else 1.0 + 100.0 / abs(ml)
+    return decimal if decimal > 1.0 else None
+
+
 def _decimal_odds(side: Any) -> float | None:
-    """从 summary 的某一侧取**十进制**赔率；取不到就返回 None（该侧缺失）。
+    """⚠️ 终场/滚球价读取器 —— **只用于识别，绝不用于回填**。
 
-    实测（生产 ESPN）同一份 summary 里并存两种形态，两种都要认：
-    - ``{"team": {...}, "odds": {"summary": "1/66", "value": 1.015, "handicap": 0.0}}``
-      —— homeTeamOdds / awayTeamOdds 是这种；
-    - ``{"summary": "20/1", "value": 21.0, "handicap": 0.0}``
-      —— **Bet365 的 drawOdds 把 value 直接挂在侧上**，没有嵌套的 ``odds``。
-
-    只认 ``value``（十进制）；``moneyLine`` 是**美式**赔率 ⇒ 一律不认
-    （把美式赔率当十进制用 = 口径污染，隐含概率会全错）。
-    ``handicap`` 非 0 ⇒ 那是让球盘不是 1x2 ⇒ 也不认。
+    ``summary["odds"][].{home,draw,away}TeamOdds.odds.value`` 是**赛果已知后的价格**
+    （实测「多特蒙德 4-1 毕尔巴鄂」⇒ home 1/500、away 450/1）⇒ 用它回填会造出
+    「概率更高的一方 100% 全胜」的假象。保留这个函数只为让
+    ``_looks_like_live_odds`` 能识别并拒绝这类块。
     """
     if not isinstance(side, dict):
         return None
@@ -284,6 +321,22 @@ def _decimal_odds(side: Any) -> float | None:
         except (TypeError, ValueError):
             return None
     return value
+
+
+def _looks_like_live_odds(payload: dict) -> bool:
+    """这份 summary 的 ``odds[]`` 是不是只有终场/滚球价（没有任何赛前价）。
+
+    判据：``odds[]`` 里出现「隐含概率 > 97%」的侧 —— 赛前不可能有 97% 的确定热门，
+    而终场价几乎必然出现（1.002 / 1.008 ⇒ 99.8%）。
+    """
+    for block in payload.get("odds") or []:
+        if not isinstance(block, dict):
+            continue
+        for key in ("homeTeamOdds", "drawOdds", "awayTeamOdds"):
+            value = _decimal_odds(block.get(key))
+            if value is not None and (1.0 / value) > MAX_PREMATCH_IMPLIED:
+                return True
+    return False
 
 
 def fetch_scoreboard_events(slug: str, dates: str, fetcher: FetchJson,
@@ -328,6 +381,8 @@ def index_events(events: list, league: str, slug: str) -> dict[tuple[str, str, s
             date=date,
             home_team_id=str((home.get("team") or {}).get("id") or ""),
             away_team_id=str((away.get("team") or {}).get("id") or ""),
+            home_score=str(home.get("score") or ""),
+            away_score=str(away.get("score") or ""),
         ))
     return index
 
@@ -371,26 +426,30 @@ def build_event_index(entries: list[dict], fetcher: FetchJson, timeout: float,
     return index, failures
 
 
-# ── summary：取十进制赔率 ────────────────────────────────────────────────
+# ── summary：取赛前十进制赔率 ─────────────────────────────────────────────
 
-def _plausible_1x2(decimals: tuple[float, float, float]) -> bool:
-    """三侧十进制赔率构成的 1x2 是否**讲得通**。
+def _plausible_prematch(decimals: tuple[float, float, float]) -> bool:
+    """三侧十进制赔率构成的 1x2 是否**讲得通**（赛前口径）。
 
-    实测踩过的坑：ESPN 偶尔会给出**不自洽**的 Bet365 块（同一场比赛：
+    实测踩过的坑：ESPN 偶尔会给出**不自洽**的块（同一场比赛
     ``home 3.75 / draw 1.364 / away 17.0`` ⇒ 隐含概率 27% / 73% / 6%）——
     平局 1.364 意味着「平局概率 73%」，足球不可能；抽水和（1.06）却看着正常，
     所以**光看抽水抓不住它**，必须单独盯平局价。
-    这种块写进样本 = 把垃圾当市场真值 ⇒ 直接整块丢掉（宁可少一场）。
 
     判定：
-    - 抽水和 ∈ [1.0, 1.35]（> 1 是抽水，< 1 是数据有问题）；
-    - 平局价 ≥ 2.0（足球联赛 1x2 的平局价下限）。
+    - 抽水和 ∈ [1.0, 1.5]（> 1 是抽水，< 1 是数据有问题；强弱悬殊的场次长赔被压贵，
+      抽水能到 1.4 ⇒ 上限不能按 1.35 卡）；
+    - 平局价 ≥ 2.0（足球联赛 1x2 的平局价下限）；
+    - **任一侧隐含概率 ≤ 0.97**：赛前不存在 97% 以上的确定热门 ——
+      这条专门拦终场/滚球价（实测那种价是 1.002 ⇒ 隐含 99.8%）。
     """
     home, draw, away = decimals
     overround = (1.0 / home) + (1.0 / draw) + (1.0 / away)
     if not (MIN_OVERROUND <= overround <= MAX_OVERROUND):
         return False
-    return draw >= MIN_DECIMAL_DRAW_ODDS
+    if draw < MIN_DECIMAL_DRAW_ODDS:
+        return False
+    return max(1.0 / home, 1.0 / draw, 1.0 / away) <= MAX_PREMATCH_IMPLIED
 
 
 def _team_id(side: Any) -> str:
@@ -422,49 +481,110 @@ def _orientation_ok(block: dict, ref: EventRef) -> bool:
     return home_id == ref.home_team_id and away_id == ref.away_team_id
 
 
+def _pickcenter_decimals(payload: dict, ref: EventRef) -> tuple[float, float, float] | None:
+    """从 ``summary["pickcenter"][]`` 取**赛前** 1x2（美式 ⇒ 换算十进制）。
+
+    这是 ESPN 比赛页赔率表的字段，**赛前价**。实测同一场比赛：
+    ``pickcenter`` 给 ``+180 / +250 / +145``（讲得通），
+    而 ``odds[]`` 给 ``501 / 21 / 1.015``（终场价，讲不通）⇒ 必须用这个字段。
+    """
+    blocks = payload.get("pickcenter")
+    if not isinstance(blocks, list):
+        return None
+    fallback: tuple[float, float, float] | None = None
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        decimals = (
+            american_to_decimal((block.get("homeTeamOdds") or {}).get("moneyLine")),
+            american_to_decimal((block.get("drawOdds") or {}).get("moneyLine")),
+            american_to_decimal((block.get("awayTeamOdds") or {}).get("moneyLine")),
+        )
+        if any(value is None for value in decimals):
+            continue
+        if not _orientation_ok(block, ref):
+            continue
+        if not _plausible_prematch(decimals):  # type: ignore[arg-type]
+            continue
+        provider = block.get("provider")
+        provider_id = str(provider.get("id")) if isinstance(provider, dict) else ""
+        if provider_id == PREFERRED_PROVIDER_ID:
+            return decimals  # type: ignore[return-value]
+        if fallback is None:
+            fallback = decimals  # type: ignore[assignment]
+    return fallback
+
+
+def _odds_block_prematch_decimals(payload: dict, ref: EventRef) -> tuple[float, float, float] | None:
+    """兜底：从 ``summary["odds"][]`` 里带**块级 moneyLine** 的块取赛前 1x2。
+
+    DraftKings / ESPN BET 的块长这样：``homeTeamOdds.moneyLine = -1400``（美式），
+    另有 ``open`` / ``current`` 子结构。**"ESPN BET - Live Odds" 是滚球 ⇒ 直接跳过。**
+    """
+    blocks = payload.get("odds")
+    if not isinstance(blocks, list):
+        return None
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        provider = block.get("provider")
+        provider_name = str(provider.get("name") or "") if isinstance(provider, dict) else ""
+        if "live" in provider_name.lower():
+            continue
+        decimals: list[float] = []
+        for key in ("homeTeamOdds", "drawOdds", "awayTeamOdds"):
+            side = block.get(key)
+            if not isinstance(side, dict):
+                decimals = []
+                break
+            money_line = side.get("moneyLine")
+            if isinstance(money_line, dict):
+                decimal = money_line.get("decimal")
+                if decimal is None:
+                    decimal = american_to_decimal(money_line.get("american"))
+            else:
+                decimal = american_to_decimal(money_line)
+            if not isinstance(decimal, (int, float)):
+                decimals = []
+                break
+            decimals.append(float(decimal))
+        if len(decimals) != 3:
+            continue
+        triple = (decimals[0], decimals[1], decimals[2])
+        if not _orientation_ok(block, ref):
+            continue
+        if not _plausible_prematch(triple):
+            continue
+        return triple
+    return None
+
+
 def fetch_summary_decimal_odds(ref: EventRef, fetcher: FetchJson, timeout: float,
                                limiter: RateLimiter) -> tuple[float | None, float | None, float | None]:
-    """取 summary 的十进制 1x2 赔率。
+    """取 summary 的**赛前** 1x2 赔率（十进制）。
 
     **任一侧缺失 / 整块不自洽就整场返回 (None, None, None)** —— 半边的赔率不能去水，
     填一半的「真实概率」比不填更危险（下游会当成完整样本用）。
 
-    ``summary["odds"]`` 是**多个博彩公司各一块**的列表，实测块顺序不固定
-    （同一场比赛里 DraftKings 可能在 Bet365 前面），而只有 Bet365 那种块
-    给的是**十进制** 1x2（其余块给的是 ``moneyLine`` 美式赔率）⇒ 这里
-    **逐块扫**，取第一个三侧齐全、方向对、且讲得通的块；
-    优先 Bet365（provider id=2000），保证整份样本的抽水口径来自同一家。
+    取数顺序：
+    1. ``summary["pickcenter"][]``（**首选**：ESPN 比赛页赔率表，赛前美式价）；
+    2. ``summary["odds"][]`` 里带块级 ``moneyLine`` 的非滚球块（兜底）。
+
+    ⚠️ **绝不读** ``odds[].{home,draw,away}TeamOdds.odds.value`` ——
+    那是终场/滚球价（实测「多特蒙德 4-1 毕尔巴鄂」⇒ home 1/500），
+    用它回填会造出「热门 100% 全胜」的假象（详见模块 docstring）。
     """
     url = SUMMARY_URL.format(slug=ref.slug, event_id=ref.event_id)
     limiter.wait()
     payload = fetcher(url, timeout)
     if not isinstance(payload, dict):
         return None, None, None
-    odds_list = payload.get("odds")
-    if not isinstance(odds_list, list):
+    decimals = _pickcenter_decimals(payload, ref)
+    if decimals is None:
+        decimals = _odds_block_prematch_decimals(payload, ref)
+    if decimals is None:
         return None, None, None
-    fallback: tuple[float, float, float] | None = None
-    for block in odds_list:
-        if not isinstance(block, dict):
-            continue
-        decimals = (
-            _decimal_odds(block.get("homeTeamOdds")),
-            _decimal_odds(block.get("drawOdds")),
-            _decimal_odds(block.get("awayTeamOdds")),
-        )
-        if any(value is None for value in decimals):
-            continue
-        if not _orientation_ok(block, ref):
-            continue
-        if not _plausible_1x2(decimals):
-            continue
-        provider = block.get("provider")
-        provider_id = str(provider.get("id")) if isinstance(provider, dict) else ""
-        if provider_id == PREFERRED_PROVIDER_ID:
-            return decimals
-        if fallback is None:
-            fallback = decimals
-    return fallback if fallback is not None else (None, None, None)
+    return decimals
 
 
 # ── 写入 ──────────────────────────────────────────────────────────────────
@@ -530,13 +650,134 @@ def write_json_atomic(path: Path, data: list, newline: str) -> None:
     tmp.replace(path)
 
 
+# ── 统计合理性闸 ───────────────────────────────────────────────────────────
+
+def _score_outcome(score: Any) -> str:
+    """把 ``"3-0"`` 这样的比分解析成 ``home`` / ``away`` / ``draw`` / ``unknown``。"""
+    text = str(score or "")
+    if "-" not in text:
+        return "unknown"
+    left, _, right = text.partition("-")
+    try:
+        home_score = int(left.strip())
+        away_score = int(right.strip())
+    except ValueError:
+        return "unknown"
+    if home_score > away_score:
+        return "home"
+    if away_score > home_score:
+        return "away"
+    return "draw"
+
+
+def _binomial_tail_pvalue(successes: int, trials: int, prob: float) -> float:
+    """P(X ≥ successes)，X ~ Binomial(trials, prob)。用 ``math.comb`` 精确算。"""
+    if trials <= 0:
+        return 1.0
+    total = 0.0
+    for k in range(successes, trials + 1):
+        total += math.comb(trials, k) * (prob ** k) * ((1.0 - prob) ** (trials - k))
+    return min(1.0, total)
+
+
+def _binomial_lower_tail_pvalue(successes: int, trials: int, prob: float) -> float:
+    """P(X ≤ successes)，X ~ Binomial(trials, prob)。"""
+    if trials <= 0:
+        return 1.0
+    total = 0.0
+    for k in range(0, successes + 1):
+        total += math.comb(trials, k) * (prob ** k) * ((1.0 - prob) ** (trials - k))
+    return min(1.0, total)
+
+
+@dataclass
+class SampleAudit:
+    """回填结果的统计体检结论。"""
+
+    ok: bool = True
+    problems: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"ok": self.ok, "problems": list(self.problems), "notes": list(self.notes)}
+
+
+def validate_filled_sample(entries: list[dict]) -> SampleAudit:
+    """体检：回填后的样本像不像**真实**的赛前赔率。
+
+    两条独立判据（都基于「赛前市场不可能这样」的硬事实）：
+
+    1. **热门胜率**：概率更高的一方在非平局场次里的胜率，真实足球约 0.55。
+       若高到二项检验 p < 1e-6 ⇒ 几乎不可能是赛前价
+       （终场价的特征正是「谁赢谁 100% 赢」：实测回填出 281/281）。
+    2. **平局率**：回填子集的平局率不该显著低于全样本的平局率。
+       终场价会把平局挤没（实测子集 3.1% vs 全样本 21.3%）。
+
+    样本太小（< 30 场有赔率）时不判刑，只记 note —— 小样本本来就没有统计效力。
+    """
+    audit = SampleAudit()
+    with_odds = [e for e in entries if e.get("home_true_prob") is not None]
+    all_outcomes = Counter(_score_outcome(e.get("score")) for e in entries)
+    odds_outcomes = Counter(_score_outcome(e.get("score")) for e in with_odds)
+
+    decisive = odds_outcomes.get("home", 0) + odds_outcomes.get("away", 0)
+    wins = 0
+    for entry in with_odds:
+        home_prob = entry.get("home_true_prob")
+        away_prob = entry.get("away_true_prob")
+        if not isinstance(home_prob, (int, float)) or not isinstance(away_prob, (int, float)):
+            continue
+        outcome = _score_outcome(entry.get("score"))
+        if outcome == "draw":
+            continue
+        favorite_is_home = float(home_prob) >= float(away_prob)
+        if (favorite_is_home and outcome == "home") or (not favorite_is_home and outcome == "away"):
+            wins += 1
+
+    if decisive:
+        rate = wins / decisive
+        audit.notes.append(f"热门胜率 {wins}/{decisive} = {rate:.1%}"
+                           f"（基线 {FAVORITE_WIN_BASELINE:.0%}）")
+        if decisive >= 30:
+            pvalue = _binomial_tail_pvalue(wins, decisive, FAVORITE_WIN_BASELINE)
+            audit.notes.append(f"热门胜率二项检验 p = {pvalue:.3g}")
+            if pvalue < FAVORITE_WIN_PVALUE_LIMIT:
+                audit.ok = False
+                audit.problems.append(
+                    f"热门胜率 {rate:.1%} 显著高于真实基线 {FAVORITE_WIN_BASELINE:.0%}"
+                    f"（二项检验 p = {pvalue:.3g} < {FAVORITE_WIN_PVALUE_LIMIT:g}）"
+                    f"⇒ 采信的赔率疑似**终场/滚球价**而非赛前价")
+
+    file_draws = all_outcomes.get("draw", 0)
+    file_total = sum(all_outcomes.values())
+    subset_draws = odds_outcomes.get("draw", 0)
+    subset_total = len(with_odds)
+    if file_total and subset_total:
+        file_rate = file_draws / file_total
+        subset_rate = subset_draws / subset_total
+        audit.notes.append(f"平局率：有赔率子集 {subset_rate:.1%} vs 全样本 {file_rate:.1%}")
+        if subset_total >= 30 and file_rate > 0:
+            pvalue = _binomial_lower_tail_pvalue(subset_draws, subset_total, file_rate)
+            audit.notes.append(f"平局率下尾检验 p = {pvalue:.3g}")
+            if pvalue < DRAWRATE_PVALUE_LIMIT:
+                audit.ok = False
+                audit.problems.append(
+                    f"有赔率子集的平局率 {subset_rate:.1%} 远低于全样本 {file_rate:.1%}"
+                    f"（下尾检验 p = {pvalue:.3g} < {DRAWRATE_PVALUE_LIMIT:g}）"
+                    f"⇒ 样本口径异常，疑似混入了非赛前的赔率")
+    if not with_odds:
+        audit.notes.append("没有任何带赔率的样本 ⇒ 本次无可体检数据")
+    return audit
+
+
 # ── 主流程 ────────────────────────────────────────────────────────────────
 
 def run_backfill(entries: list[dict], fetcher: FetchJson, timeout: float, sleep: float,
                  max_workers: int, stats: BackfillStats | None = None) -> tuple[BackfillStats, list[str]]:
     """跑一遍补齐流程（就地修改 entries）。返回 ``(统计, 失败批次描述)``。
 
-    流程：scoreboard 建索引 → 条目精确匹配 → 并发抓 summary → 去水 → 只填缺的。
+    流程：scoreboard 建索引 → 条目精确匹配 → **比分一致性校验** → 并发抓 summary
+    → 取**赛前**赔率 → 去水 → 只填缺的。
     """
     if stats is None:
         stats = BackfillStats()
@@ -555,6 +796,14 @@ def run_backfill(entries: list[dict], fetcher: FetchJson, timeout: float, sleep:
             continue
         ref = index.get(match_key(entry))
         if ref is None:
+            stats.unmatched += 1
+            continue
+        # 比分一致性：赔率所属 event 的最终比分必须与样本 score 一致。
+        # 同队名同日期的不同赛事（同名梯队 / 其它杯赛）能骗过纯键匹配 ⇒ 补这道闸。
+        sample_score = str(entry.get("score") or "")
+        event_score = f"{ref.home_score}-{ref.away_score}"
+        if ref.home_score and ref.away_score and sample_score and sample_score != event_score:
+            stats.score_mismatch += 1
             stats.unmatched += 1
             continue
         stats.matched += 1
@@ -658,6 +907,7 @@ def print_stats(stats: BackfillStats, path: Path, execute: bool) -> None:
     print(f"[backfill] 命中但已有值（未动）：{stats.already_filled}")
     print(f"[backfill] 跳过（非 dict 条目）：{stats.skipped_non_dict}")
     print(f"[backfill] 跳过（联赛过滤）：{stats.skipped_league_filter}")
+    print(f"[backfill] 命中但**比分不一致**（未填）：{stats.score_mismatch}")
     print(f"[backfill] 联赛分布：{dict(stats.leagues)}")
     print(f"[backfill] 自洽：总数 = 命中 + 未匹配 = {stats.total} = {stats.matched} + {stats.unmatched}；"
           f"命中 = 填上 + 无赔率 + 已有值 + 失败 = {stats.matched} = "
@@ -740,6 +990,14 @@ def main(argv: list[str] | None = None, fetcher: FetchJson | None = None) -> int
     if failures or failure_rate > MAX_FAILURE_RATE:
         print(f"[backfill] 数据不全：抓取失败率 {failure_rate:.1%}（阈值 {MAX_FAILURE_RATE:.0%}；"
               f"scoreboard 批次失败 {len(failures)} 个，summary 失败 {stats.fetch_failed} 条）⇒ 请重跑",
+              file=sys.stderr)
+        return 1
+
+    # ── 统计合理性闸：像不像**真实赛前赔率**？不像就拒绝写盘 ──
+    audit = validate_filled_sample(entries)
+    print(f"[backfill] 统计体检：{json.dumps(audit.as_dict(), ensure_ascii=False)}")
+    if not audit.ok:
+        print("[backfill] ❌ 统计体检不通过 ⇒ 拒绝写盘：\n  - " + "\n  - ".join(audit.problems),
               file=sys.stderr)
         return 1
 
