@@ -58,8 +58,13 @@
   —— 任一条不过就**整块丢掉**（脏数据写进样本比不写更糟）。
 - **比分一致性**：赔率所属 event 的最终比分必须与样本 ``score`` 一致，不一致 ⇒ 整场不填
   （同队名同日期的不同赛事会骗过纯键匹配）。
-- **统计合理性闸**（``validate_filled_sample``）：回填完的样本若出现「概率更高的一方
-  几乎全胜」或「平局率塌到全样本的零头」⇒ **拒绝写盘**（这正是终场价假象的特征）。
+- **统计合理性闸**（``validate_filled_sample``）：回填完做**体检**——
+  ① 赔率隐含的主胜/平局/客胜分布 vs 实际比分分布，逐格 z 检验（z > 3.5 判刑）；
+  ② 热门在非平局场次的胜率 vs **由这批价格自身算出**的期望（真实值约 0.73，
+  不是常被引用的 0.55 —— 那个是「含平局」口径）；
+  ③ 「隐含概率 ≥ 0.90」的场次占比（真实市场约 6%；终场价会让它接近 100%）。
+  **判刑 ⇒ 拒绝写盘、退出码 1**（干跑也会报）。
+  ⇒ 这道闸就是为了让「再采错一次字段」当场被抓，而不是像这次一样**靠人眼发现 97.6% 不对劲**。
 - 未知 league 值 ⇒ 明确跳过并计数告警（不瞎猜 slug，猜错 = 跨联赛错配）。
 
 用法
@@ -134,12 +139,17 @@ MAX_OVERROUND = 1.5
 # 任一侧的**原始隐含概率**上限：赛前不存在 97% 以上的确定热门。
 # 这条闸专门拦「终场/滚球价」（实测那种价是 1.002 / 1.008 ⇒ 隐含 99.8%）。
 MAX_PREMATCH_IMPLIED = 0.97
-# 统计合理性闸：热门（概率更高的一方）在非平局场次里的胜率，
-# 真实足球约 0.55；若观测值高到二项检验 p < 阈值 ⇒ 判定赔率口径有问题 ⇒ 拒绝写盘。
-FAVORITE_WIN_BASELINE = 0.55
-FAVORITE_WIN_PVALUE_LIMIT = 1e-6
-# 平局率塌陷闸：回填子集的平局率若显著低于全样本平局率 ⇒ 同样拒绝写盘。
-DRAWRATE_PVALUE_LIMIT = 1e-4
+# 统计合理性闸：
+# ⚠️ 基线**不许拍脑袋** —— 真实市场里「热门在非平局场次的胜率」约 0.73（不是常被引用的
+# 0.55，那个是「含平局」口径）；且必须与**这批价格自身隐含的分布**比，才不会被
+# 拍脑袋的常数误伤。下面三个阈值都是**分布形状/自洽性**判据，与口径无关。
+MIN_AUDIT_SAMPLES = 30
+# 分布校准检验的 z 阈值（3 格 × 每次跑一次 ⇒ 误报率 ~0.05%）。
+CALIBRATION_Z_LIMIT = 3.5
+# 「隐含概率 ≥ 0.90」的场次占比上限：真实赛前市场很低（生产实测 6.1%），
+# 终场价会让它接近 100%（实测 290 条里绝大多数都是 95%+）。
+HIGH_CONFIDENCE_THRESHOLD = 0.90
+HIGH_CONFIDENCE_MAX_RATIO = 0.15
 
 DEFAULT_FILE = "scripts/references/historical_past_matches.json"
 DEFAULT_SLEEP = 0.3
@@ -670,26 +680,6 @@ def _score_outcome(score: Any) -> str:
     return "draw"
 
 
-def _binomial_tail_pvalue(successes: int, trials: int, prob: float) -> float:
-    """P(X ≥ successes)，X ~ Binomial(trials, prob)。用 ``math.comb`` 精确算。"""
-    if trials <= 0:
-        return 1.0
-    total = 0.0
-    for k in range(successes, trials + 1):
-        total += math.comb(trials, k) * (prob ** k) * ((1.0 - prob) ** (trials - k))
-    return min(1.0, total)
-
-
-def _binomial_lower_tail_pvalue(successes: int, trials: int, prob: float) -> float:
-    """P(X ≤ successes)，X ~ Binomial(trials, prob)。"""
-    if trials <= 0:
-        return 1.0
-    total = 0.0
-    for k in range(0, successes + 1):
-        total += math.comb(trials, k) * (prob ** k) * ((1.0 - prob) ** (trials - k))
-    return min(1.0, total)
-
-
 @dataclass
 class SampleAudit:
     """回填结果的统计体检结论。"""
@@ -705,66 +695,104 @@ class SampleAudit:
 def validate_filled_sample(entries: list[dict]) -> SampleAudit:
     """体检：回填后的样本像不像**真实**的赛前赔率。
 
-    两条独立判据（都基于「赛前市场不可能这样」的硬事实）：
+    ⚠️ 基线不能拍脑袋 —— 这里全部用**数据自身隐含的分布**做参照：
 
-    1. **热门胜率**：概率更高的一方在非平局场次里的胜率，真实足球约 0.55。
-       若高到二项检验 p < 1e-6 ⇒ 几乎不可能是赛前价
-       （终场价的特征正是「谁赢谁 100% 赢」：实测回填出 281/281）。
-    2. **平局率**：回填子集的平局率不该显著低于全样本的平局率。
-       终场价会把平局挤没（实测子集 3.1% vs 全样本 21.3%）。
+    1. **分布校准检验**（主判据）：把样本里赔率隐含的主胜/平局/客胜概率取平均，
+       与**实际比分分布**逐格比（z 检验）。
+       校准良好的市场 ⇒ 两者应当接近（生产实测：隐含 45.3/22.4/32.2 vs
+       实际 47.2/19.8/33.0，各格差 ≤ 2.6pp）。
+       终场价会把这三格打歪（它给「谁赢谁」≈ 99.8%）⇒ 判刑。
+    2. **热门条件胜率检验**：热门在非平局场次里的胜率，期望值是
+       ``Σ max(h, a) / Σ (h + a)``（**从这批价格自己算出来**，不是拍脑袋的常数）。
+       ⚠️ 真实值约 **0.73** 而不是常被引用的 0.55 —— 因为 0.55 是「含平局」的口径，
+       而这里排除了平局。实测 243/328 = 74.1% vs 期望 72.8% ⇒ 只差 0.5σ，完全正常。
+    3. **隐含概率的分布形状**：真实赛前市场里「热门 ≥ 0.90」的场次占比很低
+       （生产实测 6.1%）；终场价会让它接近 100% ⇒ 判刑。
 
     样本太小（< 30 场有赔率）时不判刑，只记 note —— 小样本本来就没有统计效力。
     """
     audit = SampleAudit()
     with_odds = [e for e in entries if e.get("home_true_prob") is not None]
-    all_outcomes = Counter(_score_outcome(e.get("score")) for e in entries)
-    odds_outcomes = Counter(_score_outcome(e.get("score")) for e in with_odds)
+    if len(with_odds) < MIN_AUDIT_SAMPLES:
+        audit.notes.append(f"带赔率样本只有 {len(with_odds)} 场"
+                           f"（< {MIN_AUDIT_SAMPLES}）⇒ 统计体检无效力，只做记录")
+        return audit
 
-    decisive = odds_outcomes.get("home", 0) + odds_outcomes.get("away", 0)
-    wins = 0
+    implied = {"home": 0.0, "draw": 0.0, "away": 0.0}
+    actual = {"home": 0, "draw": 0, "away": 0}
+    counted = 0
+    decisive = 0
+    fav_wins = 0
+    sum_fav = 0.0
+    sum_not_draw = 0.0
+    high_conf = 0
     for entry in with_odds:
         home_prob = entry.get("home_true_prob")
+        draw_prob = entry.get("draw_true_prob")
         away_prob = entry.get("away_true_prob")
-        if not isinstance(home_prob, (int, float)) or not isinstance(away_prob, (int, float)):
+        if not all(isinstance(v, (int, float)) for v in (home_prob, draw_prob, away_prob)):
             continue
         outcome = _score_outcome(entry.get("score"))
-        if outcome == "draw":
+        if outcome not in ("home", "draw", "away"):
             continue
-        favorite_is_home = float(home_prob) >= float(away_prob)
-        if (favorite_is_home and outcome == "home") or (not favorite_is_home and outcome == "away"):
-            wins += 1
+        counted += 1
+        implied["home"] += float(home_prob)
+        implied["draw"] += float(draw_prob)
+        implied["away"] += float(away_prob)
+        actual[outcome] += 1
+        if max(float(home_prob), float(away_prob)) >= HIGH_CONFIDENCE_THRESHOLD:
+            high_conf += 1
+        if outcome != "draw":
+            decisive += 1
+            favorite = max(float(home_prob), float(away_prob))
+            sum_fav += favorite
+            sum_not_draw += float(home_prob) + float(away_prob)
+            favorite_is_home = float(home_prob) >= float(away_prob)
+            if (favorite_is_home and outcome == "home") or (not favorite_is_home and outcome == "away"):
+                fav_wins += 1
 
-    if decisive:
-        rate = wins / decisive
-        audit.notes.append(f"热门胜率 {wins}/{decisive} = {rate:.1%}"
-                           f"（基线 {FAVORITE_WIN_BASELINE:.0%}）")
-        if decisive >= 30:
-            pvalue = _binomial_tail_pvalue(wins, decisive, FAVORITE_WIN_BASELINE)
-            audit.notes.append(f"热门胜率二项检验 p = {pvalue:.3g}")
-            if pvalue < FAVORITE_WIN_PVALUE_LIMIT:
-                audit.ok = False
-                audit.problems.append(
-                    f"热门胜率 {rate:.1%} 显著高于真实基线 {FAVORITE_WIN_BASELINE:.0%}"
-                    f"（二项检验 p = {pvalue:.3g} < {FAVORITE_WIN_PVALUE_LIMIT:g}）"
-                    f"⇒ 采信的赔率疑似**终场/滚球价**而非赛前价")
+    if counted < MIN_AUDIT_SAMPLES:
+        audit.notes.append(f"可用于体检的样本只有 {counted} 场 ⇒ 不判刑")
+        return audit
 
-    file_draws = all_outcomes.get("draw", 0)
-    file_total = sum(all_outcomes.values())
-    subset_draws = odds_outcomes.get("draw", 0)
-    subset_total = len(with_odds)
-    if file_total and subset_total:
-        file_rate = file_draws / file_total
-        subset_rate = subset_draws / subset_total
-        audit.notes.append(f"平局率：有赔率子集 {subset_rate:.1%} vs 全样本 {file_rate:.1%}")
-        if subset_total >= 30 and file_rate > 0:
-            pvalue = _binomial_lower_tail_pvalue(subset_draws, subset_total, file_rate)
-            audit.notes.append(f"平局率下尾检验 p = {pvalue:.3g}")
-            if pvalue < DRAWRATE_PVALUE_LIMIT:
-                audit.ok = False
-                audit.problems.append(
-                    f"有赔率子集的平局率 {subset_rate:.1%} 远低于全样本 {file_rate:.1%}"
-                    f"（下尾检验 p = {pvalue:.3g} < {DRAWRATE_PVALUE_LIMIT:g}）"
-                    f"⇒ 样本口径异常，疑似混入了非赛前的赔率")
+    # ── 1. 分布校准检验（隐含 vs 实际，3 格 z 检验）──
+    for cell, label in (("home", "主胜"), ("draw", "平局"), ("away", "客胜")):
+        implied_rate = implied[cell] / counted
+        actual_rate = actual[cell] / counted
+        stderr = math.sqrt(max(implied_rate * (1.0 - implied_rate), 1e-12) / counted)
+        z = abs(actual_rate - implied_rate) / stderr
+        audit.notes.append(f"{label}：赔率隐含 {implied_rate:.1%} vs 实际 {actual_rate:.1%}"
+                           f"（z = {z:.2f}）")
+        if z > CALIBRATION_Z_LIMIT:
+            audit.ok = False
+            audit.problems.append(
+                f"{label}的实际分布 {actual_rate:.1%} 与赔率隐含的 {implied_rate:.1%} "
+                f"偏离过大（z = {z:.2f} > {CALIBRATION_Z_LIMIT}）"
+                f"⇒ 这批赔率与真实赛果不自洽，疑似非赛前价")
+
+    # ── 2. 热门条件胜率（期望值由价格自身算出）──
+    if decisive >= MIN_AUDIT_SAMPLES and sum_not_draw > 0:
+        expected = sum_fav / sum_not_draw
+        observed = fav_wins / decisive
+        stderr = math.sqrt(max(expected * (1.0 - expected), 1e-12) / decisive)
+        z = abs(observed - expected) / stderr
+        audit.notes.append(f"热门条件胜率 {fav_wins}/{decisive} = {observed:.1%}"
+                           f"（由价格自身算出的期望 {expected:.1%}，z = {z:.2f}）")
+        if z > CALIBRATION_Z_LIMIT:
+            audit.ok = False
+            audit.problems.append(
+                f"热门条件胜率 {observed:.1%} 与这批价格自身的期望 {expected:.1%} "
+                f"偏离过大（z = {z:.2f} > {CALIBRATION_Z_LIMIT}）⇒ 赔率与赛果不自洽")
+
+    # ── 3. 隐含概率的分布形状（终场价的指纹）──
+    high_ratio = high_conf / counted
+    audit.notes.append(f"隐含概率 ≥ {HIGH_CONFIDENCE_THRESHOLD:.2f} 的场次占比 {high_ratio:.1%}")
+    if high_ratio > HIGH_CONFIDENCE_MAX_RATIO:
+        audit.ok = False
+        audit.problems.append(
+            f"{high_ratio:.1%} 的场次隐含概率 ≥ {HIGH_CONFIDENCE_THRESHOLD:.2f}"
+            f"（阈值 {HIGH_CONFIDENCE_MAX_RATIO:.0%}）⇒ 真实赛前市场不会有这么多「几乎确定」的热门")
+
     if not with_odds:
         audit.notes.append("没有任何带赔率的样本 ⇒ 本次无可体检数据")
     return audit

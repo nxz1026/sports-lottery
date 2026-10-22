@@ -936,18 +936,39 @@ def _fill_and_audit(entries: list[dict], decimals: tuple[float, float, float]) -
     return entries
 
 
-def test_audit_rejects_perfect_favorite_win_rate():
-    """概率更高的一方全胜（真实足球不可能）⇒ 体检不通过。"""
+def _make_calibrated_entries(n: int = 60) -> list[dict]:
+    """造 n 条**与赔率隐含分布一致**的样本（体检应当放行）。
+
+    赔率 (2.2, 3.3, 3.3) ⇒ 去水后隐含 主胜 42.9% / 平局 28.6% / 客胜 28.6%；
+    热门条件胜率期望 = 0.429 / (0.429 + 0.286) = 60.0%。
+    ⇒ 60 场里 26 主胜 / 17 平局 / 17 客胜，正好命中期望。
+    """
+    entries = []
+    for i in range(n):
+        if i < 26:
+            score = "2-1"
+        elif i < 43:
+            score = "1-1"
+        else:
+            score = "1-2"
+        entries.append(_entry(score=score, home=f"H{i}", away=f"A{i}",
+                              home_en=f"Home {i} FC", away_en=f"Away {i} FC",
+                              date=f"2025-09-{(i % 28) + 1:02d}"))
+    return entries
+
+
+def test_audit_rejects_favorite_always_wins():
+    """概率更高的一方全赢 ⇒ 实际分布与赔率隐含分布对不上 ⇒ 体检不通过。"""
     entries = _make_entries(60, "home")
     audit = bf.validate_filled_sample(_fill_and_audit(entries, (1.30, 5.0, 9.0)))
 
     assert audit.ok is False
-    assert any("热门胜率" in problem for problem in audit.problems)
+    assert any("实际分布" in problem for problem in audit.problems)
 
 
-def test_audit_passes_for_realistic_sample():
-    """有输有赢的真实分布 ⇒ 体检通过。"""
-    entries = _make_entries(60, "mixed")
+def test_audit_passes_for_calibrated_sample():
+    """赛果分布与赔率隐含分布一致 ⇒ 体检通过（**不许误伤好数据**）。"""
+    entries = _make_calibrated_entries(60)
     audit = bf.validate_filled_sample(_fill_and_audit(entries, (2.2, 3.3, 3.3)))
 
     assert audit.ok is True
@@ -955,21 +976,40 @@ def test_audit_passes_for_realistic_sample():
 
 
 def test_audit_flags_collapsed_draw_rate():
-    """有赔率子集的平局率远低于全样本 ⇒ 体检不通过（终场价会把平局挤没）。"""
-    entries = _make_entries(60, "mixed")
-    # 这些平局样本的日期在 10 月 ⇒ 匹配不上 9 月的 event ⇒ 不会被回填，
-    # 但仍然计入「全样本」的比分分布 ⇒ 全样本平局率 50%、有赔率子集 0%。
-    draws = [_entry(score="1-1", home=f"D{i}", away=f"E{i}",
-                    home_en=f"Draw {i} FC", away_en=f"Drawn {i} FC",
-                    date=f"2025-10-{(i % 28) + 1:02d}") for i in range(60)]
-    fake = _fake_for_entries(entries, (2.2, 3.3, 3.3))
-    stats, failures = bf.run_backfill(entries, fake, timeout=25, sleep=0, max_workers=2)
-    assert failures == []
-
-    audit = bf.validate_filled_sample(entries + draws)
+    """有赔率子集一场平局都没有，但赔率说平局概率 28.6% ⇒ 体检不通过。"""
+    entries = _make_entries(60, "mixed")  # "mixed" = 主客交替、全是分胜负
+    audit = bf.validate_filled_sample(_fill_and_audit(entries, (2.2, 3.3, 3.3)))
 
     assert audit.ok is False
-    assert any("平局率" in problem for problem in audit.problems)
+    assert any("平局" in problem for problem in audit.problems)
+
+
+def test_audit_flags_too_many_certain_favorites():
+    """「几乎确定」的热门占比过高 ⇒ 终场价的指纹 ⇒ 体检不通过。
+
+    赔率 (1.04, 15, 30) ⇒ 原始隐含 0.9615（没过每场 0.97 的闸）、去水后热门 ≈ 0.906，
+    赛果按这个隐含分布造（54 主胜 / 4 平 / 2 客胜）⇒ 只有「高置信占比」这一条会亮。
+    """
+    scores = ["2-1"] * 54 + ["1-1"] * 4 + ["1-2"] * 2
+    entries = []
+    for i, score in enumerate(scores):
+        entries.append(_entry(score=score, home=f"H{i}", away=f"A{i}",
+                              home_en=f"Home {i} FC", away_en=f"Away {i} FC",
+                              date=f"2025-09-{(i % 28) + 1:02d}"))
+    filled = _fill_and_audit(entries, (1.04, 15.0, 30.0))
+    audit = bf.validate_filled_sample(filled)
+
+    assert audit.ok is False
+    assert any("隐含概率" in problem for problem in audit.problems)
+
+
+def test_audit_skips_small_samples():
+    """样本太少 ⇒ 没有统计效力 ⇒ 只记 note，不判刑。"""
+    entries = _make_calibrated_entries(10)
+    audit = bf.validate_filled_sample(_fill_and_audit(entries, (2.2, 3.3, 3.3)))
+
+    assert audit.ok is True
+    assert any("无效力" in note for note in audit.notes)
 
 
 def test_cli_refuses_to_write_when_audit_fails(tmp_path, capsys):
