@@ -84,6 +84,8 @@ from typing import Any
 from core.betting_policy import (
     EV_BREAKEVEN_TEXT,
     EV_FACTOR_TEXT,
+    EV_PREV_THRESHOLD_TEXT,
+    EV_THRESHOLD_TEXT,
     MIN_EV,
     MIN_P,
     WATER_FACTOR_TEXT,
@@ -547,6 +549,31 @@ def write_reports(conn: Connection, picks: list[dict[str, Any]]) -> list[int]:
     return ids
 
 
+# ⚠️ **P2-N（2026-10-23）**：当日**不满足现行门槛**的残留行计数。
+#   写库只做 upsert（``ON CONFLICT DO UPDATE``）、**从不清理**当日早先批次
+#   留下的行 ⇒ 门槛提高后（2026-10-23：EV ≥ 5% → EV ≥ 12.9%）那些行会
+#   继续躺在表里 ⇒ 页面若照旧把它们当「荐单」展示，就与面板上写的门槛矛盾。
+#   ⇒ 生成端必须**显式自检 + 告警**（不许静默）：页面会逐条标注它们，
+#   但根因（哪一天的表里有多少行没被本轮清掉）必须在日志里说清楚。
+_BELOW_MIN_EV_SQL = """
+SELECT count(*)
+  FROM analysis.ev_report
+ WHERE (made_at AT TIME ZONE 'Asia/Shanghai')::date = %s::date
+   AND ev IS NOT NULL AND ev < %s
+"""
+
+
+def count_below_threshold(conn: Connection, day: str | None = None) -> int:
+    """当日**不满足现行门槛**的残留行数（更早批次留下的、不会被清除的行）。
+
+    ⚠️ 现行门槛下生成端**不可能**产出 EV 低于门槛的行（``MIN_EV`` 直接过滤）
+    ⇒ 这里数到的行**必然**是更早批次的残留 ⇒ 不是「模型算错了」。
+    """
+    d = day or now_bjt().date().isoformat()
+    row = conn.execute(_BELOW_MIN_EV_SQL, (d, MIN_EV)).fetchone()
+    return int((row[0] if row else 0) or 0)
+
+
 # ── 主流程 ──────────────────────────────────────────────────────────
 def build_candidates(conn: Connection, *, backfill: bool = False,
                      to_date: str | None = None,
@@ -716,6 +743,24 @@ def main(argv: list[str] | None = None) -> int:
         ids = write_reports(conn, picks)
         logger.info("recommend: 已写 analysis.ev_report %d 行（report_id %s）",
                     len(ids), ids[:5])
+        # ⚠️ **P2-N（2026-10-23）**：跑完立刻自检当日有没有「不满足现行门槛」的残留行。
+        #   旧实现**从不检查** ⇒ 页面会把旧批次的行当荐单展示（与面板上的门槛自相矛盾）。
+        #   ⇒ 显式告警（静默失败比报错更危险）；这些行由 web 层**逐条标注**，
+        #     但**不删**（历史记录不可篡改）。
+        try:
+            _below = count_below_threshold(conn)
+        except Exception as exc:  # noqa: BLE001 - 自检失败不许掀翻主流程
+            logger.warning("recommend: 当日残留行自检失败（无法判定，忽略）：%s", exc)
+        else:
+            if _below:
+                logger.warning(
+                    "recommend: ⚠️ 当日有 %d 行荐单不满足现行门槛（%s）—— "
+                    "它们来自更早的批次（当时的门槛更低：早期为 %s；"
+                    "同一比赛日多次跑批时旧行不会被清除）；"
+                    "页面会逐条标注这些行。", _below, EV_THRESHOLD_TEXT,
+                    EV_PREV_THRESHOLD_TEXT)
+            else:
+                logger.info("recommend: 当日残留行自检通过（无低于现行门槛的旧行）")
     return 0
 
 

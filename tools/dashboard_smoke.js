@@ -152,15 +152,31 @@ const CLV_PAYLOAD = {
   rows: [{ date: '2026-10-21', league_key: 'epl', n_matches: 20, mean_clv: 0.0312 }],
   summary: { n_matches: 20, n_days: 1, mean_clv: 0.0312 },
 };
+// ⚠️ P2-N（2026-10-23）：不达标荐单的**逐条标注**文案（生产里由后端给，
+//   这里作为桩数据用；同样的字符串要能在沙箱里被断言取到 ⇒ 注入沙箱全局）。
+const P2N_BELOW_LABEL = '不满足现行门槛（EV ≥ 12.9%）：本条来自更早的荐单批次，不代表现行门槛下的推荐。';
 const RECOMMEND_PAYLOAD = {
   picks: [{
     home_cn: '阿森纳', away_cn: '切尔西', league_key: 'epl', option_code: 'h',
     match_date: '2026-10-21', sp: 1.85, p_model: 0.62, ev: 0.0735, kelly: 0.08,
+    // ⚠️ P2-N（2026-10-23）：EV 0.0735 **低于现行门槛** 12.9% ⇒ 必须被逐条标注。
+    //   旧实现把它照旧当荐单展示 ⇒ 与面板上写的「门槛 EV ≥ 12.9%」自相矛盾（说假话）。
+    meets_threshold: false, threshold_label: P2N_BELOW_LABEL,
+  }, {
+    // 达标的那条：绝不许带「不满足现行门槛」的标注（否则标注失去意义）。
+    home_cn: '热刺', away_cn: '阿森纳', league_key: 'epl', option_code: 'a',
+    match_date: '2026-10-21', sp: 3.1, p_model: 0.45, ev: 0.395, kelly: 0.12,
+    meets_threshold: true, threshold_label: '',
   }],
+  picks_n_below_threshold: 1,
+  picks_threshold_note: '⚠️ 本面板有 1 条荐单不满足现行门槛（EV ≥ 12.9%）：它们是更早批次留下的行（同一比赛日多次跑批时旧行不会被清除），不代表现行门槛下的推荐。',
   record: {
     n_settled: 13, n_hit: 2, n_miss: 11, staked: 26, roi: -0.2208,
     insufficient: false, by_day: [{ date: '2026-10-20', n: 5, hits: 1, roi: -0.3 }],
     detail: [{ match_date: '2026-10-20', league_key: 'epl', option_code: 'h', sp_decide: 1.9, sp_settle: 1.95, hit: false, pnl: -10 }],
+    // ⚠️ P2-N：战绩跨了两套门槛 ⇒ 命中率/ROI 是混合口径 ⇒ 必须写出来。
+    n_below_threshold: 2,
+    threshold_note: '战绩口径：已结算的 13 条荐单里有 2 条不满足现行门槛（EV ≥ 12.9%）—— 来自更早的荐单批次 ⇒ 命中率/ROI 是混合口径，不能直接当作现行门槛的表现。',
   },
   pricing_note: '定价用竞彩官方 SP。',
   calendar_note: '日历口径：BJT。',
@@ -305,7 +321,7 @@ function buildSandbox(extra, domStub) {
   return sb;
 }
 
-const sandbox = buildSandbox({}, dom);
+const sandbox = buildSandbox({ P2N_BELOW_LABEL }, dom);
 
 let loadError = null;
 try {
@@ -466,6 +482,9 @@ const P2A_CHECKS = [
   // P2-M：响应体卡住也必须超时；未知视图名不许把主区清空
   ['p2m_body_never_completes_times_out', '响应体永远不来时必须超时失败（不许只有头没有体就卡死）'],
   ['p2m_switchview_unknown_name_keeps_current_view', '未知视图名不许把当前视图隐藏（点了「每日一图」不许主区全空）'],
+  // P2-N：不满足现行门槛的荐单必须逐条标注；混合口径必须写出来
+  ['p2n_below_threshold_pick_is_labeled', '不满足现行门槛的荐单必须逐条标注（达标的不许带标注）'],
+  ['p2n_threshold_notes_are_rendered', '面板级门槛说明与战绩「混合口径」说明必须印出来'],
 ];
 
 async function main() {
@@ -499,6 +518,25 @@ async function main() {
       out.p2j_normal_panels_no_markdown_marker = Object.keys(out.__html).every((id) => {
         return out.__html[id].indexOf('**') < 0;
       });
+      // ── P2-N（2026-10-23）：荐单门槛口径标注 ────────────────────────────
+      // 事故：推荐端阈值 2026-10-23 提到 EV ≥ 12.9%，但生成端只做 upsert、
+      //   **从不清理**当日早先批次留下的行 ⇒ 库里混着旧批次的行 ⇒
+      //   页面照旧把它们当「荐单」展示 ⇒ 与面板上写的门槛**自相矛盾**（说假话）。
+      // ⇒ 不达标的必须**逐条标注**，达标的不许带标注（否则标注失去意义）。
+      out.p2n_below_threshold_pick_is_labeled = (() => {
+        const html = String((out.__html || {}).recommendPanel || '');
+        if (!html) return false;
+        // 桩里 2 条荐单：1 条不达标（带标注）、1 条达标（不许带标注）
+        return html.split(P2N_BELOW_LABEL).length - 1 === 1;
+      })();
+      // 面板级说明 + 战绩口径说明必须都印出来（混合口径不许静默）
+      out.p2n_threshold_notes_are_rendered = (() => {
+        const rec = String((out.__html || {}).recommendPanel || '');
+        const rc = String((out.__html || {}).recordPanel || '');
+        return rec.indexOf('本面板有 1 条荐单不满足现行门槛') >= 0
+          && rc.indexOf('战绩口径：') >= 0
+          && rc.indexOf('混合口径') >= 0;
+      })();
       // ── P0 口径断言（运行时调用真实函数）──────────────────────────────
       out.p0_modelProbs_noMlFallback = modelProbs({ ml_proba: [0.9778, 0.0081, 0.0141] }) === null;
       out.p0_modelProbs_trueSource = (() => {

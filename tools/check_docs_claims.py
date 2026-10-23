@@ -2683,6 +2683,125 @@ def main() -> int:
     check("准确率端点必须透出 overall 聚合（不许只给单联赛分片）", True,
           "overall" in code_strings(ROOT / "web" / "routers" / "predictions.py"))
 
+    # ── P2-N（2026-10-23）：荐单门槛口径标注（页面不许说假话）──────────────
+    # 背景：阈值 2026-10-23 起 = EV ≥ 12.9%（用户批准），但生成端**只做 upsert、
+    #   从不清理**同一比赛日早先批次留下的行 ⇒ 库里混着旧批次的行 ⇒
+    #   页面照旧把它们当「荐单」展示 ⇒ 与面板上写的门槛**自相矛盾**。
+    # ⇒ 只标注、不删历史行（历史记录不可篡改）。
+    _web_rec = ROOT / "web" / "services" / "recommend.py"
+    _gen_rec = ROOT / "scripts" / "decision" / "recommend.py"
+    _policy_src = ROOT / "scripts" / "core" / "betting_policy.py"
+
+    def _module_float(p: Path, name: str):
+        """模块级 float 常量的值（AST，不执行代码）。找不到返回 None。"""
+        tree = ast.parse(read(p))
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == name \
+                        and isinstance(node.value, ast.Constant) \
+                        and isinstance(node.value.value, (int, float)):
+                    return float(node.value.value)
+        return None
+
+    def _fn_body(p: Path, name: str):
+        """函数节点（找不到返回 None）。"""
+        tree = ast.parse(read(p))
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
+                return n
+        return None
+
+    def _calls(fn, attr: str) -> bool:
+        """函数体里有没有 ``<x>.<attr>(...)`` 形式的调用（AST 判定）。"""
+        if fn is None:
+            return False
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) \
+                    and n.func.attr == attr:
+                return True
+        return False
+
+    def _calls_name(fn, name: str) -> bool:
+        """函数体里有没有直接调用同名函数（``f(...)`` 形式，AST 判定）。"""
+        if fn is None:
+            return False
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) \
+                    and n.func.id == name:
+                return True
+        return False
+
+    def _module_str(p: Path, name: str) -> str:
+        """模块级字符串常量的值（AST，不执行代码）。找不到返回 ""。"""
+        tree = ast.parse(read(p))
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == name \
+                        and isinstance(node.value, ast.Constant) \
+                        and isinstance(node.value.value, str):
+                    return node.value.value
+        return ""
+
+    def _names(fn) -> set[str]:
+        """函数体里引用到的名字（AST 判定；不含属性名）。"""
+        if fn is None:
+            return set()
+        return {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+
+    def _compares_ge(fn) -> bool:
+        """函数体里有没有 ``x >= y`` 这种比较（AST 判定）。"""
+        if fn is None:
+            return False
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Compare) and any(
+                    isinstance(op, ast.GtE) for op in n.ops):
+                return True
+        return False
+
+    # ① 真源必须记着旧门槛（历史口径，只用于标注）
+    check("真源必须记着旧门槛 EV ≥ 5%（历史口径，只用于标注不许筛选）", 0.05,
+          _module_float(_policy_src, "EV_PREV_MIN_EV"))
+    check("真源的现行门槛必须仍是实测水位 12.9%（P2-L 政策不得被静默改回）", 0.129,
+          _module_float(_policy_src, "MIN_EV"))
+    # ② 读层必须逐条打标注，且判定必须**从真源派生**（不许写死 true）
+    _read_picks_fn = _fn_body(_web_rec, "_read_picks")
+    _read_picks_keys = fn_code_strings(_web_rec, "_read_picks")
+    check("web 读层必须给每条荐单打 meets_threshold 标注", True,
+          "meets_threshold" in _read_picks_keys and "threshold_label" in _read_picks_keys)
+    _meets_fn = _fn_body(_web_rec, "_meets_threshold")
+    check("门槛判定必须从真源派生（不许写死阈值、不许写死 true）", True,
+          "MIN_EV" in _names(_meets_fn) and _compares_ge(_meets_fn)
+          and "core.betting_policy" in fn_imports(_web_rec, "_meets_threshold"))
+    # ③ 战绩必须标出混合口径（跨了两套门槛 ⇒ 命中率不许被当成现行门槛的表现）
+    _record_keys = fn_code_strings(_web_rec, "record")
+    check("战绩必须给出「不满足现行门槛」的条数与混合口径说明", True,
+          "n_below_threshold" in _record_keys and "threshold_note" in _record_keys)
+    # ④ 前端必须真的印出来（页面级 bug 必须有可见效果）
+    check("前端必须渲染逐条标注 + 面板级说明 + 战绩口径说明", True,
+          "p.meets_threshold===false" in _dash_js
+          and "threshold_label" in _dash_js
+          and "picks_threshold_note" in _dash_js
+          and "rec.threshold_note" in _dash_js)
+    # ⑤ 生成端必须自检 + 显式告警（静默失败比报错更危险）
+    _cnt_fn = _fn_body(_gen_rec, "count_below_threshold")
+    _main_fn = _fn_body(_gen_rec, "main")
+    _below_sql = _module_str(_gen_rec, "_BELOW_MIN_EV_SQL")
+    check("生成端必须有当日残留行自检（按 BJT 日 + EV < 现行门槛）", True,
+          _cnt_fn is not None
+          and "AT TIME ZONE 'Asia/Shanghai'" in _below_sql
+          and "ev < %s" in _below_sql
+          and "MIN_EV" in _names(_cnt_fn))
+    check("生成端跑批后必须调用残留行自检并显式告警（不许静默）", True,
+          _calls_name(_main_fn, "count_below_threshold") and _calls(_main_fn, "warning"))
+    # ⑥ 页面级 bug 必须有可自动跑的运行时验证
+    check("看板冒烟必须有 P2-N 的运行时断言（逐条标注 / 混合口径说明）", True,
+          all(k in _smoke_src for k in ("p2n_below_threshold_pick_is_labeled",
+                                        "p2n_threshold_notes_are_rendered")))
+
     # ── P2-C 会话与运维（9 条）──────────────────────────────────────────
     _auth_src = read(ROOT / "web" / "auth.py")
     check("会话 cookie 的 Secure 必须跟请求协议走（不许只看 config.USE_HTTPS）", True,

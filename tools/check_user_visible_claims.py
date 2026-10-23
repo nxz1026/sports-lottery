@@ -74,6 +74,8 @@ USER_VISIBLE_KEYS = frozenset({
     "sql_note", "note", "pricing_note", "calendar_note", "triple_note",
     "warning", "message", "detail", "scope", "summary", "hint", "reason",
     "title", "desc", "advice", "comment", "remark",
+    # ⚠️ **P2-N（2026-10-23）**：荐单/战绩的**门槛口径**文案（必须被守门盯住）。
+    "threshold_label", "threshold_note", "picks_threshold_note",
 })
 
 # 前端渲染 sink（用于识别「这段文本会被印出来」）
@@ -210,6 +212,12 @@ def _string_pieces(value: ast.AST, funcs: dict | None = None, depth: int = 0) ->
     elif isinstance(value, ast.BinOp):
         pieces.extend(_string_pieces(value.left, funcs, depth))
         pieces.extend(_string_pieces(value.right, funcs, depth))
+    # ⚠️ **P2-N（2026-10-23）**：**条件表达式**里的文案也是用户可见的
+    #   （``"threshold_label": "" if 达标 else _below_threshold_label()``）
+    #   ⇒ 两支都要看，否则「不达标时才印的那句」是盲区。
+    elif isinstance(value, ast.IfExp):
+        pieces.extend(_string_pieces(value.body, funcs, depth))
+        pieces.extend(_string_pieces(value.orelse, funcs, depth))
     elif isinstance(value, ast.Call) and funcs and depth < 3:
         # ⚠️ P2-J：函数返回的文案**也是**用户可见文案（`_pricing_note()` 就是）。
         name = value.func.id if isinstance(value.func, ast.Name) else None
@@ -353,8 +361,8 @@ def policy_constants() -> dict[str, float]:
     return out
 
 
-def render_pricing_note() -> str:
-    """真的渲染出荐单面板的定价说明（行为级）。"""
+def _pricing_note_direct() -> str:
+    """真的渲染出荐单面板的定价说明（行为级；不经兼容入口）。"""
     for p in (str(ROOT), str(ROOT / "scripts")):
         if p not in sys.path:
             sys.path.insert(0, p)
@@ -363,24 +371,57 @@ def render_pricing_note() -> str:
     return recommend._pricing_note()
 
 
+def render_pricing_note() -> str:
+    """渲染定价说明（**兼容入口**）。
+
+    ⚠️ 保留这个函数名是有意的：既有测试用它 monkeypatch 来证明
+    「判定③/④不是空断言」⇒ 守门主流程必须**经它**取文案。
+    """
+    return _pricing_note_direct()
+
+
+def rendered_user_texts() -> list[tuple[str, str]]:
+    """真的渲染出来的用户可见文案（行为级）。
+
+    ⚠️ **P2-N（2026-10-23）**：不只有 ``_pricing_note()`` ——
+    荐单的「不满足现行门槛」标注、战绩的「混合口径」说明**也是**用户可见文案
+    ⇒ 一并渲染出来纳入守门（否则它们是盲区）。
+    """
+    for p in (str(ROOT), str(ROOT / "scripts")):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    from web.services import recommend  # noqa: PLC0415 - 延迟导入（要 sys.path 先就位）
+
+    return [
+        # ⚠️ 经兼容入口取 ⇒ 既有的 monkeypatch 仍能证明判定③/④不是空断言
+        ("web/services/recommend.py::_pricing_note()", render_pricing_note()),
+        ("web/services/recommend.py::_below_threshold_label()",
+         recommend._below_threshold_label()),
+        ("web/services/recommend.py::_record_threshold_note()",
+         recommend._record_threshold_note(3, 10)),
+        ("web/services/recommend.py::_picks_threshold_note()",
+         recommend._picks_threshold_note(2, 5)),
+    ]
+
+
 def check_rendered_numbers() -> list[str]:
     """渲染后的文案里，EV 阈值 / 水位数字必须 == 真源常量。"""
     consts = policy_constants()
     ev_pct = consts["MIN_EV"] * 100
     water_pct = consts["WATER_LEVEL_MEASURED"] * 100
-    text = render_pricing_note()
     bad: list[str] = []
 
-    for m in re.finditer(r"EV\s*[≥>=]\s*(\d+(?:\.\d+)?)\s*%", text):
-        if abs(float(m.group(1)) - ev_pct) > 1e-6:
-            bad.append(f"渲染文案里的 EV 阈值 {m.group(1)}% != 真源 {ev_pct:g}%")
-    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*[~～]\s*(\d+(?:\.\d+)?)\s*%", text):
-        lo, hi = float(m.group(1)), float(m.group(2))
-        if not (lo - 1e-9 <= water_pct <= hi + 1e-9):
-            bad.append(f"渲染文案里的水位区间 {lo}~{hi}% 不含实测水位 {water_pct:g}%")
-    for m in re.finditer(r"=(\s*)(\d+(?:\.\d+)?)\s*%", text):
-        if abs(float(m.group(2)) - water_pct) > 1e-6:
-            bad.append(f"渲染文案里的水位 {m.group(2)}% != 真源 {water_pct:g}%")
+    for where, text in rendered_user_texts():
+        for m in re.finditer(r"EV\s*[≥>=]\s*(\d+(?:\.\d+)?)\s*%", text):
+            if abs(float(m.group(1)) - ev_pct) > 1e-6:
+                bad.append(f"{where} 里的 EV 阈值 {m.group(1)}% != 真源 {ev_pct:g}%")
+        for m in re.finditer(r"(\d+(?:\.\d+)?)\s*[~～]\s*(\d+(?:\.\d+)?)\s*%", text):
+            lo, hi = float(m.group(1)), float(m.group(2))
+            if not (lo - 1e-9 <= water_pct <= hi + 1e-9):
+                bad.append(f"{where} 里的水位区间 {lo}~{hi}% 不含实测水位 {water_pct:g}%")
+        for m in re.finditer(r"=(\s*)(\d+(?:\.\d+)?)\s*%", text):
+            if abs(float(m.group(2)) - water_pct) > 1e-6:
+                bad.append(f"{where} 里的水位 {m.group(2)}% != 真源 {water_pct:g}%")
     return bad
 
 
@@ -390,15 +431,15 @@ def main() -> int:
     frontend = frontend_user_visible_strings()
     # ⚠️ P2-J：荐单面板那段文案是**函数返回**的 ⇒ 静态枚举看不见它
     # ⇒ 这里**真的渲染一次**并纳入文案集合（行为级，也顺带补上 ④ 的盲区）。
+    # ⚠️ P2-N：不达标标注 / 战绩口径说明也一并渲染纳入（它们同样是用户可见文案）。
     try:
-        rendered_note = render_pricing_note()
+        rendered_pieces = rendered_user_texts()
     except Exception as exc:  # noqa: BLE001 - 渲染失败必须显式失败，不许静默跳过
         print("=" * 78)
         print("用户可见文案一致性守门（UVC）")
         print("=" * 78)
         print(f"[FAIL] 渲染荐单面板文案失败（不许跳过）：{exc}")
         return 1
-    rendered_pieces = [("web/services/recommend.py::_pricing_note()", rendered_note)]
     all_uv = backend + frontend + rendered_pieces
     # ⚠️ 判定②查的是「**源码里手写**的口径数字」⇒ 只看源码集合。
     #    渲染结果里的数字是**从真源派生**的（如「水位 ≈ 11~13%」来自常量）
