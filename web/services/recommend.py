@@ -211,6 +211,10 @@ def _pricing_note() -> str:
     数字必须与常量一致）。
     """
     from core.betting_policy import (
+        EV_APPROVAL_DATE,
+        EV_EDGE_TEXT,
+        EV_FACTOR_TEXT,
+        EV_SNAPSHOT_TEXT,
         EV_THRESHOLD_TEXT,
         WATER_FACTOR_TEXT,
         WATER_LEVEL_TEXT,
@@ -221,17 +225,29 @@ def _pricing_note() -> str:
     # ⚠️ **P2-J（2026-10-23）**：这段是**纯文本**（前端用 `esc()` 渲染 ⇒ 不解析 Markdown）
     # ⇒ **不许**再写 `**粗体**`：星号会**原样漏给用户**（生产浏览器验收时当场抓到）。
     # ⇒ 强调一律用中文「」。
+    # ⚠️ **P2-L（2026-10-23）阈值政策变更**：阈值从 5% 提到**实测水位 12.9%**
+    #   （用户 2026-10-23 批准）⇒ 下面这句话必须改：
+    #   旧文案说「不需要再拿水位当门槛」「阈值是政策值，不是水位」—— 阈值一旦等于水位，
+    #   这两句就**互相矛盾**（也成了假话）⇒ 必须如实写「阈值 = 水位，但**比扛水更严**」。
+    #   扛水的**数学门槛**仍是 EV 为正（p/q > m ≈ 1.129）；
+    #   EV ≥ 12.9% 等价于 p/q ≥ 1.275（模型要比市场高出 27.5%）⇒ **更严一道**。
+    # ⚠️ 文案纪律：① 不许出现 Markdown 标记（P2-J）；② 口径数字全部从常量派生；
+    #   ③ 「水位」二字后面 12 个字符内**不许跟数字**（否则会被守门当成「手写水位」），
+    #   所以日期一律放在「水位」**前面**。
     return ("定价 = 竞彩官方 SP（决策时刻那一版）；结算 = 竞彩官方结算 SP。"
             "⚠️ 本模型概率为「市场锚定」，EV 含 ESPN↔竞彩 跨市场定价差，"
             "不等于模型有同等真实优势。"
             f"⚠️ 竞彩 had 三侧含水（生产实测 2026-10-23：当日三项隐含概率和 − 1 = "
             f"{WATER_LEVEL_TEXT}；等额三侧投注每元回报 ≈ {WATER_RETURN_TEXT} 元 "
-            f"⇒ 水位 ≈ {WATER_RANGE_TEXT}），"
-            "单边投注要先扛掉这笔水 ⇒「本单 EV 已把水算进去了」："
-            "EV = p×SP − 1 > 0 即表示你的概率高于「含水后的盈亏平衡概率」"
-            f"（p/q > {WATER_FACTOR_TEXT}），「不需要再拿水位当门槛」；"
-            f"推荐端阈值 {EV_THRESHOLD_TEXT}（「政策值，不是水位」；"
-            "生产实测达标荐单最低 EV 0.06）。")
+            f"⇒ 水位 ≈ {WATER_RANGE_TEXT}）。"
+            "⇒ 单边投注「扛水」的数学门槛 = EV 为正"
+            "（EV = p×SP − 1，p/q > "
+            f"{WATER_FACTOR_TEXT} 时才为正）。"
+            f"推荐端阈值 {EV_THRESHOLD_TEXT}（用户 {EV_APPROVAL_DATE} 批准：= 当前实测水位；"
+            "等价于 p/q ≥ "
+            f"{EV_FACTOR_TEXT}，即模型概率要比去水后的市场概率高出约 "
+            f"{EV_EDGE_TEXT}，因此比「扛水」更严一道；"
+            f"{EV_SNAPSHOT_TEXT}）。")
 
 
 def snapshot() -> dict[str, Any]:

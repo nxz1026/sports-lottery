@@ -12,6 +12,9 @@
         ⇒ 库里一出现 D+1 的卡，今天还在售的场次被整批踢出池子。
   B5 · EV 阈值 5% 远低于实测水位 **12.9%**（几乎不筛），
         而用户可见文案写「水位 25~33%」（写错约 2 倍）。
+        ⚠️ **2026-10-23 订正（P2-L）**：用户**已批准**把阈值提到实测水位 12.9%
+        ⇒ B5 的口径**反过来**（阈值必须 == 实测水位），但代数纪律不变：
+        「扛水」的数学门槛仍是 EV > 0（p/q > m），EV ≥ 12.9% 比它**更严一道**。
   B6 · ``made_at`` 取归档的 ``run_at`` ⇒ 当天 09:30 定时跑**之前**手动出单会写进
         **昨天**的桶、覆盖昨天那一行。
   B7 · EV 最高侧若模型概率 < 10% 则**整场丢弃**；高 SP 冷门又可绕过「不要长尾彩票」
@@ -240,38 +243,41 @@ def test_b4_load_sale_matches_passes_bjt_today():
 # ══════════════════════════════════════════════════════════════════════
 
 
-def test_b5_min_ev_threshold_stays_a_deliberate_policy_not_the_water_level():
-    """EV 阈值 = **政策值 0.05**，**不是**水位 12.9%。
+def test_b5_min_ev_threshold_equals_the_measured_water_level():
+    """EV 阈值 = **实测水位 12.9%**（用户 2026-10-23 批准的政策变更）。
 
-    ⚠️ **2026-10-23 复核后的决定**（代数推导 + 生产实测）：
-    设 m = 1+水位 = 三项隐含概率和，q = 去水后市场概率，SP = 1/(m·q)：
-        单位 EV = p·SP − 1 = p/(m·q) − 1  ⇒  **EV > 0 ⟺ p/q > m**
-    ⇒ 对**单边**投注，「扛掉这笔水」= **EV > 0**，**不是** EV ≥ 12.9%
-      （EV ≥ 12.9% 等价于 p/q ≥ m² ≈ 1.273，要求模型比市场高出 27%）。
-    ⇒ 且生产实测（analysis.ev_report，8 天全量）达标荐单 **EV 最低 0.0608**
-      ⇒ 5% 门槛实际并没有放进负 EV 的荐单。
-    ⇒ 把门槛抬到 12.9% 会把**正 EV 的好单**砍掉 50~70%（10-23：3 条 → 1 条），
-      属**产品阈值政策**变更（路线图 §6.6.5.1 明确「阈值暂不动，等 n ≥ 100 再校准」）
-      ⇒ **本轮不改阈值**，只订正**用户可见文案**（见 test_b5_pricing_note_*）。
-    ⇒ 本测试锁住这个决定：阈值就是 0.05，且模块里必须**写着**这段口径
-      （否则下一个改阈值的人又会以为「水位 = 门槛」）。
+    ⚠️ **2026-10-23 订正（P2-L）**：本测试原先断言的是
+    「阈值 = 政策值 0.05、**不许**偷换成水位 12.9%」⇒ **用户明确批准**抬到水位
+    ⇒ 口径反过来。但**代数纪律不变、也不许含糊**：
+        设 m = 1+水位 = 三项隐含概率和，q = 去水后市场概率，SP = 1/(m·q)：
+            单位 EV = p·SP − 1 = p/(m·q) − 1  ⇒  **EV > 0 ⟺ p/q > m**
+        ⇒ 对**单边**投注，「扛掉这笔水」= **EV > 0**（**不是** EV ≥ 12.9%）；
+          **EV ≥ 12.9%** 等价于 p/q ≥ m² ≈ 1.275 ⇒ **比扛水更严一道**
+          （= 一道保守筛选，**不是**扛水门槛的数学等价）。
+        ⇒ 生产实测（analysis.ev_report，8 天全量 39 条）：≥5% 全部 39 条，
+          ≥12.9% 剩 **25 条**（保留 64%），达标最低 EV **0.1417**；
+          2026-10-16 那唯一一条 EV 0.1234 ⇒ 新门槛下**那天一条不推**（预期代价）。
+    ⇒ 本测试锁住两件事：① 阈值 == 实测水位（真源恒等式 ⇒ 重测水位必须显式重审阈值）；
+      ② 模块里必须**写着**上面那段口径（否则下一个改阈值的人会以为
+      「阈值 = 水位」是扛水门槛的数学等价）。
     """
-    assert rec.MIN_EV == pytest.approx(0.05, abs=1e-9)
+    assert rec.MIN_EV == pytest.approx(0.129, abs=1e-9)
     _src = Path(rec.__file__).read_text(encoding="utf-8")
     assert "EV > 0" in _src, "模块里必须写清「单边扛水 = EV>0」的口径（防止再被当成 EV≥水位）"
     assert "12.9" in _src, "模块里必须记下实测水位 12.9%（出处）"
-    assert "0.129" not in _src, "阈值不许偷偷变成 12.9%（那是另一个门槛）"
+    assert "比扛水更严" in _src, "模块里必须写清「EV ≥ 12.9% 比扛水更严一道」（代数纪律）"
 
 
 def test_b5_pricing_note_states_measured_water_level(monkeypatch):
-    """用户可见文案：写实测值 12.9%，**不许**再写「25~33%」。
+    """用户可见文案：写实测值 12.9%，**不许**再写「25~33%」；口径必须说清两件事。
 
-    ⚠️ 2026-10-23 **生产浏览器验收时当场抓到**：这段文案的最后一句写的是
+    ⚠️ 2026-10-23 **生产浏览器验收时当场抓到**（P2-H4）：这段文案的最后一句写的是
     「单边投注要先扛掉这笔水 ⇒ EV 必须**不低于水位**才谈得上盈利
-    （推荐端阈值已对齐为 EV ≥ 12.9%）」⇒ ① 与本轮决定（阈值维持 0.05）**矛盾**；
+    （推荐端阈值已对齐为 EV ≥ 12.9%）」⇒ ① 与当时的决定（阈值维持 0.05）**矛盾**；
     ② 代数上也错（EV > 0 ⟺ p/q > m ⇒ 扛水 = EV > 0，不是 EV ≥ 12.9%）。
-    ⇒ 这条测试把**正确口径**也锁住：不许出现「不低于水位」「阈值已对齐」，
-      且必须写明「EV 已把水算进去了」+「阈值 EV ≥ 5% 是政策值，不是水位」。
+    ⇒ **P2-L 订正**：阈值现已 = 水位（用户批准）⇒ 正确口径变成
+    「① 扛水的数学门槛 = EV>0（p/q > 1.129）；② 阈值 EV ≥ 12.9% **比扛水更严一道**
+    （等价 p/q ≥ 1.275）」⇒ 两件事必须**同时**出现在文案里，否则要么自相矛盾、要么假话。
     """
     monkeypatch.setattr("store.pg.read_conn", lambda *a, **k: (_ for _ in ()).throw(
         RuntimeError("db down")))
@@ -281,9 +287,15 @@ def test_b5_pricing_note_states_measured_water_level(monkeypatch):
     # 假话不许回来
     assert "不低于水位" not in note
     assert "阈值已对齐" not in note
-    # 正确口径必须在
-    assert "已把水算进去了" in note
-    assert "EV ≥ 5%" in note and "政策值" in note
+    # ⚠️ P2-L：阈值 = 水位之后，「政策值，不是水位」也成了自相矛盾 ⇒ 同样不许回来
+    assert "政策值" not in note
+    assert "不需要再拿水位当门槛" not in note
+    # 正确口径必须在（两件事都要说）
+    assert "EV 为正" in note
+    assert "p/q > 1.129" in note
+    assert "EV ≥ 12.9%" in note
+    assert "比「扛水」更严一道" in note
+    assert "p/q ≥ 1.275" in note
 
 
 def test_b5_write_reports_note_records_effective_thresholds():
@@ -442,17 +454,19 @@ def test_b7_candidate_carries_thresholds_for_traceability():
     assert pick["made_at"] is None      # 今日模式：made_at 落库时取当下
 
 
-def test_b7_default_threshold_is_the_policy_value():
-    """默认门槛 = 政策值 ``MIN_EV``（0.05），**不是**实测水位 12.9%。
+def test_b7_default_threshold_is_the_measured_water_level():
+    """默认门槛 = **实测水位 ``MIN_EV``**（0.129，用户 2026-10-23 批准）。
 
-    ⚠️ 理由见 ``test_b5_min_ev_threshold_stays_a_deliberate_policy_not_the_water_level``：
-    对单边投注「扛水」= EV > 0（代数：EV>0 ⟺ p/q > m），不是 EV ≥ 12.9%。
+    ⚠️ **2026-10-23 订正（P2-L）**：原先这里断言「默认门槛 = 政策值 0.05、
+    **不是**实测水位 12.9%」⇒ 用户已批准抬到水位 ⇒ 口径反过来。
+    代数理由不变（对单边投注「扛水」= EV > 0，代数：EV>0 ⟺ p/q > m），
+    但那说明的是**门槛比扛水更严一道**，不是「不许等于水位」。
     """
     import inspect
 
     sig = inspect.signature(rec.pick_recommendation)
     assert sig.parameters["min_ev"].default == pytest.approx(rec.MIN_EV)
-    assert sig.parameters["min_ev"].default == pytest.approx(0.05)
+    assert sig.parameters["min_ev"].default == pytest.approx(0.129)
 
 
 # ── 附加：候选装配在今日模式下不预设 made_at（落库时取当下）──────────

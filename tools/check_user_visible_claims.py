@@ -12,7 +12,7 @@
 而**静态审计 / 单测 / 守门全都没抓到** —— 因为守门只查了
 「文案里有没有 12.9%」「有没有 25~33%」，**没查「12.9% 是不是那个阈值」**。
 
-⇒ 本工具把「用户可见文案」当成**一等公民**来查四件事：
+⇒ 本工具把「用户可见文案」当成**一等公民**来查五件事：
 
 1. **不许泄漏**：用户可见文本不得含服务器绝对路径 / 内部接口路径 / 凭证；
 2. **不许手写口径数字**：EV 阈值 / 水位这类数字必须**从唯一真源**
@@ -20,7 +20,16 @@
 3. **派生后必须对**：把文案**真的渲染出来**（行为级），核对里面的
    EV 阈值 / 水位数字 == 真源常量；
 4. **不许有 Markdown 标记**（P2-J，2026-10-23）：前端**不解析 Markdown**
-   （全仓没有 marked/showdown）⇒ 文案里写 ``**粗体**`` 只会**原样**漏给用户。
+   （全仓没有 marked/showdown）⇒ 文案里写 ``**粗体**`` 只会**原样**漏给用户；
+5. **模块级文案常量必须显式登记**（P2-L，2026-10-23）：`_NOTE_TMPL` 这类
+   **模块级常量**原先**完全不在枚举里** ⇒ 新增含中文的模块级常量时
+   必须二选一登记（用户可见 / 不是用户可见）⇒ 不许静默漏网。
+
+⚠️ **2026-10-23 订正（P2-L：阈值政策变更）**：本文档开头写的
+「代码里真正的阈值是 ``MIN_EV = 0.05``」是**事故当时**的事实（文案手打 12.9%
+而代码是 5%）。⇒ **2026-10-23 用户已批准把阈值提到实测水位 12.9%**，
+现在 ``MIN_EV == 0.129 == WATER_LEVEL_MEASURED``（见 ``scripts/core/betting_policy.py``）。
+⇒ 本工具的判定**与真源联动**（阈值改了多少它就查多少）⇒ 不受这次变更影响。
 
 判定口径说明（为什么这样才不是「空断言」）：
 - 文案集合 = 后端「会渲染给用户的字段」的字符串常量与 f-string 字面量
@@ -73,6 +82,77 @@ FRONTEND_FILES = ("static/dashboard.html", "static/jc.html",
                   "static/dashboard-login.html")
 BACKEND_GLOBS = ("web", "scripts/decision")
 
+# ── 模块级「用户可见文案常量」（P2-L，2026-10-23 补的盲区）──────────────────
+# ⚠️ **为什么要有**：原来的后端枚举只认「dict 里直接写的字面量」⇒
+#   **模块级常量**根本没被看见 —— 而这几段恰恰是**会印给用户**的：
+#     `scripts/decision/recommend.py::_NOTE_TMPL` → 写进 `analysis.ev_report.note`
+#         → 经 `/api/v1/recommend` 的 `picks[].note` 返回给前端；
+#     `web/routers/jc.py::_CALIBER_NOTE` → `"note"` 字段；
+#     `web/routers/jc_ops.py::_NOTE` → `"sql_note"` 字段；
+#     `web/services/lottery.py::DISCLAIMER` → `"note"` / `"disclaimer"` 字段。
+#   ⇒ 在它们上面写 Markdown 标记或手写口径数字，守门**全是绿的**。
+# ⚠️ **为什么用显式登记，而不是「全扫含中文的模块级常量」**：
+#   全扫会把 **SQL / DDL** 也当文案（实测：`web/session_store.py::_SCHEMA` 的建表
+#   注释里带 `**限速闸门**` ⇒ 会被判定④误报成「Markdown 泄漏」）。
+#   ⇒ 改成**两张显式表**：用户可见的登记进 `USER_VISIBLE_CONSTS`，
+#     不是用户可见的登记进 `NON_USER_VISIBLE_CONSTS`；
+#   **任何新的含中文模块级常量都必须二选一登记**（否则守门 FAIL）⇒ 不会静默漏网。
+USER_VISIBLE_CONSTS: dict[str, tuple[str, ...]] = {
+    "scripts/decision/recommend.py": ("_NOTE_TMPL",),
+    "web/routers/jc.py": ("_CALIBER_NOTE",),
+    "web/routers/jc_ops.py": ("_NOTE",),
+    "web/services/lottery.py": ("DISCLAIMER",),
+}
+NON_USER_VISIBLE_CONSTS: dict[str, tuple[str, ...]] = {
+    "web/session_store.py": ("_SCHEMA",),
+}
+
+
+def module_level_strings(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
+    """模块级字符串常量 → ``(相对路径, 行号, 常量名, 文本)``。
+
+    ⚠️ **P2-L（2026-10-23）补的盲区**：``_NOTE_TMPL``（荐单 note）、
+    ``_CALIBER_NOTE`` / ``_NOTE`` / ``DISCLAIMER`` 这些**模块级常量**
+    原先**完全不在枚举里** ⇒ 它们上面写什么都抓不到。
+    """
+    out: list[tuple[str, int, str, str]] = []
+    for base in BACKEND_GLOBS:
+        for p in sorted((root / base).rglob("*.py")):
+            rel = p.relative_to(root).as_posix()
+            try:
+                tree = ast.parse(p.read_text(encoding="utf-8"))
+            except (SyntaxError, OSError):
+                continue
+            for node in tree.body:
+                if not isinstance(node, ast.Assign):
+                    continue
+                if not (isinstance(node.value, ast.Constant)
+                        and isinstance(node.value.value, str)):
+                    continue
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        out.append((rel, node.lineno, t.id, node.value.value))
+    return out
+
+
+def unregistered_module_constants(root: Path = ROOT) -> list[str]:
+    """含中文（或含口径数字）的模块级常量里，**没登记**的。
+
+    ⇒ 守门要求返回空列表：新增含中文的模块级常量时，
+    **必须**二选一登记进 ``USER_VISIBLE_CONSTS`` / ``NON_USER_VISIBLE_CONSTS``
+    ⇒ 否则它（可能）是一段没人守的用户可见文案 ⇒ 静默漏网。
+    """
+    bad: list[str] = []
+    for rel, ln, name, s in module_level_strings(root):
+        if name in USER_VISIBLE_CONSTS.get(rel, ()):
+            continue
+        if name in NON_USER_VISIBLE_CONSTS.get(rel, ()):
+            continue
+        if not (CJK.search(s) or HANDWRITTEN_EV.search(s) or HANDWRITTEN_WATER.search(s)):
+            continue
+        bad.append(f"{rel}:{ln} {name} = {s[:80]}")
+    return bad
+
 
 # ── 枚举：后端用户可见字符串 ──────────────────────────────────────────────
 def backend_user_visible_strings(root: Path = ROOT) -> list[tuple[str, int, str]]:
@@ -106,6 +186,12 @@ def backend_user_visible_strings(root: Path = ROOT) -> list[tuple[str, int, str]
                         continue
                     for piece in _string_pieces(v, funcs, depth=0):
                         out.append((rel, node.lineno, piece))
+    # ⚠️ **P2-L（2026-10-23）**：补上「**模块级常量**」这一类（原先完全看不见）。
+    #   `_NOTE_TMPL` / `_CALIBER_NOTE` / `_NOTE` / `DISCLAIMER` 都是**会印给用户**的
+    #   字符串常量，但不是 dict 里的字面量 ⇒ 旧枚举全漏了。
+    for rel, ln, name, text in module_level_strings(root):
+        if name in USER_VISIBLE_CONSTS.get(rel, ()):
+            out.append((rel, ln, text))
     return out
 
 
@@ -323,6 +409,8 @@ def main() -> int:
     handwritten = find_handwritten_policy_numbers(source_uv)
     markdown = find_markdown_markers(all_uv)
     rendered = check_rendered_numbers()
+    # ⚠️ P2-L：模块级文案常量必须**显式登记**（用户可见 / 不是用户可见）⇒ 不许静默漏网
+    unregistered = unregistered_module_constants()
 
     print("=" * 78)
     print("用户可见文案一致性守门（UVC）")
@@ -334,7 +422,8 @@ def main() -> int:
     for title, items in (("① 泄漏（绝对路径 / 内部接口 / 凭证）", leaks),
                          ("② 手写的口径数字（必须从真源派生）", handwritten),
                          ("③ 渲染后的数字与真源不一致", rendered),
-                         ("④ Markdown 标记泄漏（前端不渲染，只会原样显示）", markdown)):
+                         ("④ Markdown 标记泄漏（前端不渲染，只会原样显示）", markdown),
+                         ("⑤ 含中文的模块级常量未登记（可能漏守的用户可见文案）", unregistered)):
         print(f"\n--- {title} ---")
         if not items:
             print("  （无）")

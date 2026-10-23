@@ -2465,8 +2465,17 @@ def main() -> int:
           and any("m.business_date >= %s::date" in s for s in _rec_code))
     check("荐单 made_at = 生成时刻（不许再取归档 run_at 的 decided_at）", True,
           'made_at = p.get("made_at") or now_bjt()' in _rec_src)
-    check("荐单 EV 阈值必须是**显式政策值**且不许偷换成实测水位 0.129", True,
-          "betting_policy" in _rec_src and "EV > 0" in _rec_src)
+    # ⚠️ **P2-L（2026-10-23）阈值政策变更（用户批准）**：此前这条守门写死
+    #   「阈值必须是政策值 0.05、不许偷换成实测水位 0.129」⇒ **用户 2026-10-23
+    #   明确批准**把阈值提到实测水位 ⇒ 口径**反过来**：
+    #   ① 阈值必须 == 实测水位（真源里两者相等，见下面 P2-L 区块）；
+    #   ② 模块里必须**写着**「扛水 = EV > 0」那段口径 —— 否则下一个改阈值的人
+    #      会以为「阈值 = 水位」是扛水门槛的**数学等价**（它不是：EV ≥ 12.9%
+    #      等价 p/q ≥ m² ≈ 1.275 ⇒ **比扛水更严一道**）。
+    check("荐单 EV 阈值必须对齐实测水位（用户 2026-10-23 批准）且模块写着「EV>0 / 比扛水更严」口径",
+          True,
+          "betting_policy" in _rec_src and "EV > 0" in _rec_src
+          and "比扛水更严" in _rec_src)
     _note_src = read(ROOT / "web" / "services" / "recommend.py")
     # ⚠️ P2-I（2026-10-23）：文案里的数字改成**从真源派生** ⇒ 这里不再查字面量，
     #    改查「有没有手写数字」+「有没有从真源导入」；数字对不对由 UVC 工具**渲染后**判。
@@ -2481,14 +2490,17 @@ def main() -> int:
     # 判定口径：`code_strings`（**AST 级、排除 docstring**）⇒ 注释里的订正记录不会假绿，
     #   但**会真正渲染给用户**的字符串常量一旦写回假话 ⇒ 立刻 FAIL。
     _note_codes = code_strings(ROOT / "web" / "services" / "recommend.py")
-    _forbidden_note = ("不低于水位", "阈值已对齐")
+    # ⚠️ P2-L（2026-10-23）：阈值 = 水位之后，「阈值是政策值，不是水位」
+    #   「不需要再拿水位当门槛」这两句**变成自相矛盾**（阈值本身就是水位）
+    #   ⇒ 一并列为禁语（防止 P2-I 的旧文案被改回来）。
+    _forbidden_note = ("不低于水位", "阈值已对齐", "政策值，不是水位", "不需要再拿水位当门槛")
     _bad_note = [s[:80] for s in _note_codes
                  if any(f in s for f in _forbidden_note)]
     check("用户可见荐单文案不许宣称「EV 必须 ≥ 水位」或「阈值已对齐为 12.9%」", True,
           not _bad_note)
-    check("用户可见荐单文案必须写清正确口径（EV 已含水位 + 阈值是政策值）", True,
-          any("已把水算进去了" in s for s in _note_codes)
-          and any("政策值" in s for s in _note_codes))
+    check("用户可见荐单文案必须写清正确口径（阈值=实测水位 + 比扛水更严一道）", True,
+          any("当前实测水位" in s for s in _note_codes)
+          and any("比「扛水」更严一道" in s for s in _note_codes))
     # ── P2-I（2026-10-23）：口径数字的**唯一真源** + 用户可见文案守门工具 ──────
     # 事故（P2-H4）：文案里的数字是**手打**的 ⇒ 与代码各写各的 ⇒ 漂移成假话。
     # ⇒ 修法：① 口径数字搬进唯一真源 `scripts/core/betting_policy.py`；
@@ -2507,8 +2519,13 @@ def main() -> int:
                             and isinstance(_n.value.value, (int, float)) \
                             and not isinstance(_n.value.value, bool):
                         _bp_consts[_t.id] = float(_n.value.value)
-    check("口径真源的 MIN_EV 必须是政策值 0.05（不许偷换成水位 0.129）", True,
-          _bp_consts.get("MIN_EV") == 0.05 and _bp_consts.get("MIN_EV") != 0.129)
+    # ⚠️ **P2-L（2026-10-23）阈值政策变更（用户批准）**：口径**反过来**——
+    #   阈值不再是不许等于水位的「政策值 0.05」，而是**实测水位 12.9%**
+    #   （用户 2026-10-23 明确批准；8 天 39 条 → 25 条实测取证）。
+    #   ⇒ 守门要盯的是「阈值 == 水位」这个**恒等式**（重测水位必须显式重审阈值）。
+    check("口径真源的 MIN_EV 必须 == 实测水位 0.129（用户 2026-10-23 批准的政策变更）", True,
+          _bp_consts.get("MIN_EV") == 0.129
+          and _bp_consts.get("WATER_LEVEL_MEASURED") == 0.129)
     check("口径真源的水位必须是实测 0.129（生产实测 2026-10-23）", True,
           abs(_bp_consts.get("WATER_LEVEL_MEASURED", -1) - 0.129) < 1e-9)
     check("荐单面板与荐单 note 都必须从口径真源派生（不许自己写数字）", True,
@@ -2568,6 +2585,46 @@ def main() -> int:
           "ast.Call" in _uvc_src and "_pricing_note" in _uvc_src)
     check("UVC 必须有判定④「Markdown 标记泄漏」（不许被悄悄摘掉）", True,
           "find_markdown_markers" in _uvc_src and "MARKDOWN_MARKER" in _uvc_src)
+
+    # ── P2-L（2026-10-23）：EV 阈值政策变更（用户批准提到实测水位 12.9%）────────
+    # ⚠️ **背景**：阈值政策在 2026-10-23 由**用户明确批准**变更（5% → 实测水位 12.9%）。
+    #   这是**代码真改**（与 P2-H4「文案写 12.9% 而代码是 5%」那种**假话**相反）：
+    #   代码与文案一致，守门跟着真源联动 ⇒ 阈值再改，守门自动跟着改。
+    # ⇒ 但**代数上必须说清楚**：单边「扛水」的数学门槛仍是 **EV > 0**（p/q > m ≈ 1.129）；
+    #   EV ≥ 12.9% 等价 **p/q ≥ m² ≈ 1.275** ⇒ **比扛水更严一道**
+    #   （= 一道保守筛选，**不是**扛水门槛的数学等价）⇒ 用户可见文案必须这么写。
+    _bp_mod = None
+    try:
+        import importlib.util as _ilu3
+        _spec3 = _ilu3.spec_from_file_location("betting_policy_mod", _bp_path)
+        if _spec3 and _spec3.loader:
+            _bp_mod = _ilu3.module_from_spec(_spec3)
+            sys.modules["betting_policy_mod"] = _bp_mod
+            _spec3.loader.exec_module(_bp_mod)
+    except Exception:  # noqa: BLE001 - 导入失败必须显式失败，不许静默跳过
+        _bp_mod = None
+    _pc_errs = (_bp_mod.policy_consistency_errors() if _bp_mod is not None
+                else ["betting_policy 导入失败"])
+    check("口径真源的政策一致性自检必须为空（阈值必须 == 实测水位；重测水位必须显式重审阈值）",
+          True, not _pc_errs)
+    _rec_codes_l = code_strings(ROOT / "scripts" / "decision" / "recommend.py")
+    check("荐单 note 必须同时说清两件事（扛水门槛=EV>0 / 阈值比扛水更严一道）", True,
+          any("比扛水更严一道" in s for s in _rec_codes_l)
+          and any("扛水" in s for s in _rec_codes_l))
+    check("UVC 必须覆盖「模块级文案常量」（P2-L 补的盲区：_NOTE_TMPL 原先完全没被枚举）", True,
+          "USER_VISIBLE_CONSTS" in _uvc_src and "module_level_strings" in _uvc_src
+          and "unregistered_module_constants" in _uvc_src)
+    if _uvc_mod is not None:
+        try:
+            _rendered_l = _uvc_mod.render_pricing_note()
+        except Exception as _exc_l:  # noqa: BLE001 - 渲染失败必须显式失败
+            _rendered_l = f"<渲染失败: {_exc_l}>"
+        check("荐单面板文案（渲染后）必须同时说清「扛水门槛=EV为正」与「阈值比扛水更严一道」", True,
+              "EV 为正" in _rendered_l and "比「扛水」更严一道" in _rendered_l)
+        check("荐单面板文案（渲染后）必须写明阈值 = 实测水位且有批准记录", True,
+              "当前实测水位" in _rendered_l and "批准" in _rendered_l)
+        check("荐单面板文案（渲染后）不许再出现「政策值，不是水位」这类旧口径", True,
+              "政策值" not in _rendered_l and "不需要再拿水位当门槛" not in _rendered_l)
 
     # ── P2-K（2026-10-23）：首屏不许永远停在「连接中…」（5 条）──────────────
     # 事故（**生产浏览器验收时当场撞上**）：整块页面停在「连接中…」，所有面板停在

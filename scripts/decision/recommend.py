@@ -53,8 +53,8 @@ from typing import Any
 # 代数（m = 1+水位 = 三项隐含概率和，q = 去水后的市场概率，SP = 1/(m·q)）：
 #   单位 EV = p·SP − 1 = p/(m·q) − 1
 #   ⇒ **EV > 0 ⟺ p > m·q ⟺ p/q > m**（模型概率相对市场去水概率高出**整个水位**）
-#   ⇒ 对**单边**投注，「扛掉这笔水」= **EV > 0**，**不是** EV ≥ 12.9%。
-#   （EV ≥ 12.9% 等价于 p/q ≥ m² ≈ 1.273 —— 要求模型比市场高出 27%，是**另一个**门槛。）
+#   ⇒ 对**单边**投注，「扛掉这笔水」= **EV > 0**。
+#   （EV ≥ 12.9% 等价于 p/q ≥ m² ≈ 1.275 —— 要求模型比市场高出 27.5%，是**另一个**门槛。）
 #   水位只在**串关**上才需要单独「扛」：串关 EV = ∏(p_i/q_i)/mⁿ − 1 ⇒ 门槛是 mⁿ。
 #
 # 生产实测（`analysis.ev_report`，2026-10-23 查）：达标荐单的 EV 分布
@@ -63,17 +63,33 @@ from typing import Any
 #   2026-10-22   4  0.0777  0.1356  0.4482    4     3      2
 #   2026-10-21   7  0.0973  0.1417  1.3321    7     5      4
 #   2026-10-18  10  0.1001  0.2641  0.8470   10    10      7
-#   ⇒ 历史最低 EV = **0.0608**（8 天全量）⇒ 5% 门槛实际并没有放进负 EV 的荐单；
-#   ⇒ 把门槛抬到 12.9% 会把**正 EV 的好单**砍掉 50~70%（10-23：3 条 → 1 条），
-#     属**产品阈值政策**变更（路线图 §6.6.5.1 明确「阈值暂不动，等 n ≥ 100 再校准」）
-#     ⇒ **本轮不改阈值**，只把**用户可见文案**订正成实测值（见 web/services/recommend.py）。
-#     需要更保守/更激进时用 CLI `--min-ev` 覆盖（note 里会记下当时生效的门槛）。
+#   ⇒ 8 天全量 39 条：**≥5% 全部 39 条，≥12.9% 只剩 25 条**（保留 64%）；
+#   ⇒ 达标（≥12.9%）最低 EV = **0.1417**；2026-10-16 那唯一的 1 条 EV 0.1234
+#     ⇒ **新门槛下那天会一条不推**（这是阈值变严的**预期代价**，不是故障）。
+#
+# ⚠️ **P2-L（2026-10-23）阈值政策变更（用户批准）**：此前本模块**不改阈值**
+#   （依据路线图 §6.6.5.1「阈值暂不动，等 n ≥ 100 再校准」）。
+#   ⇒ **用户 2026-10-23 明确批准**把推荐端阈值提到**实测水位 12.9%**
+#     （`core/betting_policy.py::MIN_EV`，本模块的 `MIN_EV` 是导入名）。
+#   ⇒ **这不是漂移，是代码真改**（P2-H4 那次是「文案写 12.9% 而代码是 5%」的假话）。
+#   ⇒ ⚠️ **代数上仍要说清楚**：单边「扛水」的数学门槛是 **EV > 0**（p/q > m ≈ 1.129）；
+#     **EV ≥ 12.9%** 等价于 **p/q ≥ m² ≈ 1.275** ⇒ **比扛水更严**一道。
+#     阈值 = 水位是**一道保守筛选**，**不是**扛水门槛的数学等价。
+#   ⇒ 需要临时放宽/收紧时用 CLI `--min-ev` 覆盖（note 里会记下当时生效的门槛）。
 #
 # ⚠️ **P2-I（2026-10-23）**：阈值数字搬去 **`core/betting_policy.py`**（唯一真源）——
 #   因为「用户可见文案里的数字」必须**从常量派生**（P2-H4 事故：文案手打
 #   「阈值已对齐为 EV ≥ 12.9%」而代码是 5% ⇒ 漂移成**假话** ⇒ 静态审计/单测/守门
-#   全都没抓到）。本模块的 `MIN_EV` / `MIN_P` 现在是**导入名**（值不变）。
-from core.betting_policy import MIN_EV, MIN_P, WATER_LEVEL_TEXT, threshold_text
+#   全都没抓到）。本模块的 `MIN_EV` / `MIN_P` 现在是**导入名**（值见唯一真源）。
+from core.betting_policy import (
+    EV_BREAKEVEN_TEXT,
+    EV_FACTOR_TEXT,
+    MIN_EV,
+    MIN_P,
+    WATER_FACTOR_TEXT,
+    WATER_LEVEL_TEXT,
+    threshold_text,
+)
 from core.bjt import now_bjt
 from core.log import logger
 from market.kelly import DEFAULT_FRACTION, ev_per_unit, kelly_fraction, suggested_stake
@@ -81,7 +97,8 @@ from psycopg import Connection
 from psycopg.types.json import Jsonb
 from store import pg
 
-# MIN_EV = 0.05   → 单位 EV ≥ 5%（= 在「正 EV 之外再加一道安全垫」；口径见上面的推导）
+# MIN_EV = 0.129  → 单位 EV ≥ 12.9%（⚠️ **2026-10-23 订正**：原 0.05，用户批准提到实测水位；
+#                  口径 = **保守筛选**，比「扛水」(EV>0) 更严一道；见上面的推导与订正块）
 # MIN_P = 0.10    → 模型概率 ≥ 10%（不要长尾彩票）——**方向级**排除，见 pick_recommendation
 KELLY_FRACTION = DEFAULT_FRACTION   # 1/4 Kelly
 BANKROLL = 100.0       # 建议注额的口径基数（与展示的「本钱 100」一致）
@@ -458,11 +475,17 @@ _NOTE_TMPL = ("推荐 {side}：竞彩官方 SP {sp} · 模型概率 {p} · 单�
                "分数 Kelly {kelly}（1/4 Kelly 建议注额 {stake}）；"
                "定价=竞彩官方 SP（决策时刻 {ts}）；"
                "入选门槛：单位 EV ≥ {min_ev}、模型概率 ≥ {min_p}"
-               "（低于此即长尾彩票，该方向不进推荐；"
+               "（低于此即长尾彩票，该方向不进推荐）；"
                # ⚠️ P2-J（2026-10-23）：note 是**纯文本**（会被印给用户）⇒ 不许写 Markdown
                # `**粗体**` ⇒ 星号会原样漏给用户。强调一律用中文「」。
-               "水位 {water_level} 是 2026-10-23 生产实测的「市场水位」，"
-               "对单边投注等价于 EV>0）；"
+               # ⚠️ P2-L（2026-10-23）：阈值从 5% 提到**实测水位 12.9%** ⇒ 这段口径必须同步：
+               #   旧文案把「水位 … 对单边投注等价于 EV>0」紧跟在门槛后面 ⇒ 用户会读成
+               #   「门槛 12.9% ≡ EV>0」⇒ **自相矛盾**（实际 EV ≥ 12.9% 比扛水**更严**一道）。
+               # ⇒ 现在两件事分开说清楚：① 扛水的数学门槛是 {breakeven}；
+               #   ② 本门槛比它更严（等价 p/q ≥ {ev_factor}）。
+               "⚠️ 单边「扛水」的数学门槛是 {breakeven}（p/q > {water_factor}），"
+               "本门槛比扛水更严一道（等价于 p/q ≥ {ev_factor}）；"
+               "水位 {water_level} 是 2026-10-23 生产实测的「市场水位」；"
                "⚠️ 本模型概率为「市场锚定」，EV 含 ESPN↔竞彩 跨市场定价差，"
                "不等于模型有同等真实优势；{extra}")
 
@@ -498,8 +521,13 @@ def write_reports(conn: Connection, picks: list[dict[str, Any]]) -> list[int]:
             ts=p.get("sp_snapshot_ts") or "-", extra="；".join(extra) or "无",
             # ⚠️ P2-I：门槛用**双表示**（比例 + 百分比）—— 比例给复算，百分比给人看；
             #   水位从**唯一真源**派生（不许手写 "12.9%"）。
+            # ⚠️ P2-L：阈值政策变更（用户 2026-10-23 批准提到实测水位）后，
+            #   note 必须同时说清「扛水门槛 = EV>0」与「本门槛更严一道」⇒ 不再自相矛盾。
             min_ev=threshold_text(p.get("min_ev", MIN_EV)),
             min_p=threshold_text(p.get("min_p", MIN_P)),
+            breakeven=EV_BREAKEVEN_TEXT,
+            ev_factor=EV_FACTOR_TEXT,
+            water_factor=WATER_FACTOR_TEXT,
             water_level=WATER_LEVEL_TEXT,
         )
         legs = [{
@@ -637,8 +665,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="回溯模式：历史归档 + 决策时刻可见价（用于攒首批样本）")
     ap.add_argument("--to", dest="to_date", help="回溯模式的截止比赛日 YYYY-MM-DD")
     ap.add_argument("--min-ev", type=float, default=MIN_EV,
-                    help="单位 EV 阈值（默认 0.05 = 正 EV 之外的安全垫；水位 12.9%% 是**市场水位**，"
-                         "对单边投注等价于 EV>0，不是 EV≥12.9%%）")
+                    help="单位 EV 阈值（默认 0.129 = 12.9%%，用户 2026-10-23 批准对齐实测水位；"
+                         "⚠️ 它**比扛水**(EV>0，p/q>m) 更严一道：等价于 p/q ≥ 1.275）")
     ap.add_argument("--min-p", type=float, default=MIN_P,
                     help="模型概率下限（默认 0.10；低于此的方向不进推荐 = 不要长尾彩票）")
     ap.add_argument("--dry", action="store_true", help="只报计划，不写库")
