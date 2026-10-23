@@ -221,17 +221,26 @@ def test_threading_excepthook_writes_event(tmp_path):
 
 
 def test_core_log_import_triggers_observability_autoinstall(tmp_path, monkeypatch):
-    """``import core.log`` 顶层调 ``observability.setup()``；本测试卸后再 import 验证。"""
+    """``import core.log`` 顶层调 ``observability.setup()``；本测试卸后再 import 验证。
+
+    ⚠️ **P1（2026-10-23）**：必须把 ``core.constants.FOOTBALL_DIR`` 指到 tmp_path ——
+    否则 ``core.log`` 的 import-time 装挂会写**生产** `scripts/logs/`
+    （实测：这条用例每次跑都往生产 events.predict.jsonl / runtime.predict.log 里写，
+    而两个文件都被 .gitignore 覆盖 ⇒ `git status` 恒为干净 ⇒ 污染完全隐形）。
+    """
     obs.reset_for_test()
     monkeypatch.setenv("LEAGUE_PREDICT_LOG_LEVEL", "INFO")
+    import core.constants as core_constants
+    monkeypatch.setattr(core_constants, "FOOTBALL_DIR", tmp_path)
     monkeypatch.setattr(core_log.observability, "logs_dir", lambda: tmp_path / "auto_logs")
     # 强制 import 触发顶层 setup
     import importlib
 
     import core.log
     importlib.reload(core.log)
-    # 验证：装挂在默认 FOOTBALL_DIR/logs（不是 monkeypatch 路径）—— 因 setup() 早于 monkeypatch
+    # 验证：装挂**已发生**（且落在 tmp_path 之下，不碰生产目录）
     assert core_log.observability._INSTALLED is True
+    assert str(tmp_path) in str(core_log.observability.logs_dir())
 
 
 def test_setup_with_level_env(monkeypatch, tmp_path):

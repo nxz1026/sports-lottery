@@ -9,6 +9,12 @@
 （这与建议 3 的 `kickoff_bj` 时区坑同源，见路线图 §7 第 12 条）。
 
 读不出来一律**降级为空**（页面显示「暂无推荐单」，不 5xx、不编数）。
+
+⚠️ **P1（2026-10-23）**：「读失败」与「本来就没有」必须**分开表达**。
+旧实现两种情况都返回空列表 / `n_settled=0` ⇒ 页面把
+「数据库连不上」印成「你还没跑脚本」+「已结算 0 注」（实测：读失败时页面在说谎）。
+⇒ 现在读失败一律带 `degraded=True` 标志（照抄 `offer_freshness()` 的既有范式），
+页面据此印「⚠️ 读取失败」而不是「没有数据」。
 """
 from __future__ import annotations
 
@@ -58,8 +64,11 @@ SELECT match_id, option_code, league_key, match_date, sp_decide, sp_settle, hit,
 """
 
 
-def today_picks(day: str | None = None) -> list[dict[str, Any]]:
-    """今日推荐单（BJT 日口径）。读取失败 → []（降级，不编数）。"""
+def _read_picks(day: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+    """读今日推荐单。返回 ``(rows, degraded)``。
+
+    ``degraded=True`` ⇒ **读失败**（不是「今天没有荐单」）。两者必须分开表达。
+    """
     try:
         from store import pg
 
@@ -86,14 +95,35 @@ def today_picks(day: str | None = None) -> list[dict[str, Any]]:
                 "league_key": r[11],
                 "note": r[9],
             })
-        return out
+        return out, False
     except Exception as exc:  # noqa: BLE001 - 只读视图，任何异常降级为空
-        logger.warning("web.recommend 读今日推荐单失败（降级为空）：%s", exc)
-        return []
+        logger.warning("web.recommend 读今日推荐单失败（降级为空，degraded=True）：%s", exc)
+        return [], True
+
+
+def today_picks(day: str | None = None) -> list[dict[str, Any]]:
+    """今日推荐单（BJT 日口径）。读取失败 → []（降级，不编数）。
+
+    ⚠️ 只看这个返回值**分不出**「读失败」与「今天没荐单」——
+    需要区分的调用方请用 `today_picks_status()`。
+    """
+    rows, _degraded = _read_picks(day)
+    return rows
+
+
+def today_picks_status(day: str | None = None) -> dict[str, Any]:
+    """今日推荐单 + **degraded 标志**（True = 读失败，不是「没有」）。"""
+    rows, degraded = _read_picks(day)
+    return {"picks": rows, "degraded": degraded}
 
 
 def record(min_n: int = 5) -> dict[str, Any]:
-    """战绩汇总（n 不足不给 ROI —— 与建议 3 同一纪律：宁可空白不误导）。"""
+    """战绩汇总（n 不足不给 ROI —— 与建议 3 同一纪律：宁可空白不误导）。
+
+    ⚠️ P1（2026-10-23）：返回值带 ``degraded`` 标志 —— **读失败**（`degraded=True`）
+    与「确实一注都没结算」（`degraded=False`）必须分开表达；旧实现两种都返回
+    `n_settled=0` ⇒ 页面把「连不上库」印成「已结算 0 注」。
+    """
     try:
         from store import pg
 
@@ -133,12 +163,13 @@ def record(min_n: int = 5) -> dict[str, Any]:
                 "sp_settle": float(x[5]) if x[5] is not None else None,
                 "hit": x[6], "stake": float(x[7]), "payout": float(x[8]), "pnl": float(x[9]),
             } for x in detail],
+            "degraded": False,
         }
     except Exception as exc:  # noqa: BLE001
-        logger.warning("web.recommend 读战绩失败（降级为空）：%s", exc)
+        logger.warning("web.recommend 读战绩失败（降级为空，degraded=True）：%s", exc)
         return {"n_settled": 0, "n_hit": 0, "n_miss": 0, "staked": 0.0, "returned": 0.0,
                 "pnl": 0.0, "roi": None, "insufficient": True, "min_n": min_n,
-                "by_day": [], "detail": []}
+                "by_day": [], "detail": [], "degraded": True}
 
 
 def offer_freshness(threshold_hours: float | None = None) -> dict[str, Any]:
@@ -170,20 +201,28 @@ def offer_freshness(threshold_hours: float | None = None) -> dict[str, Any]:
 
 
 def snapshot() -> dict[str, Any]:
-    """看板一次拿全：今日推荐单 + 战绩 + 定价赔率新鲜度。"""
-    picks = today_picks()
+    """看板一次拿全：今日推荐单 + 战绩 + 定价赔率新鲜度。
+
+    ⚠️ P1（2026-10-23）：``picks_degraded`` / ``record.degraded`` 标志 ——
+    **读失败**与**本来就没有**必须分开表达（页面据此印「⚠️ 读取失败」而不是
+    「你还没跑脚本」/「已结算 0 注」）。
+    """
+    st = today_picks_status()
     rec = record()
     return {
         "date": _bjt_today(),
-        "picks": picks,
-        "n_picks": len(picks),
+        "picks": st["picks"],
+        "n_picks": len(st["picks"]),
+        "picks_degraded": st["degraded"],
         "record": rec,
         "offer_freshness": offer_freshness(),
         "pricing_note": ("定价 = 竞彩官方 SP（决策时刻那一版）；结算 = 竞彩官方结算 SP。"
                          "⚠️ 本模型概率为「市场锚定」，EV 含 ESPN↔竞彩 跨市场定价差，"
                          "不等于模型有同等真实优势。"
-                         "⚠️ 竞彩 had 三侧含水（实测等额三侧投注每元回报 ≈ 0.75 ⇒ 水位约 25~33%），"
-                         "单边投注要先扛掉这笔水 ⇒ EV 必须显著高于水位才谈得上盈利。"),
+                         "⚠️ 竞彩 had 三侧含水（**生产实测 2026-10-23：当日三项隐含概率和 − 1 = 12.9%**；"
+                         "等额三侧投注每元回报 ≈ 0.89 元 ⇒ 水位 ≈ 11~13%），"
+                         "单边投注要先扛掉这笔水 ⇒ EV 必须**不低于水位**才谈得上盈利"
+                         "（推荐端阈值已对齐为 EV ≥ 12.9%）。"),
         "calendar_note": ("推荐单是**手动生成**的（scripts/decision/recommend.py）："
                           "生产上没有任何 cron / systemd 跑它。"
                           "采集端 2026-10-22 起也改成手动（国内机 scripts\\refresh_now.bat 一键跑完"

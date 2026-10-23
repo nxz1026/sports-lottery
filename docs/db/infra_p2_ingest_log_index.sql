@@ -1,0 +1,63 @@
+-- P2-C（2026-10-23）：给 ops.ingest_log 建 (at) 索引 —— 每日保留清理不该全表扫 419 MB
+--
+-- ⚠️ **本文件只写文件，不在开发机执行**（DDL 由生产 DDL owner 执行）。
+--
+-- ## 为什么需要（生产实测，不是假想）
+--
+--   生产只读核验（2026-10-23）：
+--     ingest_log_indexes | ingest_log_pkey          ← **只有主键**
+--     ingest_log_total   | 3,138,591 行 / 419 MB
+--     ingest_log_7d      | 3,097,976 行（98.5% 在 7 天窗口内）
+--     EXPLAIN (costs off) DELETE FROM ops.ingest_log l WHERE l.at < now() - '7 days'::interval
+--       AND l.id NOT IN (SELECT max(l2.id) FROM ops.ingest_log l2 GROUP BY l2.topic, l2.src_file);
+--        Delete on ingest_log l
+--          ->  Seq Scan on ingest_log l
+--                Filter: ((NOT (ANY (id = (hashed SubPlan 1).col1))) AND (at < ...))
+--                SubPlan 1 ->  HashAggregate (Group Key: topic, src_file) ->  Seq Scan on ingest_log l2
+--
+--   ⇒ ``docs/db/ops_retention.sql`` 每天跑两遍（① 报告 SELECT ② DELETE），
+--     **每遍都是全表扫 419 MB** + 一次 313 万行 HashAggregate；
+--     成本随表规模**线性增长**（表还在长）。
+--
+-- ## 建什么
+--
+--   ① ``idx_ingest_log_at``：``(at)``
+--      ⇒ 保留窗口的 ``at < now() - 7 days`` 走 **Index Scan / Bitmap Scan**，
+--        不再全表扫 419 MB。
+--   ② ``idx_ingest_log_topic_src_id``：``(topic, src_file, id)``
+--      ⇒ 保留脚本里 ``max(id) GROUP BY topic, src_file`` 的 HashAggregate
+--        走 **Index Only Scan**（antijoin 的 hashed SubPlan 也能吃到索引）。
+--
+-- ## 真实 schema（本文件按它写，不照抄措辞）
+--
+--   docs/db/infra_p0_2_schemas.sql:74-77
+--     CREATE TABLE IF NOT EXISTS ops.ingest_log (
+--       id bigserial PRIMARY KEY, topic text, src_file text, rows_in int, rows_ups int,
+--       rejected jsonb, ok boolean, at timestamptz NOT NULL DEFAULT now()
+--     );
+--   ⇒ 表 = ``ops.ingest_log``；时间列 = ``at``（timestamptz NOT NULL DEFAULT now()）。
+--
+-- ## 执行方式（生产）
+--
+--   psql -v ON_ERROR_STOP=1 -f docs/db/infra_p2_ingest_log_index.sql
+--
+--   ⚠️ **CONCURRENTLY 不能在事务块里跑**：
+--     · 用 ``psql -f``（自动提交，每条语句独立事务）⇒ 可以；
+--     · **不要**包在 BEGIN/COMMIT 里，也不要用 ``psql -1``（单事务）。
+--   ⚠️ CONCURRENTLY 会**等待**已有读写事务结束 ⇒ 低峰期跑（装载每 10 分钟一轮）。
+--   ⚠️ CONCURRENTLY 失败会留下 **INVALID 索引** ⇒ 查 pg_index.indisvalid；
+--     失效就 ``DROP INDEX`` 后重跑（IF NOT EXISTS 不会替你重建无效索引）。
+--   ⚠️ 索引会额外占磁盘（419 MB 表上大概几十 MB 量级）⇒ 磁盘余量不足就别跑。
+--   ⚠️ **只读业务表一律不动**（fact.* / analysis.* / ref.* 不碰）。
+--
+--   回执（执行后请把 EXPLAIN 结果贴回来）：
+--     explain (costs off) select count(*) from ops.ingest_log
+--       where at > now() - interval '7 days';
+--     -- 期望：Index Scan using idx_ingest_log_at（不再 Seq Scan）
+
+-- ---------- ① 时间列索引（保留窗口的范围扫描）----------
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ingest_log_at ON ops.ingest_log (at);
+
+-- ---------- ② (topic, src_file, id) 索引（保留脚本的“每个文件最后一条”聚合）----------
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ingest_log_topic_src_id
+  ON ops.ingest_log (topic, src_file, id);

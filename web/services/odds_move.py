@@ -72,8 +72,8 @@ def _row_to_dict(r: tuple) -> dict[str, Any]:
     }
 
 
-def recent(hours: int = 24, limit: int = 50) -> list[dict[str, Any]]:
-    """最近 N 小时的异动事件（**只读**，异常降级为空）。"""
+def _read_recent(hours: int = 24, limit: int = 50) -> tuple[list[dict[str, Any]], bool]:
+    """读最近 N 小时的异动事件。返回 ``(rows, degraded)``；degraded=True ⇒ 读失败。"""
     try:
         from store import pg
 
@@ -81,14 +81,30 @@ def recent(hours: int = 24, limit: int = 50) -> list[dict[str, Any]]:
         lim = max(1, min(int(limit), 500))
         with pg.read_conn("ro") as conn:
             rows = conn.execute(_RECENT_SQL, (h, lim)).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_dict(r) for r in rows], False
     except Exception as exc:  # noqa: BLE001 - 只读视图，任何异常降级为空
-        logger.warning("web.odds_move 读异动事件失败（降级为空）：%s", exc)
-        return []
+        logger.warning("web.odds_move 读异动事件失败（降级为空，degraded=True）：%s", exc)
+        return [], True
+
+
+def recent(hours: int = 24, limit: int = 50) -> list[dict[str, Any]]:
+    """最近 N 小时的异动事件（**只读**，异常降级为空）。
+
+    ⚠️ 只看这个返回值**分不出**「读失败」与「这段时间没有异动」——
+    需要区分的调用方请用 `recent_status()`。
+    """
+    rows, _degraded = _read_recent(hours, limit)
+    return rows
+
+
+def recent_status(hours: int = 24, limit: int = 50) -> dict[str, Any]:
+    """异动事件 + **degraded 标志**（True = 读失败，不是「没有异动」）。"""
+    rows, degraded = _read_recent(hours, limit)
+    return {"rows": rows, "degraded": degraded}
 
 
 def ops(hours: int = 24) -> dict[str, Any]:
-    """运维视图：命中量 / 推送状态 / 阈值。异常降级为空。"""
+    """运维视图：命中量 / 推送状态 / 阈值。异常降级为空（带 degraded=True）。"""
     try:
         from store import pg
 
@@ -106,15 +122,17 @@ def ops(hours: int = 24) -> dict[str, Any]:
             "last_curr_ts": str(r[5]) if r[5] else None,
             "threshold_pct": float(r[6]) if r[6] is not None else None,
             "push_configured": push_configured(),
+            "degraded": False,
             "note": ("异动口径 = 相邻 ~10 分钟快照的跳变（首末差 ≥5% 会命中 77%，是噪音 ⇒ 不用）。"
                      "pushed=false 就是**没推**（未配 webhook）—— 如实显示，不美化。"
                      "⚠️ 盘口异动是「信息」，不是下注理由。"),
         }
     except Exception as exc:  # noqa: BLE001
-        logger.warning("web.odds_move 读运维视图失败（降级为空）：%s", exc)
+        logger.warning("web.odds_move 读运维视图失败（降级为空，degraded=True）：%s", exc)
         return {"window_hours": hours, "n_events": 0, "n_pushed": 0, "n_matches": 0,
                 "max_move_pct": None, "avg_move_pct": None, "last_curr_ts": None,
-                "threshold_pct": None, "push_configured": push_configured(), "note": "读失败"}
+                "threshold_pct": None, "push_configured": push_configured(),
+                "degraded": True, "note": "读失败"}
 
 
 def push_configured() -> bool:

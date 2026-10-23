@@ -27,6 +27,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -39,6 +40,17 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
         sys.path.insert(0, p)
 
 
+# ⚠️ **P1（2026-10-23）**：占位路径必须是**绝对**路径。
+#    旧写法 `Path("unused")` 是**相对路径** ⇒ 一旦有代码真去写它，
+#    落点就是 **CWD = 仓库根** ⇒ 仓库根多出一个 `unused` 文件。
+#    ⚠️ 本文件尤其危险：`sys.modules.setdefault("bball.config_bball", ...)`
+#    把这个假模块**装进全局 sys.modules**（整个 pytest session 都生效）
+#    ⇒ 漏掉重定向的属性会被**后续别的测试**（如 test_bball_run.py）写到仓库根。
+#    实测：全量 pytest 时 `test_run_marks_no_future_matches_when_predictions_empty`
+#    的哨兵就抓到 `sports-lottery/unused` 被改（实测 108 字节）。
+_UNUSED = Path(tempfile.gettempdir()) / "sports-lottery-test-unused"
+
+
 # ── 预先注册 bball 包 + config_bball 子模块 ──
 _bball_pkg = types.ModuleType("bball")
 _bball_pkg.__path__ = [str(REPO_ROOT / "scripts" / "bball")]
@@ -48,23 +60,29 @@ _config_bball.ELO = {
     "INITIAL": 1500.0, "SCALE": 400, "K": 20, "HOME_ADV": 100,
 }
 _config_bball.TEAM_CN = {"Atlanta Hawks": "ATL", "Boston Celtics": "BOS"}
-_config_bball.ELO_FILE = Path("unused")  # 占位; 每个 fixture 重定向到 tmp
-_config_bball.TEAMS_SEED_FILE = Path("unused")
+_config_bball.ELO_FILE = _UNUSED  # 占位; 每个 fixture 重定向到 tmp
+_config_bball.TEAMS_SEED_FILE = _UNUSED
 # 占位: R39-4 只用 ELO/ELO_FILE; 其他属性让 from .config_bball import 不爆
 _config_bball.LEAGUE = {"odds_sport": "basketball_nba", "name": "NBA"}
 _config_bball.PREDICT = {"LEAGUE_PACE": 98.5, "AVG_PPG": 112.0, "HOME_SCORE_ADV": 2.5, "ELO_TO_POINTS": 0.06, "SPREAD_CONFIDENCE": 0.65, "TOTAL_CONFIDENCE": 0.6}
-_config_bball.DATA_DIR = Path("unused")
+_config_bball.DATA_DIR = _UNUSED
 _config_bball.TEAM_CN_ALIASES = {}
 sys.modules.setdefault("bball.config_bball", _config_bball)
 
 
 @pytest.fixture
 def bball_elo_mod(tmp_path, monkeypatch):
-    """加载 elo_bball + 把 ELO_FILE 重定向到 tmp 隔离真实目录。"""
+    """加载 elo_bball + 把 ELO_FILE / TEAMS_SEED_FILE / DATA_DIR 重定向到 tmp 隔离真实目录。
+
+    ⚠️ **DATA_DIR 也必须重定向**：本文件用 ``sys.modules.setdefault`` 把假模块
+    装进了**全局** sys.modules ⇒ 漏掉任何一个属性，**后续别的测试**就会把它
+    写到仓库根（实测：`unused` 文件被改 ⇒ 哨兵 FAIL）。
+    """
     elo_file = tmp_path / "nba_elo.json"
     seed_file = tmp_path / "teams_seed.json"
     monkeypatch.setattr(_config_bball, "ELO_FILE", elo_file)
     monkeypatch.setattr(_config_bball, "TEAMS_SEED_FILE", seed_file)
+    monkeypatch.setattr(_config_bball, "DATA_DIR", tmp_path / "data")
     spec = importlib.util.spec_from_file_location(
         "bball.elo_bball",
         REPO_ROOT / "scripts" / "bball" / "elo_bball.py")

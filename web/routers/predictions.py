@@ -8,6 +8,10 @@
 - GET /api/v1/history               每联赛历史预测文件清单
 
 响应 key 冻结为前端契约（M4 消费）。只读、不触发引擎子进程。
+
+⚠️ **P2（2026-10-23）**：``/accuracy`` 与 ``/accuracy/breakdown`` **新增** ``overall`` 键
+（全部联赛的聚合命中率：范围 / 窗口 / 样本量全部显式，见 ``_aggregate_accuracy``）。
+既有键一个没删、没改语义。
 """
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ import sys
 import time
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
@@ -248,6 +253,89 @@ _ACC_CACHE: dict = {}
 _ACC_TTL_OK = 600  # 秒：成功结果缓存 10 分钟，避免每次请求重扫预测文件
 _ACC_TTL_FAIL = 30  # 秒：失败结果仅短缓存 30 秒，store 恢复后尽快追上
 
+# 命中率窗口：**最近 N 个自然日**（不是「最近 N 场」）。
+# 口径纪律（P2，2026-10-23）：窗口名必须能被调用方读到 ⇒ 聚合结果里带 window / window_days。
+_ACC_WINDOWS: tuple[tuple[str, int], ...] = (("7d", 7), ("30d", 30))
+_ACC_METRICS = ("direction_accuracy", "score_accuracy", "over_under_accuracy")
+
+
+def _acc_sample_n(window: dict[str, Any]) -> int:
+    """窗口的样本量（已结算场次）：``reconciled`` 优先，其次 ``sample_count``。"""
+    for key in ("reconciled", "sample_count"):
+        v = window.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        return int(v)
+    return 0
+
+
+def _aggregate_accuracy(leagues: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """**全部联赛**的聚合命中率（唯一头条口径）。
+
+    ⚠️ **P2（2026-10-23）**：页面 KPI「近 7 日命中率」原先是
+    「取**第一个联赛**的 7d 值，7d 缺失时**回落 30d**」⇒ 联赛范围（一个 vs 全部）、
+    窗口（7 日 vs 7 场）、数值来源（7d vs 30d）三方全不一致，页面在自说自话。
+    ⇒ 现在后端给出**唯一**口径，调用方直接读它：
+      · ``scope``  = ``all_leagues``（全部联赛，不是某一个联赛）
+      · ``window`` = **实际使用的窗口**（"7d" / "30d"）
+      · ``n``      = 参与聚合的已结算样本数（场次）
+      · 命中率      = 按各联赛样本数 n **加权平均**（不是简单平均）
+    7d 全无样本时改用 30d，但**必须**显式标出：``fallback=True`` + ``window="30d"``
+    （不许静默回落）。
+    """
+    per_window: dict[str, dict[str, Any]] = {}
+    for wname, wdays in _ACC_WINDOWS:
+        n_total = 0
+        names: list[str] = []
+        acc_sum = {m: 0.0 for m in _ACC_METRICS}
+        acc_cnt = {m: 0 for m in _ACC_METRICS}
+        for league, payload in (leagues or {}).items():
+            win = payload.get(wname) if isinstance(payload, dict) else None
+            if not isinstance(win, dict):
+                continue
+            n = _acc_sample_n(win)
+            if n <= 0:
+                continue
+            names.append(league)
+            n_total += n
+            for metric in _ACC_METRICS:
+                v = win.get(metric)
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    continue
+                acc_sum[metric] += float(v) * n
+                acc_cnt[metric] += 1
+        per_window[wname] = {
+            "window": wname,
+            "window_days": wdays,
+            "n": n_total,
+            "n_leagues": len(names),
+            "leagues": sorted(names),
+            **{m: (round(acc_sum[m] / n_total, 4) if acc_cnt[m] and n_total else None)
+               for m in _ACC_METRICS},
+        }
+
+    headline = None
+    for wname, _wdays in _ACC_WINDOWS:
+        if per_window[wname]["n"] > 0:
+            headline = per_window[wname]
+            break
+    fallback = bool(headline) and headline["window"] != _ACC_WINDOWS[0][0]
+    out: dict[str, Any] = {
+        "scope": "all_leagues",
+        "window": headline["window"] if headline else None,
+        "window_days": headline["window_days"] if headline else None,
+        "fallback": fallback,
+        "n": headline["n"] if headline else 0,
+        "n_leagues": headline["n_leagues"] if headline else 0,
+        "leagues": headline["leagues"] if headline else [],
+        "windows": per_window,
+        "note": ("口径：全部联赛按已结算样本数 n 加权平均；窗口 = 最近 N 个自然日"
+                 "（**不是**最近 N 场）。7d 无样本时改用 30d 并标 fallback=true（不静默回落）。"),
+    }
+    for metric in _ACC_METRICS:
+        out[metric] = headline[metric] if headline else None
+    return out
+
 
 def _live_accuracy(league: str) -> dict | None:
     """存量 accuracy_summary 缺失时，实时对账已结算赛果得真实命中率。
@@ -288,6 +376,10 @@ def accuracy(request: Request,
     存量 ``accuracy_summary`` 缺失（如生成当刻尚无结算样本）时，回退为实时对账
     （core.backtest.league_accuracy，结算赛果→方向命中率），保证"如实展示真实数据"。
     ``pending``：每联赛「已预测但尚未完赛」的场次（稳定键去重）。
+
+    ⚠️ **P2（2026-10-23）新增键 ``overall``**：全部联赛的聚合命中率（唯一头条口径：
+    范围=全部联赛、窗口=``window``、样本量=``n``；7d 无样本改用 30d 时 ``fallback=true``）。
+    页面 KPI「近 7 日命中率」应读它，**不要**再取「第一个联赛的值 + 缺失就回落 30d」。
     """
     out: dict = {}
     for league, doc in store.latest_by_league().items():
@@ -302,7 +394,8 @@ def accuracy(request: Request,
             "data_window": data.get("data_window"),
             **{k: v for k, v in acc.items() if isinstance(v, dict)},
         }
-    return {"leagues": out, "pending": store.pending_predictions_by_league()}
+    return {"leagues": out, "pending": store.pending_predictions_by_league(),
+            "overall": _aggregate_accuracy(out)}
 
 
 @router.get("/accuracy/breakdown")
@@ -313,6 +406,9 @@ def accuracy_breakdown(request: Request,
     This additive view deliberately projects only the metric fields currently
     emitted in ``accuracy_summary``.  It does not calculate estimates or add a
     sample count unless the producer explicitly supplied ``sample_count``.
+
+    ⚠️ **P2（2026-10-23）新增键 ``overall``**：与 ``/accuracy`` 同一份聚合口径
+    （范围/窗口/样本量全部显式，见 :func:`_aggregate_accuracy`）。
     """
     metric_keys = (
         "direction_accuracy", "score_accuracy", "over_under_accuracy",
@@ -337,7 +433,7 @@ def accuracy_breakdown(request: Request,
                 "data_window": data.get("data_window"),
                 **windows,
             }
-    return {"leagues": out}
+    return {"leagues": out, "overall": _aggregate_accuracy(out)}
 
 
 @router.get("/accuracy/stratified")
@@ -377,10 +473,12 @@ def clv_daily(request: Request,
     """
     from web.services import clv as clv_service
 
-    rows = clv_service.daily_rows(days=60)
+    st = clv_service.daily_rows_status(days=60)
+    rows = st["rows"]
     return {
         "rows": rows,
-        "summary": clv_service.summary(rows),
+        "summary": clv_service.summary(rows, degraded=st["degraded"]),
+        "degraded": st["degraded"],
         "sql_note": ("CLV = ln(p_model / p_close)；p_close = 竞彩官方 had 赔率在开球前最后一版"
                      "（fact.jc_odds_history 的 max(seq_no)）的比例去水；"
                      "p_model = 模型自己的 probs.h/d/a（**不是**顶层 *_true_prob —— "

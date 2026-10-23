@@ -78,20 +78,25 @@ def test_offer_freshness_accepts_custom_threshold(monkeypatch):
 
 def test_snapshot_includes_offer_freshness(monkeypatch):
     """snapshot() 必须带 offer_freshness（看板要显示新鲜度）。"""
-    monkeypatch.setattr(wsr, "today_picks", lambda day=None: [])
-    monkeypatch.setattr(wsr, "record", lambda min_n=5: {"n_settled": 0})
+    # P1（2026-10-23）：snapshot() 改用 today_picks_status()（带 degraded 标志）⇒
+    # 这里也要跟着换替身，否则会真的去连库。
+    monkeypatch.setattr(wsr, "today_picks_status",
+                        lambda day=None: {"picks": [], "degraded": False})
+    monkeypatch.setattr(wsr, "record", lambda min_n=5: {"n_settled": 0, "degraded": False})
     monkeypatch.setattr(wsr, "offer_freshness", lambda *a, **k: {"stale": False,
                                                                "age_hours": 0.5})
     out = wsr.snapshot()
     assert "offer_freshness" in out
     assert out["n_picks"] == 0
+    assert out["picks_degraded"] is False
     assert out["offer_freshness"]["age_hours"] == 0.5
 
 
 def test_snapshot_calendar_note_says_manual_not_timer(monkeypatch):
     """calendar_note 不得再说「09:30 timer 生成」（荐单根本不在那个管道里）。"""
-    monkeypatch.setattr(wsr, "today_picks", lambda day=None: [])
-    monkeypatch.setattr(wsr, "record", lambda min_n=5: {"n_settled": 0})
+    monkeypatch.setattr(wsr, "today_picks_status",
+                        lambda day=None: {"picks": [], "degraded": False})
+    monkeypatch.setattr(wsr, "record", lambda min_n=5: {"n_settled": 0, "degraded": False})
     monkeypatch.setattr(wsr, "offer_freshness", lambda *a, **k: {})
     note = wsr.snapshot()["calendar_note"]
     assert "09:30" not in note

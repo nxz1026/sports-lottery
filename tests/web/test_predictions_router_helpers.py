@@ -237,7 +237,7 @@ def test_run_metadata_handles_missing_predictions_field():
     assert out["generated_at"] == "y"
 
 
-def test_group_for_day_filters_by_window():
+def test_group_for_day_filters_by_window(monkeypatch):
     """R24 #1：covers_date 不通过的 doc → 该 doc 整组过滤；_league_names 之外的 league 被收口。"""
     from web.routers.predictions import _group_for_day, _league_names
     from web.services import store as ws
@@ -264,10 +264,16 @@ def test_group_for_day_filters_by_window():
     }
     monkey_target = date(2026, 10, 15)
     # covers_date(monkey_target): epl=10-10~10-20 包含 10-15 -> True; laliga 不含
-    ws.covers_date = lambda data, day: "20261010" in data.get("data_window", "")
-    ws.latest_by_league = lambda: {
+    # ⚠️ **P1（2026-10-23）**：必须用 `monkeypatch.setattr` —— 直接 `ws.covers_date = ...`
+    #    会让替身**在整个 pytest session 里一直生效**（不走 monkeypatch 就没有还原）⇒
+    #    后续所有用到 `store.covers_date` / `store.latest_by_league` 的用例测的都是这个
+    #    lambda、不是生产代码（**假阴性源**）；默认字母序下受害者先跑 ⇒ 污染完全隐形，
+    #    换成逆序/乱序就冒出 **15 个 order-dependent 失败**。
+    monkeypatch.setattr(ws, "covers_date",
+                        lambda data, day: "20261010" in data.get("data_window", ""))
+    monkeypatch.setattr(ws, "latest_by_league", lambda: {
         "epl": epl_doc, "laliga": laliga_doc, "extra_league": extra_doc,
-    }
+    })
 
     out = _group_for_day(monkey_target)
     # epl 命中 window -> 2 场；laliga 不命中 -> 空

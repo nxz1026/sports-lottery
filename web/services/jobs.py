@@ -17,7 +17,9 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
+import traceback
 import uuid
 from contextlib import contextmanager
 from datetime import datetime
@@ -36,6 +38,53 @@ STATUS_TIMEOUT = "timeout"
 TERMINAL = frozenset({STATUS_DONE, STATUS_FAILED, STATUS_TIMEOUT})
 
 logger = logging.getLogger("web.jobs")
+
+
+# --- 进程内锁登记表 --------------------------------------------------------
+#
+# ⚠️ **P1-H2（2026-10-23）**：`_drop_stale_lock` 原来对「同进程（pid == self）」
+# 用「持锁 age ≥ 5s ⇒ 判废」的粗暴规则来清理「线程崩死留下的残留锁」。
+# 但这个假设是**错的**：同进程里**另一个线程**完全可能合法地持有同名锁
+# （例：`_spin_state` 的 state.lock 被 web 请求线程持有超过 5s）。
+# ⇒ 实测（`_probe_lock2.py`）：持锁线程**仍存活**时，锁文件被偷删 ⇒
+#   **第三个写者 0.01s 内就进入了临界区** ⇒ 互斥彻底失效 ⇒ 并发写互相污染
+#   ``jobs/<id>.json`` —— 正是 P1-H1（tmp 名冲突）要消灭的那类 bug 换了个马甲。
+# ⇒ 修法：进程内维护「本进程哪些锁正被哪些线程持有」的登记表；
+#   `_drop_stale_lock` 判定 stale 前**必须**先问这张表：
+#   **登记在册 ⇒ 绝不能删**（活人持锁）；不在册 ⇒ 才是真正的残留，按原规则清理。
+_HELD_LOCKS: dict[str, set[int]] = {}
+_HELD_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_key(lock_path: Path) -> str:
+    """锁文件身份 key（绝对路径 + 大小写归一，跨平台同一把锁同 key）。"""
+    return os.path.normcase(os.path.abspath(str(lock_path)))
+
+
+def _lock_held_in_process(lock_path: Path) -> bool:
+    """本进程是否有活线程正持有这把锁（登记表口径）。"""
+    key = _lock_key(lock_path)
+    with _HELD_LOCKS_GUARD:
+        return bool(_HELD_LOCKS.get(key))
+
+
+def _register_lock(lock_path: Path) -> None:
+    """登记「本线程持有此锁」。"""
+    key = _lock_key(lock_path)
+    with _HELD_LOCKS_GUARD:
+        _HELD_LOCKS.setdefault(key, set()).add(threading.get_ident())
+
+
+def _unregister_lock(lock_path: Path) -> None:
+    """注销「本线程持有此锁」（引用计数式：同线程嵌套持锁不会误删登记）。"""
+    key = _lock_key(lock_path)
+    with _HELD_LOCKS_GUARD:
+        holders = _HELD_LOCKS.get(key)
+        if holders is None:
+            return
+        holders.discard(threading.get_ident())
+        if not holders:
+            _HELD_LOCKS.pop(key, None)
 
 
 # --- 路径/工具 ------------------------------------------------------------
@@ -120,11 +169,16 @@ def quota_consume() -> bool:
 
 @contextmanager
 def _exclusive_lock(lock_path: Path, timeout: float = 10.0):
-    """跨进程排他锁（O_CREAT|O_EXCL + stale 检测）；同进程可重入由调用方保证。
+    """跨进程排他锁（O_CREAT|O_EXCL + stale 检测）；同进程可重入**不支持**（会超时）。
 
     Windows 注意事项：``os.unlink`` 偶发 WinError 32（"另一个进程正在使用此文件"），
     实测是文件系统把刚 ``os.close`` 的 fd 还没完全释放。直接吞掉会导致锁文件
     残留，下个 acquire 全卡死。这里用短退避重试（最多 ~200ms）。
+
+    ⚠️ **P1-H2（2026-10-23）**：拿到锁后**必须登记进进程内登记表**
+    （``_register_lock``），释放时注销（``_unregister_lock``）。
+    否则 ``_drop_stale_lock`` 会把「同进程另一个线程合法持有的锁」当成残留删掉
+    ⇒ 互斥静默失效 ⇒ 并发写互相污染状态文件。
     """
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + timeout
@@ -142,9 +196,11 @@ def _exclusive_lock(lock_path: Path, timeout: float = 10.0):
             if time.monotonic() >= deadline:
                 raise LockTimeout(f"lock busy: {lock_path}")
             time.sleep(0.05)
+    _register_lock(lock_path)
     try:
         yield
     finally:
+        _unregister_lock(lock_path)
         # 鲁棒 unlink：Windows 上偶发 WinError 32，10ms→20ms→40ms 三次重试即可。
         for delay in (0.01, 0.02, 0.04):
             try:
@@ -199,10 +255,21 @@ def _pid_alive(pid: int) -> bool:
 def _drop_stale_lock(lock_path: Path) -> None:
     """锁文件持 PID 超过 10 分钟视为 stale（进程被杀残留），删除。
 
+    ⚠️ **P1-H2（2026-10-23）**：**本进程活线程持有的锁一律不删**。
+    原实现对同进程（pid == self）用「age ≥ 5s ⇒ 强删」的粗暴规则，想清的是
+    「线程崩死没人 unlink」的残留；实际会**连同别的线程正在合法持有的锁一起删**。
+    实测：持锁线程仍存活时锁文件被删 ⇒ 第三个写者立刻进入临界区 ⇒ 互斥失效。
+    ⇒ 现在先查进程内登记表（``_lock_held_in_process``）：**在册 ⇒ 立即 return**
+    （活人持锁，绝不碰）；不在册 ⇒ 才按下面的规则当残留清理。
+
     注意：Windows 的 ``os.kill(pid, 0)`` 在 pid 是当前进程时会无限阻塞
-    （实测 PID 自身调用直接挂住），所以**同进程持有的锁**走短超时判废
-    路径（同进程其他线程不会持有同名锁文件 → 短超时 = 已失效）。
+    （实测 PID 自身调用直接挂住），所以**同进程 pid == self** 分支
+    改用"短 mtime 阈值即视为残留"兜底：
+    锁的实际持锁时间以 ms 计，>5s 还在持且**不在登记表**⇒ 必为线程崩死或 unlink 失败残留。
     """
+    # P1-H2：活线程持有的锁（登记在册）绝不能当 stale 删。
+    if _lock_held_in_process(lock_path):
+        return
     try:
         pid = int(lock_path.read_text(encoding="utf-8").strip() or "0")
     except (OSError, ValueError):
@@ -210,8 +277,8 @@ def _drop_stale_lock(lock_path: Path) -> None:
     if pid <= 0:
         return
     # 跨进程锁才有意义去查 PID liveness；同进程 pid == self，Windows 上
-    # os.kill(self, 0) 会挂死。改用"短 mtime 阈值即视为 stale"兜底：
-    # 锁的实际持锁时间以 ms 计，>5s 还在持必为线程崩溃或 unlink 失败残留。
+    # os.kill(self, 0) 会挂死。改用"短 mtime 阈值即视为残留"兜底：
+    # 锁的实际持锁时间以 ms 计，>5s 还在持必为线程崩死或 unlink 失败残留。
     if pid == os.getpid():
         try:
             age = time.time() - lock_path.stat().st_mtime
@@ -219,8 +286,8 @@ def _drop_stale_lock(lock_path: Path) -> None:
             return
         if age < 5.0:
             return
-        # 同进程 mtime > 5s 强制删：覆盖 _exclusive_lock finally 里 unlink
-        # 偶发 WinError 32 残留的场景 + 线程崩死没人 unlink 的场景。
+        # 同进程 mtime > 5s 且**不在登记表** ⇒ 强制删：覆盖 _exclusive_lock
+        # finally 里 unlink 偶发 WinError 32 残留的场景 + 线程崩死没人 unlink 的场景。
         try:
             lock_path.unlink()
         except OSError:
@@ -263,11 +330,46 @@ def _read_job(jid: str) -> dict | None:
 
 
 def _write_job(jid: str, data: dict) -> None:
+    """原子写任务状态文件（**并发安全** + Windows 瞬时锁重试）。
+
+    ⚠️ **P1（2026-10-23）**：原实现用**固定** tmp 名（``<jid>.tmp``）+ **单次**
+    ``os.replace``，有两个真实缺陷：
+
+    ① **同 jid 的并发写者共用同一个 tmp** ⇒ A 写完、B 截断、A replace 成功
+       （带着 B 的半截内容）⇒ **状态文件内容被污染**；B 再 replace 时文件已不存在
+       ⇒ 抛 FileNotFoundError。⇒ 现在**每次写用唯一 tmp 名**（pid + 线程 id + uuid）
+       ⇒ 并发写互不干扰。
+    ② Windows 上 ``os.replace`` 在**目标文件正被读**（另一个线程刚读完 / 杀毒软件
+       扫描）时会瞬时抛 ``PermissionError: [WinError 5] 拒绝访问`` ⇒ 整条状态迁移
+       炸掉。**实测**：全量 pytest 里 ``test_job_poll_to_terminal`` 与 ai_enrich 两个
+       用例随机 flake，根因就是它；更糟的是 ``run_job`` 的异常当时被 Future
+       **静默吞掉** ⇒ 任务永远停在 queued ⇒ 用户看到一个「永远在排队」的任务。
+       ⇒ 现在 ``os.replace`` 遇 PermissionError **短退避重试**（与 ``_read_job`` 同款，
+       但退避更长：replace 的争用比 open 更频繁）。
+    """
     config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = _job_file(jid).with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False)
-    os.replace(tmp, _job_file(jid))
+    dst = _job_file(jid)
+    tmp = dst.with_name(f"{dst.name}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False)
+        last_exc: Exception | None = None
+        for delay in (0.0, 0.02, 0.05, 0.1, 0.2, 0.3):
+            try:
+                os.replace(tmp, dst)
+                return
+            except PermissionError as exc:
+                # 目标文件正被读（Windows 瞬时锁）⇒ 退避重试，不当致命错误。
+                last_exc = exc
+                if delay:
+                    time.sleep(delay)
+        raise last_exc  # type: ignore[misc]
+    finally:
+        # replace 失败时别把碎片留在 jobs 目录里。
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _default_job(jid: str) -> dict:
@@ -503,9 +605,47 @@ if not _atexit_registered:
     _atexit_registered = True
 
 
+def _on_job_done(jid: str, fut) -> None:
+    """``run_job`` 抛异常时的兜底（P1，2026-10-23）。
+
+    事故：``executor.submit(run_job, jid)`` **丢掉了 Future** ⇒ ``run_job`` 抛出的
+    任何异常都被 Future **静默吞掉**（没人调 ``result()``）⇒
+      · 任务**永远停在 queued**（页面显示「排队中」直到天荒地旧）；
+      · **没有任何日志**（既不在 stderr，也不在 events.web.jsonl）；
+      · 用户看到的是一个「永远在排队」的任务，无从判断是排队还是死了。
+    ⇒ 现在挂 done_callback：异常 ⇒ 落事件日志 + 把任务标成 failed（带原因）。
+    """
+    try:
+        exc = fut.exception()
+    except Exception:  # noqa: BLE001 — CancelledError 等
+        return
+    if exc is None:
+        return
+    try:
+        from core import observability
+        observability.log_error(exc, context="jobs.run_job_uncaught", jid=jid)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        logger.error("job %s crashed (任务标成 failed): %s", jid,
+                     "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        _spin_state(jid, STATUS_FAILED, finished_at=_now_epoch(), exit_code=-1,
+                    error=f"job crashed: {exc}"[:300])
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def submit_job(jid: str) -> None:
-    """向线程池投递任务执行（调用方不等待结果）。"""
-    executor.submit(run_job, jid)
+    """向线程池投递任务执行（调用方不等待结果）。
+
+    ⚠️ 必须保留 Future 并挂 done_callback —— 否则 run_job 的异常被静默吞掉
+    （见 :func:`_on_job_done` 的事故复盘）。
+    """
+    fut = executor.submit(run_job, jid)
+    fut.add_done_callback(lambda f: _on_job_done(jid, f))
 
 
 def mark_failed(jid: str, error: str) -> None:

@@ -40,15 +40,30 @@ python tools/check_docs_claims.py            # 文档声明校验（README/AGENT
 - **注释与 docstring 用中文**是项目惯例（生产环境 Oracle `LANG=zh_CN.UTF-8`，UTF-8 全程正常）——不要为"编码安全"把中文日志改英文
 - 日志用 `core.log.logger`（`logger.info/warning/error`），结构化事件用 `core.observability.log_event/log_error`
 - 改动前跑 `ruff check .`（**当前全绿**，新增 F/W/I 问题会挡住提交）；提交前跑全量 pytest
+- **「模型概率」只有一个真源**：`scripts/core/model_probs.py`（`resolve_model_probs` / `resolve_prob`）。
+  任何地方要读模型概率都调它 —— **不许**读 `ml_proba`（ML 分类器原始输出，未与规则模型融合）、
+  **不许**读 `*_true_prob`（ESPN 去水市场先验，不是模型输出）。取不到就返回 `None`（=「不知道」），不许当 0 用。详见路线图 §6.14。
+- **「评分」不许冒充「概率」**：`confidence_score` 是把握度评分（`(p−0.25)×2`），
+  页面上「赢面」一律取模型概率对应方向那一项；把握度必须另标。
+- **跨市场定价必须标来源**：ESPN 赔率与竞彩官方 SP 算出来的 EV 本来就不同，不标来源会被看成自相矛盾。
+- **「读失败」不许印成「业务事实」**：DB/上游读失败要显式带 `degraded` 标志，页面印「⚠️ 读取失败」，
+  **不许**印成「暂无数据 / 已结算 0 注 / 24 小时无异动 / 你还没跑脚本」。照抄仓库现成范式
+  `recommend.offer_freshness()` 的 `degraded` 标志，不新造模式。
 
 ## Testing instructions
 
-- 单测：`python -m pytest tests -q`（当前基线 **2839 collected / 2764 passed / 75 skipped / 0 failed**）
+- 单测：`python -m pytest tests -q`（当前基线 **2935 collected / 2860 passed / 75 skipped / 0 failed**）
 - **脚本需 `PYTHONPATH=scripts`**（或 `sys.path` 注入），否则裸 `import core.*` 失败；
   `pytest` 本身不需要 —— 各测试文件自行注入 `sys.path`
 - 新增行为必须补测；沿用现有命名 `tests/test_<module>.py`
 - `tests/web_ui/` 浏览器级测试缺 playwright 时自动 skip（marker `web_ui`）
 - 所有测试必须在开 PR 前通过
+- ⚠️ **测试绝不允许写生产仓库的文件**（`tests/conftest.py` 的 autouse `isolate_production_writes` 会守门并 FAIL）：
+  - 观测日志由 `LEAGUE_LOGS_DIR` 隔离；**自带 env 的子进程**由 `core.observability._default_logs_dir()` 里的
+    `PYTEST_CURRENT_TEST` 兜底 ⇒ 生产 `scripts/logs/` 零写入
+  - 占位路径必须是**绝对**路径（`Path("unused")` 这种相对路径落点 = CWD = **仓库根** ⇒ 凭空多出文件）
+  - 真库端到端用例**不许 `commit()`**（fixture 的 rollback 会失效 ⇒ 往生产 fact 表塞垃圾行）
+  - 共享生产模块的函数用 `monkeypatch.setattr` 替换（直接赋值 = 替身在**整个 session** 生效 ⇒ 后续用例测的是 lambda）
 
 ## PR & commit conventions
 

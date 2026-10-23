@@ -46,7 +46,7 @@ _TOPICS_SQL = """select topic,
 
 _QUOTA_SQL = """select source, used, cap, cap - used as remaining
    from ops.quota_ledger
-  where day = current_date
+  where day = (now() AT TIME ZONE 'Asia/Shanghai')::date
   order by source"""
 
 _REJECTS_SQL = """select topic,

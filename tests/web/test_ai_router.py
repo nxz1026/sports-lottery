@@ -135,7 +135,13 @@ def test_analyze_invalid_date_returns_available_false(client):
 
 
 def test_analyze_file_not_exists_returns_available_false(client, tmp_path):
-    """日期合法但文件不存在 → available=False + no analysis note。"""
+    """日期合法但文件不存在 → available=False + **中文**用户态 note（P2-A7）。
+
+    ⚠️ 2026-10-23 契约订正：原断言是 ``"no analysis" in body["note"]``（英文文案）。
+    P2-A7 已把后端 note 改成中文用户态说明（英文看不懂 + 原文案把内部接口路径
+    ``POST /api/v1/jobs/ai-analyze`` 甩给终端用户）⇒ 这里改成断言**新契约**：
+    ① 中文说明；② 有 ``reason="not_generated"``；③ note 里**不许**出现内部接口路径。
+    """
 
     import web.services.ai_analyze as aa_mod
     with patch.object(aa_mod, "_output_path", return_value=tmp_path / "missing.json"):
@@ -144,11 +150,21 @@ def test_analyze_file_not_exists_returns_available_false(client, tmp_path):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["available"] is False
-    assert "no analysis" in body["note"]
+    assert body["reason"] == "not_generated"
+    note = body["note"]
+    assert "尚未生成" in note
+    # 不许把内部 API 路径甩给终端用户
+    assert "/api/" not in note
+    assert "no analysis" not in note
 
 
 def test_analyze_read_failure_returns_available_false(client, tmp_path):
-    """JSON 解析失败 → available=False + read_failed note。"""
+    """JSON 解析失败 → available=False + **中文** note + reason=read_failed。
+
+    ⚠️ 2026-10-23 契约订正：原文案是 ``f"read_failed: {e}"`` ⇒ 英文 + **可能带服务器
+    绝对路径**（PermissionError / IsADirectoryError 的 str() 含完整路径）。
+    ⇒ 现在 note 是中文用户态说明，异常细节只进服务端日志；``reason`` 承载机器可读原因。
+    """
     bad = tmp_path / "bad.json"
     bad.write_text("{not json", encoding="utf-8")
     import web.services.ai_analyze as aa_mod
@@ -158,7 +174,12 @@ def test_analyze_read_failure_returns_available_false(client, tmp_path):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["available"] is False
-    assert "read_failed" in body["note"]
+    assert body["reason"] == "read_failed"
+    note = body["note"]
+    assert "读取失败" in note
+    # 绝对路径不许出现在用户可见文案里
+    assert str(tmp_path) not in note
+    assert "/" not in note
 
 
 def test_analyze_valid_json_returns_full_response(client, tmp_path):

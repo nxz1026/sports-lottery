@@ -9,6 +9,7 @@
 - GET /api/jc/daily-news    LLM 资讯（网关 ``web.services.news``，契约 §5 唯一例外）
 - GET /api/jc/gap           SP 隐含概率 vs 模型错位榜（top 1..30）
 - GET /api/jc/movement      两时点盘口快照链（开盘 vs 临场）
+- GET /api/jc/ops/ingest-caliber  ops.ingest_log 口径视图（P2-C：读入/落库/未落库/拒行 + 隔离台账）
 
 每端点固定返回 {"rows": [...], "sql_note": ..., "degraded": False}：
 口径"该不该有数据"归页面/DASH2 判定，本层不发明健康判定（degraded 恒 False）。
@@ -51,6 +52,157 @@ _NOTES = {
     "backtest": "多分类 Brier：先按 (场,玩法) 加总各选项平方误差，再对场取平均；acc=argmax 命中率；与已发布基线同式",
     "lottery": "各彩种最近 N 期，按 (彩种, 期号降序)；号码串原样返回（numbers_raw），解析层不重排不去重",
 }
+
+# ── P2-C（2026-10-23）ops.ingest_log 口径视图 ─────────────────────────────
+#
+# ⚠️ **为什么要新开这个端点**：``ops.ingest_log`` 的 ``rows_in`` / ``rows_ups``
+#   原来**没人说得清是什么口径**（同一个列在两条装载链上含义还不同），
+#   而 ops 面板只能看到「拒行数」，看不到「读入 / 落库 / 未落库」三者的关系。
+#
+#   · ``rows_in``  = **读入行数**（读到并进入装载流程的信封行数；空行不计）
+#   · ``rows_ups`` = **落库行数**（upsert 实际写入的行数）
+#                     ⚠️ jc 装载链 = **新增 + 更新**；collector_pull（stg 链）= **只有新增**
+#                        （``ON CONFLICT DO NOTHING`` 的 rowcount）⇒ 两条链**分开解读**。
+#   · ``rows_skipped`` = **未落库行数** = rows_in - rows_ups - rows_rejected
+#                        （**不是**拒行数！里面是「幂等跳过」+「设计跳过」）
+#   · ``rows_rejected`` = **拒行数**（rejected 数组长度）
+#
+#   分类（与 scripts/ingest/jc_topic.py 的分支一一对应）：
+#   · ``_IN_SCOPE_TOPICS``   ⇒ 未落库 = **幂等跳过**（冲突未改）
+#   · 其它 topic             ⇒ 未落库 = **设计跳过**（不在装载范围，如 jclq_offer）
+#   · ``_EXPANDED_TOPICS``   ⇒ **展开口径**（一个信封可展开成 N 行）⇒ 不许相减，标 n/a
+_IN_SCOPE_TOPICS = frozenset({"jczq_offer", "jczq_result", "jc_issue", "jc_issue_result",
+                              "lottery_draw", "jclq_result"})
+_EXPANDED_TOPICS = frozenset({"jc_odds_history"})
+# 「文件级失败」的原因清单（= 被隔离 / 读不出来 / 内容损坏 / 清单缺文件）
+_QUARANTINE_REASONS = ("quarantined", "bad-filename", "bad-json",
+                       "permission-denied", "manifest-file-missing")
+
+_CALIBER_SQL = """
+select topic,
+       count(*)                                   as n_files,
+       coalesce(sum(rows_in), 0)                 as rows_in,
+       coalesce(sum(rows_ups), 0)                as rows_ups,
+       coalesce(sum(case when rejected is not null
+                        then jsonb_array_length(rejected) else 0 end), 0) as rows_rejected,
+       count(*) filter (where ok)                as n_ok,
+       count(*) filter (where not ok)            as n_failed,
+       max(at)                                   as latest_at
+  from ops.ingest_log
+ where at > now() - (%s || ' days')::interval
+ group by topic
+ order by n_files desc
+"""
+
+_QUARANTINE_SQL = """
+select coalesce(rejected->0->>'reason', 'unknown') as reason,
+       count(*) as n
+  from ops.ingest_log
+ where at > now() - (%s || ' days')::interval
+   and ok = false
+   and rejected is not null
+   and coalesce(rejected->0->>'reason', '') = any(%s)
+ group by 1
+ order by n desc
+"""
+
+_CALIBER_NOTE = (
+    "rows_in=读入行数（读到并进入装载流程的信封行）；rows_ups=落库行数"
+    "（jc 链=新增+更新，collector_pull 链=只有新增 ⇒ 两条链分开解读）；"
+    "rows_skipped=未落库行数=rows_in-rows_ups-rows_rejected（幂等跳过+设计跳过，不是拒行数）；"
+    "rows_rejected=拒行数。⚠️ jc_odds_history 是展开口径（一个信封可展开成 N 行）"
+    "⇒ 该 topic 的未落库数不可用相减计算。"
+)
+
+
+def _skipped_kind(topic: str) -> str:
+    """未落库行数的口径分类：幂等跳过 / 设计跳过 / 不可比（展开口径）。"""
+    if topic in _EXPANDED_TOPICS:
+        return "n/a"
+    if topic in _IN_SCOPE_TOPICS:
+        return "idempotent"
+    return "by-design"
+
+
+@router.get("/ops/ingest-caliber")
+def ops_ingest_caliber(days: int = 7, _: None = Depends(require_auth)) -> dict:
+    """``ops.ingest_log`` 的**口径视图**：读入 / 落库 / 未落库 / 拒行 + 隔离台账。
+
+    ⚠️ **P2-C（2026-10-23）**：
+      ① ``rows_in``/``rows_ups`` 的口径原来没人说得清 ⇒ 这里把三种量**分开摆出来**
+         （``rows_skipped`` 区分「幂等跳过」与「设计跳过」）；
+      ② 「被隔离的文件」原来**台账零痕迹**（只在隔离区里看得见）⇒ 这里给出
+         ``quarantine``（按原因分组）⇒ 面板/接口上能查到「隔离了多少、为什么」。
+
+    Query：
+      - days : 统计窗口（默认 7 天，与 ops.ingest_log 的保留窗口一致）。
+
+    Response schema：
+      - 200 : ``{window_days, rows[], totals, quarantine[], n_quarantined,
+                caliber, degraded, note}``；
+              DB 不可达 → 同样 200 + ``degraded=True`` + 空表（**不编数**、不 5xx）。
+    """
+    from store import pg
+
+    try:
+        win = max(1, min(int(days), 90))
+        with pg.read_conn("ro") as conn:
+            raw = conn.execute(_CALIBER_SQL, (win,)).fetchall()
+            quar = conn.execute(_QUARANTINE_SQL, (win, list(_QUARANTINE_REASONS))).fetchall()
+    except Exception as exc:  # noqa: BLE001 - 读失败降级为空，不 5xx
+        logger.warning("jc: ops.ingest-caliber 读失败（降级为空）: %s", exc)
+        return {"window_days": days, "rows": [], "totals": {}, "quarantine": [],
+                "n_quarantined": 0, "caliber": {"rows_in": "读入行数", "rows_ups": "落库行数",
+                                                "rows_skipped": "未落库行数（幂等跳过+设计跳过）",
+                                                "rows_rejected": "拒行数"},
+                "degraded": True, "note": "读失败（已降级为空表，不编数）"}
+
+    rows: list[dict] = []
+    totals = {"n_files": 0, "rows_in": 0, "rows_ups": 0, "rows_rejected": 0,
+              "rows_skipped": 0}
+    for r in raw:
+        topic = r[0]
+        rows_in = int(r[2] or 0)
+        rows_ups = int(r[3] or 0)
+        rows_rejected = int(r[4] or 0)
+        kind = _skipped_kind(topic)
+        skipped = None if kind == "n/a" else max(0, rows_in - rows_ups - rows_rejected)
+        rows.append({
+            "topic": topic,
+            "n_files": int(r[1] or 0),
+            "rows_in": rows_in,
+            "rows_ups": rows_ups,
+            "rows_rejected": rows_rejected,
+            "rows_skipped": skipped,
+            "skipped_kind": kind,
+            "n_ok": int(r[5] or 0),
+            "n_failed": int(r[6] or 0),
+            "latest_at": str(r[7]) if r[7] is not None else None,
+        })
+        totals["n_files"] += int(r[1] or 0)
+        totals["rows_in"] += rows_in
+        totals["rows_ups"] += rows_ups
+        totals["rows_rejected"] += rows_rejected
+        totals["rows_skipped"] += skipped or 0
+
+    quarantine = [{"reason": q[0], "n": int(q[1] or 0)} for q in quar]
+    return {
+        "window_days": win,
+        "rows": rows,
+        "totals": totals,
+        "quarantine": quarantine,
+        "n_quarantined": sum(q["n"] for q in quarantine),
+        "caliber": {
+            "rows_in": "读入行数（读到并进入装载流程的信封行；空行不计）",
+            "rows_ups": "落库行数（jc 链=新增+更新；collector_pull 链=只有新增）",
+            "rows_skipped": "未落库行数=rows_in-rows_ups-rows_rejected（幂等跳过+设计跳过）",
+            "rows_rejected": "拒行数（rejected 数组长度）",
+            "skipped_kind": "idempotent=幂等跳过 / by-design=设计跳过 / n/a=展开口径不可比",
+        },
+        "degraded": False,
+        "note": _CALIBER_NOTE,
+    }
+
 
 
 def _envelope(kind: str, rows: list) -> dict:
@@ -234,11 +386,14 @@ def odds_move(hours: int = 24, limit: int = 50, _: None = Depends(require_auth))
     """
     from web.services import odds_move as odds_move_service
 
-    rows = odds_move_service.recent(hours=hours, limit=limit)
+    st = odds_move_service.recent_status(hours=hours, limit=limit)
+    rows = st["rows"]
     return {
         "sport": "football",
         "count": len(rows),
         "items": rows,
+        # P1（2026-10-23）：读失败与「这段时间没有异动」必须分开表达
+        "degraded": st["degraded"],
         "note": ("异动口径 = 相邻 ~10 分钟快照的跳变（不是开盘 vs 临场的首末差 —— "
                  "后者 ≥5% 命中 77%，是噪音）。"
                  "⚠️ 盘口异动是「信息」，不是下注理由。"),

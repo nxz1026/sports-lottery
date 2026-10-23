@@ -169,6 +169,181 @@ def top_level_imports(p: Path) -> set[str]:
     return mods
 
 
+def env_setdefaults(p: Path) -> set[tuple[str, str]]:
+    """返回 ``os.environ.setdefault("VAR", "VALUE")`` 的 (VAR, VALUE) 集合。
+
+    ⚠️ 为什么要专门写这个：`setdefault("LEAGUE_PROCESS_NAME", "web")` 的
+    两个参数是**两个独立的字符串常量** ⇒ 用 `code_strings()` 查
+    「有没有同时含 VAR 和 VALUE 的那个串」永远查不到 ⇒ 断言会**永远红**。
+    """
+    out: set[tuple[str, str]] = set()
+    tree = ast.parse(read(p))
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call) or not isinstance(n.func, ast.Attribute):
+            continue
+        if n.func.attr != "setdefault":
+            continue
+        target = n.func.value
+        if not (isinstance(target, ast.Attribute) and target.attr == "environ"):
+            continue
+        if len(n.args) >= 2 and all(isinstance(a, ast.Constant) and isinstance(a.value, str)
+                                    for a in n.args[:2]):
+            out.add((n.args[0].value, n.args[1].value))
+    return out
+
+
+def touches_sys_path(p: Path) -> bool:
+    """文件里是否碰过 ``sys.path``（属性访问，不是字符串常量）。"""
+    tree = ast.parse(read(p))
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Attribute) and n.attr == "path" \
+                and isinstance(n.value, ast.Name) and n.value.id == "sys":
+            return True
+    return False
+
+
+def sql_statements(sql_text: str) -> list[str]:
+    """按分号切 SQL 语句（调用方先把整行注释剥掉）。
+
+    ⚠️ 为什么需要：psql 脚本里**报告查询**与**真正的 DELETE** 常常含**同样的子串**
+    （例：``WHERE ok AND processed_at`` 两边都有）⇒ 只做「全文有没有这个串」的
+    判定 ⇒ 把 DELETE 里的 ``ok AND`` 删掉也照样绿（审计实测：13 个变异漏网之一）。
+    ⇒ 必须**定位到那一条语句**再判它自己的谓词。
+    """
+    return [s.strip() for s in sql_text.split(";") if s.strip()]
+
+
+def fn_calls(p: Path, name: str) -> set[str]:
+    """函数体里**调用**的函数名（点号全名，如 ``uuid.uuid4`` / ``os.replace``）。
+
+    ⚠️ 为什么需要：断言「_write_job 必须用唯一 tmp 名」时，要判定的是
+    **调用了** ``uuid.uuid4()``，而不是「文件里出现过 uuid 这个字样」
+    （docstring 里写一遍就假绿了 —— 审计实测的 13 个假阴性之一）。
+    """
+    fn = find_fn(p, name)
+    if fn is None:
+        return set()
+    out: set[str] = set()
+    for n in ast.walk(fn):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if isinstance(f, ast.Attribute):
+            parts: list[str] = []
+            cur: ast.AST = f
+            while isinstance(cur, ast.Attribute):
+                parts.append(cur.attr)
+                cur = cur.value
+            if isinstance(cur, ast.Name):
+                parts.append(cur.id)
+            out.add(".".join(reversed(parts)))
+        elif isinstance(f, ast.Name):
+            out.add(f.id)
+    return out
+
+
+def fn_handles(p: Path, name: str, exc_name: str) -> bool:
+    """函数体里是否有 ``except <exc_name>``（AST 判定，免疫注释/docstring）。"""
+    fn = find_fn(p, name)
+    if fn is None:
+        return False
+    for n in ast.walk(fn):
+        if isinstance(n, ast.ExceptHandler) and n.type is not None:
+            t = n.type
+            if isinstance(t, ast.Name) and t.id == exc_name:
+                return True
+            if isinstance(t, ast.Tuple) and any(
+                    isinstance(x, ast.Name) and x.id == exc_name for x in t.elts):
+                return True
+    return False
+
+
+def fn_names(p: Path, name: str) -> set[str]:
+    """函数体里引用到的**名字**（如 ``STATUS_FAILED`` / ``executor``）。"""
+    fn = find_fn(p, name)
+    if fn is None:
+        return set()
+    return {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+
+
+def js_fn(js_text: str, name: str) -> str:
+    """从 JS 源码里抠出某个函数的**函数体**（按花括号配平）。
+
+    ⚠️ 为什么需要：看板的「未登录分支」要判定的是**那段代码**，
+    而不是「整个文件里有没有出现过 location.href=LOGIN」
+    （后者会被别的函数/注释顶替 ⇒ 假绿）。
+    """
+    m = re.search(r"(?:async\s+)?function\s+" + re.escape(name) + r"\s*\(", js_text)
+    if not m:
+        return ""
+    start = js_text.find("{", m.end())
+    if start < 0:
+        return ""
+    depth = 0
+    for i in range(start, len(js_text)):
+        if js_text[i] == "{":
+            depth += 1
+        elif js_text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return js_text[start:i + 1]
+    return ""
+
+
+
+def js_code(html_text: str) -> str:
+    """抽出页面里**最后一个内联 <script>**，并**去掉注释**。
+
+    ⚠️ 为什么需要：看板的修复说明都写在 ``//`` 注释里 ⇒ 直接对 HTML 做
+    「有没有这个串」的判定 ⇒ **注释里写一遍就假绿**（审计实测：13 个假阴性之一）。
+    ⇒ 判定前必须把注释剥掉，只看**真正会执行**的代码。
+    """
+    blocks = re.findall(r"<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)</script>", html_text)
+    if not blocks:
+        return ""
+    code = blocks[-1]
+    code = re.sub(r"/\*[\s\S]*?\*/", " ", code)     # 块注释
+    code = re.sub(r"(?m)^\s*//.*$", " ", code)        # 整行行注释
+    return code
+
+
+
+def js_set_interval_ms(js_text: str) -> int | None:
+    """解析 ``setInterval(...)`` 的**周期实参**（毫秒）。
+
+    ⚠️ 为什么不能直接上正则 ``setInterval\\(...,\\s*(\\d+)\\)``：
+    回调体里**含分号**（``if(document.hidden)return;``）⇒ ``[^;]`` 量不过去
+    ⇒ 永远 MISSING（审计实测：这条断言写出来就是红的，**从来没绿过**）。
+    ⇒ 改成**按括号配平**抠出整个调用实参，再取最后一个逗号后的数字。
+    """
+    for m in re.finditer(r"setInterval\s*\(", js_text):
+        start = m.end() - 1
+        depth = 0
+        for i in range(start, len(js_text)):
+            ch = js_text[i]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    args = js_text[start + 1:i]
+                    cut = -1
+                    d2 = 0
+                    for k, c2 in enumerate(args):
+                        if c2 in "([{":
+                            d2 += 1
+                        elif c2 in ")]}":
+                            d2 -= 1
+                        elif c2 == "," and d2 == 0:
+                            cut = k
+                    tail = args[cut + 1:] if cut >= 0 else args
+                    mm = re.search(r"(\d+)\s*$", tail.strip())
+                    if mm:
+                        return int(mm.group(1))
+                    break
+    return None
+
+
 def main() -> int:
     readme = read(ROOT / "README.md")
     agents = read(ROOT / "AGENTS.md")
@@ -634,9 +809,17 @@ def main() -> int:
           "跨市场定价差" in roadmap_text)
     check("README 记录了建议 4 的 v4.0 段", True, "v4.0" in readme)
     # 今日口径：made_at 是 timestamptz，「今天」必须按 BJT 算（与 §7 第 12 条同款坑）
-    _rec_web = read(ROOT / "web" / "services" / "recommend.py")
-    check("推荐单「今天」按 BJT 判定（AT TIME ZONE 'Asia/Shanghai'）", True,
-          "AT TIME ZONE 'Asia/Shanghai'" in _rec_web)
+    _rec_web_path = ROOT / "web" / "services" / "recommend.py"
+    _rec_web = read(_rec_web_path)
+    # ⚠️ **P1（2026-10-23）**：这条断言原来查的是**整个文件**的子串
+    #    ⇒ `recommend.py` 的**模块 docstring 第 7 行逐字写着**这个串
+    #    ⇒ 把真 SQL 改成 `'UTC'`，docstring 仍然满足断言（审计实测：守门 359/359 全绿）。
+    # ⇒ 改成 **AST 判定**：只看**代码**里的字符串常量（docstring 被排除）。
+    _tz_sql = [s for s in code_strings(_rec_web_path) if "AT TIME ZONE" in s]
+    check("推荐单「今天」按 BJT 判定（SQL 常量里的时区 == Asia/Shanghai）", True,
+          bool(_tz_sql) and all("Asia/Shanghai" in s for s in _tz_sql))
+    check("推荐单的 SQL 常量里不许出现 UTC 口径（会话时区是 UTC ⇒ 会差一天）", [],
+          [s for s in _tz_sql if "UTC" in s])
     # web 层顶层不得 import scripts.*（新增的两个 web 模块）
     for _rel in ("web/services/recommend.py", "web/services/combo.py"):
         try:
@@ -1718,13 +1901,52 @@ def main() -> int:
           7, int(_m_keep.group(1)) if _m_keep else "MISSING")
     check("ops 台账（file_arrival/ingest_marker）默认窗口 = 37 天（> 落港 30 天）",
           37, int(_m_ledger.group(1)) if _m_ledger else "MISSING")
-    check("ops 保留策略只删 ok=true 的 marker（ok=false 是要重试的批次，删了=静默丢数据）",
-          True, "WHERE ok AND processed_at" in _ops_code)
+    # ⚠️ **P1（2026-10-23）**：cron **真正执行**的是 `docs/infra/jc-ops-retention.sh`，
+    #    它每次都用 `-v keep_days=… -v ledger_keep_days=…` **覆盖** SQL 里的 `\set`
+    #    ⇒ 守 SQL 默认值 = **守一个从不生效的值**（审计实测：把 cron 入口的
+    #    LEDGER_KEEP_DAYS 改成 7（< 落港 30）⇒ 守门照样全绿 ⇒ 孤儿重装复发）。
+    # ⇒ 现在**两个都查**，并断言两者**一致**。
+    _ops_sh_p = ROOT / "docs" / "infra" / "jc-ops-retention.sh"
+    check("cron 真正执行的 ops 保留入口在库（docs/infra/jc-ops-retention.sh）", True,
+          _ops_sh_p.is_file())
+    _ops_sh_txt = read(_ops_sh_p) if _ops_sh_p.is_file() else ""
+    _ops_sh_code = "\n".join(l for l in _ops_sh_txt.splitlines()
+                              if not l.strip().startswith("#"))
+    _m_sh_keep = re.search(r"JC_OPS_KEEP_DAYS:-(\d+)", _ops_sh_code)
+    _m_sh_ledger = re.search(r"JC_OPS_LEDGER_KEEP_DAYS:-(\d+)", _ops_sh_code)
+    _sh_keep = int(_m_sh_keep.group(1)) if _m_sh_keep else None
+    _sh_ledger = int(_m_sh_ledger.group(1)) if _m_sh_ledger else None
+    check("cron 入口的 ops.ingest_log 窗口 = 7 天（**这是生效值**，SQL 的 \\set 只是兜底）",
+          7, _sh_keep if _sh_keep is not None else "MISSING")
+    check("cron 入口的台账窗口 = 37 天（**这是生效值**）",
+          37, _sh_ledger if _sh_ledger is not None else "MISSING")
+    check("cron 入口与 SQL 的两个窗口必须一致（不许一个 37 一个 7 ⇒ 运行时行为不可预测）",
+          True,
+          _sh_keep is not None and _sh_ledger is not None and _m_keep and _m_ledger
+          and int(_m_keep.group(1)) == _sh_keep
+          and int(_m_ledger.group(1)) == _sh_ledger)
+    check("cron 入口必须把两个窗口传给 psql（不许静默丢掉 ⇒ 落回 SQL 默认值）", True,
+          "-v keep_days=" in _ops_sh_code and "-v ledger_keep_days=" in _ops_sh_code)
+    # ⚠️ **语句级判定**（审计实测：子串判定会被**报告查询**顶替 ⇒
+    #    把 DELETE 里的 `ok AND` 删掉也照样绿 ⇒ 守卫形同虚设）。
+    _ops_stmts = sql_statements(_ops_code)
+    _marker_del = [s for s in _ops_stmts
+                    if re.search(r"delete\s+from\s+ops\.ingest_marker", s, re.I)]
+    check("ops 保留策略有 ingest_marker 的 DELETE 语句（语句级定位）", True,
+          bool(_marker_del))
+    check("ops 保留策略只删 ok=true 的 marker（ok=false 是要重试的批次，删了=静默丢数据）"
+          "—— 语句级判定", True,
+          bool(_marker_del) and all(re.search(r"\bok\b", s, re.I) for s in _marker_del))
     check("ops 保留策略删完必须 VACUUM（DELETE 不回收磁盘）", True, "VACUUM" in _ops_code)
     check("VACUUM FULL 只作可选（它拿 ACCESS EXCLUSIVE 锁会阻塞每 10 分钟的装载）",
           True, "\\if :vacuum_full" in _ops_code and "VACUUM (FULL, ANALYZE)" in _ops_code)
-    check("ops 保留策略绝不碰业务表（fact.* / analysis.* 一律不动）", True,
-          not re.search(r"delete\s+from\s+(fact|analysis)\.", _ops_code, re.I))
+    # ⚠️ 业务表白名单必须覆盖 **truncate / drop / alter**（审计实测：
+    #    加一句 `TRUNCATE fact.fixture;` 或 `DROP TABLE fact.fixture;` 守门照样绿）。
+    _biz_touch = re.compile(
+        r"(?is)\b(delete\s+from|truncate(\s+table)?|drop\s+table|alter\s+table)\s+"
+        r"(public\.)?(fact|analysis|raw|model)\b")
+    check("ops 保留策略绝不碰业务表（fact.* / analysis.* 一律不动；含 truncate/drop/alter）",
+          True, not _biz_touch.search(_ops_code))
 
     _stg_p = ROOT / "docs" / "infra" / "jc-staging-retention.sh"
     check("落港清理脚本在库（docs/infra/jc-staging-retention.sh）", True, _stg_p.is_file())
@@ -1741,8 +1963,8 @@ def main() -> int:
           "sudo -n -u league" in _stg_code)
     check("落港清理不许删 ops 台账（台账留着才防将来重复装载）", True,
           not re.search(r"delete\s+from\s+ops\.", _stg_code, re.I))
-    check("落港清理不许碰业务表", True,
-          not re.search(r"delete\s+from\s+(fact|analysis)\.", _stg_code, re.I))
+    check("落港清理不许碰业务表（**含 truncate / drop / alter**）", True,
+          not _biz_touch.search(_stg_code))
     # dry-run 不许留下空隔离目录（每次 dry-run 建一个 ⇒ 空目录无上限堆积）
     _stg_lines = _stg_code.splitlines()
     _mk = [i for i, l in enumerate(_stg_lines) if 'mkdir -p "$QUAR/$STAMP"' in l]
@@ -1799,29 +2021,60 @@ def main() -> int:
     _health_src = read(ROOT / "web" / "services" / "health.py")
     check("/health 必须暴露运行中代码版本 code_sha（漏重启时一眼可辨）", True,
           "code_sha" in _health_src and "_code_sha" in _health_src)
+    # ⚠️ **P1（2026-10-23）**：原来只查「源码里有没有 code_sha 这个串」⇒
+    #    把它改成硬编码 `None`（`"code_sha": None,`）守门照样绿（审计实测）。
+    #    ⇒ 断言它**真的去 git rev-parse**（AST 判定，免疫 docstring）。
+    check("/health 的 code_sha 必须真去 git rev-parse（不许硬编码 None）", True,
+          "rev-parse" in code_strings(ROOT / "web" / "services" / "health.py"))
     check("部署后自检脚本在库（tools/check_service_freshness.py）", True,
           (ROOT / "tools" / "check_service_freshness.py").is_file())
     _sf = read(ROOT / "tools" / "check_service_freshness.py")
     check("部署后自检脚本会比对 /health 的 code_sha 与仓库 HEAD（不一致 ⇒ 退出码 1）", True,
           "code_sha" in _sf and "rev-parse" in _sf and "systemctl restart league-web" in _sf)
+    # ⚠️ **P1（2026-10-23）**：自检脚本的三态退出码 ——
+    #    「服务不可达 / 响应不是 JSON」原来也返回 0 ⇒ shell 门禁里「未检查」与
+    #    「通过」同码 ⇒ 每次部署自检都可能假绿（审计实测：起一个返回 HTML 的假
+    #    /health，脚本印「未检查」却 exit 0）。
+    # ⇒ 现在必须是**三态**：0=一致 / 1=落后或响应异常（fail-closed）/ 2=未检查。
+    check("部署后自检脚本必须三态退出（0=一致 / 1=落后或响应异常 / 2=未检查）", True,
+          all(k in _sf for k in ("EXIT_OK", "EXIT_STALE", "EXIT_UNCHECKED")))
     _dash = read(ROOT / "static" / "dashboard.html")
     check("看板推荐单面板必须印「数据截至」（页面停在旧状态时用户能看出来）", True,
           "数据截至" in _dash)
-    check("看板推荐单面板必须自动刷新（手动生成 ⇒ 不刷新就一直停在旧状态）", True,
-          "setInterval" in _dash and "loadRecommend()" in _dash)
+    # ⚠️ **P1（2026-10-23）**：原来只查「有没有 setInterval」⇒ 把它从 60000 改成
+    #    3600000（慢 60 倍）守门照样绿，而页面文案仍印「每 60 秒自动刷新」⇒
+    #    文档 / UI / 代码三方一起说谎（审计实测）。
+    # ⇒ 判定**实际周期**（毫秒实参 == 60000）+ 与页面文案里的「60 秒」互校。
+    _interval_ms = js_set_interval_ms(js_code(_dash))
+    check("看板推荐单面板的自动刷新周期 = 60000 毫秒（60 秒）", 60000,
+          _interval_ms if _interval_ms is not None else "MISSING")
+    check("看板页面文案里的刷新周期与代码一致（不许文档/UI/代码三方各说各话）", True,
+          "60 秒" in _dash and _interval_ms == 60000)
     _smoke = read(ROOT / "tools" / "dashboard_smoke.js")
-    check("看板冒烟必须断言「数据截至」（否则这条行为没了也照样绿）", True,
-          "数据截至" in _smoke and "must2" in _smoke)
+    # ⚠️ **P1（2026-10-23）**：这条断言原来查「整个冒烟脚本里有没有『数据截至』和
+    #    『must2』」⇒ **两个串都在错误信息文案里** ⇒ 把 PANELS 里的
+    #    `must2: '数据截至'` 删掉、甚至把整段 must2 判定代码删掉，守门照样绿
+    #    （审计实测：13 个变异漏网之一）⇒ **冒烟已经不再断言「数据截至」了**。
+    # ⇒ 改成**解析 PANELS 数组**（只看那几行），错误文案里的同名字串不算数。
+    _m_panels = re.search(r"const PANELS\s*=\s*\[(.*?)\n\];", _smoke, re.S)
+    _panels_block = _m_panels.group(1) if _m_panels else ""
+    check("看板冒烟的 recommendPanel 必须带 must2: '数据截至'（**解析 PANELS 数组**）", True,
+          "must2" in _panels_block and "数据截至" in _panels_block
+          and "recommendPanel" in _panels_block)
+    check("看板冒烟必须断言 P0/P1 口径（唯一真源 / 降级态）", True,
+          "P0_CHECKS" in _smoke and "P1_CHECKS" in _smoke)
 
     # ⚠️⚠️ **硬不变量**：台账窗口必须 > 落港窗口。
     #    否则台账比文件先消失 ⇒ 装载器把老文件判成「孤儿(未装载)」⇒ 每轮全部重装
     #    ⇒ 又开始写重复 ingest_log（2026-10-23 实测：keep_days=7 时下一轮 cron
-    #    重装了 4295 个文件）。这条断言**解析两个文件的实际默认值**来判定，
+    #    重装了 4295 个文件）。这条断言**解析实际生效的默认值**来判定，
     #    不是靠注释里写一句「必须大于」就算数。
+    #    ⚠️ **P1（2026-10-23）**：比较的是 **cron 入口**（生效值），不是 SQL 的 `\set`
+    #    （被 `-v` 覆盖 ⇒ 从不生效）。
     check("⚠️ 台账窗口 > 落港窗口（否则老文件被判孤儿 ⇒ 每轮重装，2026-10-23 实测 4295 个）",
           True,
-          _m_ledger is not None and _stg_days is not None
-          and int(_m_ledger.group(1)) > _stg_days)
+          _sh_ledger is not None and _stg_days is not None
+          and _sh_ledger > _stg_days)
 
     _inst_p = ROOT / "docs" / "infra" / "install-jc-retention-cron.sh"
     check("保留策略 cron 安装器在库（部署物进仓库，别靠手敲 crontab）", True, _inst_p.is_file())
@@ -1915,6 +2168,355 @@ def main() -> int:
     check("看板冒烟必须断言 P0 口径（模型概率唯一真源 / 赢面≠把握度 / 赔率来源标注）", True,
           "p0_modelProbs_noMlFallback" in _smoke and "p0_confBlock" in _smoke
           and "p0_marketLabel_source" in _smoke)
+
+    # ── P1（2026-10-23）：「读失败」与「本来就没有」必须**分开表达** ─────────
+    # 事故：数据库读失败时，页面把「连不上库」印成
+    #   「你还没跑脚本」/「已结算 0 注」/「暂无 CLV 数据…成对样本不存在」/「24 小时无异动」
+    # ⇒ 四种情况都在说谎，而且「你还没跑脚本」这个原因会**让人白跑一趟**。
+    # 修法（照抄仓库现成范式 `recommend.offer_freshness()` 的 `degraded` 标志）：
+    # 后端读失败返回 degraded=True，页面据此印「⚠️ 读取失败」。
+    _rec_web = ROOT / "web" / "services" / "recommend.py"
+    _clv_web = ROOT / "web" / "services" / "clv.py"
+    _om_web = ROOT / "web" / "services" / "odds_move.py"
+    check("推荐单读失败必须有 degraded 标志（today_picks_status 存在）", True,
+          find_fn(_rec_web, "today_picks_status") is not None)
+    check("推荐单快照必须透出 picks_degraded（否则页面分不出「读失败」与「没荐单」）", True,
+          "picks_degraded" in fn_code_strings(_rec_web, "snapshot"))
+    check("推荐单战绩必须带 degraded 标志（否则「读失败」被印成「已结算 0 注」）", True,
+          "degraded" in fn_code_strings(_rec_web, "record"))
+    check("CLV 读失败必须有 degraded 标志（daily_rows_status 存在）", True,
+          find_fn(_clv_web, "daily_rows_status") is not None)
+    check("CLV 摘要必须透出 degraded 标志", True,
+          "degraded" in fn_code_strings(_clv_web, "summary"))
+    check("赔率异动读失败必须有 degraded 标志（recent_status 存在）", True,
+          find_fn(_om_web, "recent_status") is not None)
+    check("赔率异动运维视图必须带 degraded 标志", True,
+          "degraded" in fn_code_strings(_om_web, "ops"))
+    check("CLV 端点必须把 degraded 透出（路由层不许把标志吃掉）", True,
+          "degraded" in fn_code_strings(ROOT / "web" / "routers" / "predictions.py", "clv_daily"))
+    check("赔率异动端点必须把 degraded 透出", True,
+          "degraded" in fn_code_strings(ROOT / "web" / "routers" / "jc.py", "odds_move"))
+    check("看板冒烟必须断言 P1 降级态（读失败不许被印成「没有数据」）", True,
+          "p1_clv_degraded" in _smoke and "p1_recommend_degraded" in _smoke
+          and "p1_record_degraded" in _smoke and "p1_odds_move_degraded" in _smoke)
+
+    # ── P1（2026-10-23）：观测进程名隔离 + 子进程自举 ───────────────────────
+    # 事故①：`core/log.py` 把 process_name **写死** "predict"，而 `core/__init__.py`
+    #   → `core.predictor` → `core.log` 是**第一个**执行 `observability.setup()` 的地方
+    #   ⇒ web 进程先装成 "predict"，随后 `web/api.py` 想装成 "web" ⇒ **重入守门抛
+    #   RuntimeError** ⇒ 被 except 吞掉 ⇒ **生产上从来没有 events.web.jsonl /
+    #   runtime.web.log**，web 事件写进了 predict 子进程的文件（H9 隔离失效），
+    #   而 `web/api.py` 的注释却在宣称「web 进程独立写」—— **注释在撒谎**。
+    _core_log = SCRIPTS / "core" / "log.py"
+    check("观测进程名必须由 env 驱动（core/log.py 不得写死 process_name）", True,
+          "LEAGUE_PROCESS_NAME" in code_strings(_core_log))
+    check("core/log.py 不得再把 process_name 写死成 'predict'（AST 判定，免疫 docstring）", False,
+          any("predict" in s and "process_name" in s
+              for s in code_strings(_core_log)))
+    _api_src = ROOT / "web" / "api.py"
+    check("web 进程必须把观测进程名定成 'web'（AST 判定 setdefault 的实参）", True,
+          ("LEAGUE_PROCESS_NAME", "web") in env_setdefaults(_api_src))
+    _ai_an = ROOT / "web" / "services" / "ai_analyze.py"
+    check("ai_analyze 子进程必须有自己的观测进程名", True,
+          ("LEAGUE_PROCESS_NAME", "ai_analyze") in env_setdefaults(_ai_an))
+    _enrich = ROOT / "web" / "enrich.py"
+    check("ai_enrich 子进程必须有自己的观测进程名", True,
+          ("LEAGUE_PROCESS_NAME", "ai_enrich") in env_setdefaults(_enrich))
+    # 事故②：ai_analyze 子进程（`python -m web.services.ai_analyze`）的 sys.path[0]
+    #   只有仓库根 ⇒ `core` / `store` 都 import 不到 ⇒ 生产实测
+    #   `ModuleNotFoundError: No module named 'core'` ⇒ **exit 1**，
+    #   而看板 AI 面板却显示「尚未生成。先点『生成当日分析』」（面板也在撒谎）。
+    check("ai_analyze 子进程必须自举 scripts/（否则生产 exit 1：No module named 'core'）", True,
+          touches_sys_path(_ai_an)
+          and any("scripts" in s for s in code_strings(_ai_an)))
+    check("ai_analyze 的模型概率必须走唯一真源（不许读 *_ml_true_prob / *_true_prob）", False,
+          any(re.search(r"\b\w+_true_prob\b", s) for s in code_strings(_ai_an)))
+    check("ai_analyze 必须用唯一真源 core.model_probs 取模型概率", True,
+          "core.model_probs" in fn_imports(_ai_an, "_class_per_match"))
+
+    # ── P1-G（2026-10-23）：未登录首屏不许停在「假 loading」，必须跳登录页 ──────
+    # 事故：`_probeAuthAndBoot()` 探测到 401 时只改一句 liveText 就 return ⇒
+    #   首屏那批占位符（「正在加载今日预测…」/「正在加载冠军概率…」/「正在读取 AI 状态…」）
+    #   **永远停在 loading**（看起来像一直在加载），真相是「没登录、压根没数据」；
+    #   而且这一路**不跳登录页**（与 api() 的 401 处理不一致）⇒ 用户面对一个转不出来的页面。
+    # ⇒ 判定一律基于**剥掉注释后的 JS 代码**（注释里写一遍就假绿 —— 审计实测的 13 个假阴性之一）。
+    _dash_js = js_code(dash_html)
+    _probe_js = js_fn(_dash_js, "_probeAuthAndBoot")
+    _mark_js = js_fn(_dash_js, "markUnlogged")
+    check("看板启动探测必须认未登录（401 / 403 两个码都要处理）", True,
+          "401" in _probe_js and "403" in _probe_js)
+    check("看板启动探测的未登录分支必须调用 markUnlogged()（不许只改 liveText 就走人）", True,
+          "markUnlogged()" in _probe_js)
+    check("看板启动探测的未登录分支必须跳登录页（location.href=LOGIN）", True,
+          "location.href=LOGIN" in _probe_js.replace(" ", ""))
+    check("markUnlogged 必须存在且把占位符文案改成含「未登录」", True,
+          bool(_mark_js) and "未登录" in _mark_js)
+    check("markUnlogged 必须摘掉 loading 动画类（不许一边说未登录一边还在转圈）", True,
+          "remove(\"loading\")" in _mark_js.replace(" ", "")
+          or "remove('loading')" in _mark_js.replace(" ", ""))
+    check("看板冒烟必须断言 P1-G（未登录 ⇒ 跳登录页 + 不许停在假 loading）", True,
+          "p1g_redirect_to_login" in _smoke and "p1g_no_fake_loading" in _smoke
+          and "p1g_loading_class_removed" in _smoke)
+
+    # ── P1-H（2026-10-23）：状态文件写入并发安全 + 异常不许被静默吞掉 ─────────
+    # 事故①：`_write_job` 用**固定** tmp 名（`<jid>.tmp`）+ 单次 `os.replace`：
+    #   · 同 jid 的并发写者共用同一个 tmp ⇒ 状态文件内容互相污染；
+    #   · Windows 上 `os.replace` 在目标文件正被读时瞬时抛 PermissionError(WinError 5)
+    #     ⇒ 整条状态迁移炸掉。**实测**：全量 pytest 里 `test_job_poll_to_terminal`
+    #     与 ai_enrich 两个用例随机 flake，根因就是它。
+    # 事故②：`submit_job` **丢掉了 Future** ⇒ `run_job` 抛的异常被静默吞掉
+    #   ⇒ 任务永远停在 queued，页面显示「排队中」，且**没有任何日志**。
+    _jobs_py = ROOT / "web" / "services" / "jobs.py"
+    check("jobs._write_job 必须用唯一 tmp 名（固定名 ⇒ 同 jid 并发写互相污染）", True,
+          "uuid.uuid4" in fn_calls(_jobs_py, "_write_job"))
+    check("jobs._write_job 必须对 os.replace 的 PermissionError 重试（Windows 瞬时文件锁）", True,
+          "os.replace" in fn_calls(_jobs_py, "_write_job")
+          and fn_handles(_jobs_py, "_write_job", "PermissionError"))
+    check("jobs.submit_job 必须挂 done_callback（否则 run_job 异常被 Future 静默吞掉）", True,
+          any(c.split(".")[-1] == "add_done_callback"
+              for c in fn_calls(_jobs_py, "submit_job")))
+    check("jobs 必须有 _on_job_done 兜底（异常 ⇒ 落日志 + 任务标 failed，不许停在 queued）", True,
+          find_fn(_jobs_py, "_on_job_done") is not None
+          and "STATUS_FAILED" in fn_names(_jobs_py, "_on_job_done")
+          and "_spin_state" in fn_calls(_jobs_py, "_on_job_done"))
+    # ── P1-H2（2026-10-23）：同进程**活锁**不许被 stale 判定偷删 ─────────────────
+    # 事故：`_drop_stale_lock` 对「同进程（pid == self）」用「持锁 age ≥ 5s ⇒ 强删」的
+    #   粗暴规则来清「线程崩死留下的残留锁」⇒ 实际把**同进程另一个线程正在合法持有
+    #   的锁**一起删了。实测（修复前，持锁线程仍存活）：锁文件被删 ⇒ 第三个写者
+    #   0.01s 内进入临界区 ⇒ **互斥彻底失效** ⇒ 并发写互相污染 jobs/<id>.json
+    #   （正是 P1-H1「tmp 名冲突」要消灭的那类 bug 换了个马甲）。
+    # ⇒ 修法：进程内锁登记表（拿到锁登记 / 释放注销）；`_drop_stale_lock` 判定
+    #   stale 前**先查表** ⇒ 登记在册（活人持锁）就立即 return。
+    # 判定口径：**AST + 语句顺序**（守卫必须早于 unlink），免疫注释/docstring 污染。
+    _dsl = find_fn(_jobs_py, "_drop_stale_lock")
+    _guard_idx = -1
+    _unlink_idx = -1
+    if _dsl is not None:
+        for _i, _st in enumerate(_dsl.body):
+            if isinstance(_st, ast.If) and _guard_idx < 0:
+                _called: set[str] = set()
+                for _c in ast.walk(_st.test):
+                    if isinstance(_c, ast.Call):
+                        _f = _c.func
+                        if isinstance(_f, ast.Name):
+                            _called.add(_f.id)
+                        elif isinstance(_f, ast.Attribute):
+                            _called.add(_f.attr)
+                if "_lock_held_in_process" in _called and any(
+                        isinstance(_x, ast.Return) for _x in ast.walk(_st)):
+                    _guard_idx = _i
+            if _unlink_idx < 0:
+                for _c in ast.walk(_st):
+                    if not isinstance(_c, ast.Call):
+                        continue
+                    _f = _c.func
+                    _nm = _f.attr if isinstance(_f, ast.Attribute) else (
+                        _f.id if isinstance(_f, ast.Name) else "")
+                    if _nm == "unlink":
+                        _unlink_idx = _i
+                        break
+    check("jobs._drop_stale_lock 必须先查进程内锁登记表（同进程活锁不许被偷删）", True,
+          _guard_idx >= 0)
+    check("jobs._drop_stale_lock 的登记表守卫必须早于 unlink（顺序错了等于没守卫）", True,
+          _guard_idx >= 0 and _unlink_idx >= 0 and _guard_idx < _unlink_idx)
+    check("jobs._exclusive_lock 必须登记/注销进程内锁（拿到锁⇒登记，释放⇒注销）", True,
+          "_register_lock" in fn_calls(_jobs_py, "_exclusive_lock")
+          and "_unregister_lock" in fn_calls(_jobs_py, "_exclusive_lock"))
+    check("jobs 必须有进程内锁登记表三件套（登记 / 注销 / 查询）", True,
+          all(find_fn(_jobs_py, _n) is not None for _n in
+              ("_register_lock", "_unregister_lock", "_lock_held_in_process")))
+    # 回归测试必须在（AST 取函数名，不许子串匹配）
+    _tlock_fns: set[str] = set()
+    _tlock = ROOT / "tests" / "test_jobs_lock_helpers.py"
+    try:
+        for _n in ast.walk(ast.parse(read(_tlock))):
+            if isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                _tlock_fns.add(_n.name)
+    except (SyntaxError, OSError):
+        pass
+    check("必须有「活锁不许被偷删 / 残留锁仍要清理 / 登记表必注销」的回归测试", True,
+          "test_live_in_process_lock_cannot_be_stolen" in _tlock_fns
+          and "test_drop_stale_lock_keeps_registered_lock_regardless_of_age" in _tlock_fns
+          and "test_unregistered_old_lock_is_still_cleaned_up" in _tlock_fns
+          and "test_lock_registry_cleared_on_release_and_on_error" in _tlock_fns)
+    # ── P1-H3（2026-10-23）：AI 分析端点不许把服务器绝对路径甩给用户 ──────────
+    # 事故：`/api/v1/ai/analyze` 的读取失败分支原文案是 `f"read_failed: {e}"`
+    #   ⇒ 英文 + **异常对象里带服务器绝对路径**（PermissionError / IsADirectoryError
+    #   的 str() 含完整路径）⇒ 把部署目录布局甩给终端用户，与本模块 P2-C 的
+    #   脱敏策略自相矛盾。
+    # 判定口径（AST）：note 的值**必须是字符串常量**（不许 f-string 拼接异常）。
+    _ai_py = ROOT / "web" / "routers" / "ai.py"
+    _ai_fn = find_fn(_ai_py, "ai_analyze_get")
+    _bad_notes: list[str] = []
+    _ai_keys: set[str] = set()
+    if _ai_fn is not None:
+        for _n in ast.walk(_ai_fn):
+            if not isinstance(_n, ast.Dict):
+                continue
+            for _k, _v in zip(_n.keys, _n.values):
+                if not (isinstance(_k, ast.Constant) and isinstance(_k.value, str)):
+                    continue
+                _ai_keys.add(_k.value)
+                if _k.value == "note" and not (
+                        isinstance(_v, ast.Constant) and isinstance(_v.value, str)):
+                    _bad_notes.append(ast.dump(_v)[:120])
+    check("AI 分析端点的 note 不许拼接异常/路径（必须中文常量文案）", True, not _bad_notes)
+    check("AI 分析端点的降级分支必须带 reason 键（机器可读原因，不许只靠 note 文案）", True,
+          "reason" in _ai_keys)
+    check("AI 分析端点必须把读取失败细节写进服务端日志（不许只丢给用户或直接丢）", True,
+          "_logger.warning" in fn_calls(_ai_py, "ai_analyze_get"))
+    # 部署自检的三态退出码（不可达 = 未检查(2)，绝不许与「通过」(0) 同码 ⇒ 假绿）
+    _csf = ROOT / "tools" / "check_service_freshness.py"
+    _exit_consts: dict[str, object] = {}
+    for _n in ast.parse(read(_csf)).body:
+        if isinstance(_n, ast.Assign):
+            for _t in _n.targets:
+                if getattr(_t, "id", "") in ("EXIT_OK", "EXIT_STALE", "EXIT_UNCHECKED") \
+                        and isinstance(_n.value, ast.Constant):
+                    _exit_consts[_t.id] = _n.value.value
+    check("部署自检必须是三态退出码 0/1/2（不可达=未检查不许与通过同码）", True,
+          _exit_consts.get("EXIT_OK") == 0 and _exit_consts.get("EXIT_STALE") == 1
+          and _exit_consts.get("EXIT_UNCHECKED") == 2)
+    check("部署自检的不可达分支必须返回「未检查」退出码（不许返回 0）", True,
+          "EXIT_UNCHECKED" in fn_names(_csf, "main"))
+    # 子进程自带 env 时也不许写仓库 logs 目录（PYTEST_CURRENT_TEST 是 pytest 写进
+    # os.environ 的，子进程继承 ⇒ 可当兜底判据）
+    _obs = SCRIPTS / "core" / "observability.py"
+    check("观测日志目录必须有 pytest 兜底（子进程自带 env 时也不许写仓库 logs）", True,
+          "PYTEST_CURRENT_TEST" in fn_code_strings(_obs, "_default_logs_dir"))
+    # ── P1-H 续：测试不许在**仓库根**凭空写出文件 ──────────────────────────
+    # 事故：`tests/test_bball_elo_save_ratings.py` 用 `sys.modules.setdefault`
+    #   把假模块 `bball.config_bball` 装进**全局** sys.modules（整个 session 生效），
+    #   其中 `DATA_DIR = Path("unused")` 是**相对路径**且没被 fixture 重定向
+    #   ⇒ **后续别的测试**（test_bball_run.py）把它写到 CWD = **仓库根**
+    #   ⇒ 仓库根凭空多出 `unused`（实测 108 字节）⇒ 被 .gitignore 覆盖 ⇒ 完全隐形。
+    _conftest_src = read(ROOT / "tests" / "conftest.py")
+    check("测试哨兵必须守住「仓库根不许凭空多出文件」（相对路径写盘的兜底）", True,
+          "_repo_root_files" in _conftest_src)
+    # ⇒ 静态侧再堵一道：**模块属性**被赋成单段相对路径 ⇒ FAIL（AST 判定）。
+    _rel_placeholder: list[str] = []
+    for _t in sorted((ROOT / "tests").rglob("*.py")):
+        try:
+            _tree = ast.parse(read(_t))
+        except (SyntaxError, OSError):
+            continue
+        for _n in ast.walk(_tree):
+            if not isinstance(_n, ast.Assign) or not isinstance(_n.value, ast.Call):
+                continue
+            _f = _n.value.func
+            if not (isinstance(_f, ast.Name) and _f.id in ("Path", "PurePath")):
+                continue
+            if not _n.value.args or not isinstance(_n.value.args[0], ast.Constant):
+                continue
+            _s = _n.value.args[0].value
+            if not isinstance(_s, str) or not _s:
+                continue
+            if "/" in _s or "\\" in _s:      # 含分隔符 ⇒ 多段路径，不是这一类
+                continue
+            for _tgt in _n.targets:
+                if isinstance(_tgt, ast.Attribute):
+                    _rel_placeholder.append(
+                        f"{_t.relative_to(ROOT)}:{_n.lineno} -> {_tgt.attr} = Path({_s!r})")
+    check("测试不许把**单段相对路径**赋给模块属性（落点 = CWD = 仓库根 ⇒ 凭空多出文件）",
+          [], _rel_placeholder)
+
+    # ── P2（2026-10-23）：24 条口径类缺陷的门禁 ──────────────────────────
+    # 三路审计的 P2 = 「口径说错」：把「没有」说成 0、把 UTC 说成 BJT、
+    # 英文/内部路径暴露给用户、文案与代码各说各话。
+    # ⇒ 判定一律基于**剥掉注释后的代码**（`js_code` / `code_strings`），
+    #    否则「在注释里写一遍」就假绿（审计实测的 13 个假阴性之一）。
+    _dash_js2 = js_code(dash_html)
+    _jc_html = read(ROOT / "static" / "jc.html")
+    _jc_js2 = js_code(_jc_html)
+
+    # ── P2-A 前端（10 条）────────────────────────────────────────────────
+    _pct_js = js_fn(_dash_js2, "pct")
+    check("看板 pct() 不得把「没有值」印成 0.0%（null/空串 ⇒ 「—」）", True,
+          bool(_pct_js) and "const n=Number(v)" not in _pct_js
+          and "—" in _pct_js and "return" in _pct_js)
+    check("看板不得出现硬编码浅黄 #ffe082（暗色模式未归一）", False,
+          "#ffe082" in _dash_js2)
+    check("看板不得把内部接口路径印给用户（POST /api/v1/...）", False,
+          "POST /api/v1/" in _dash_js2)
+    check("看板不得直接渲染后端英文 note（AI 分析面板）", False,
+          "no analysis yet" in _dash_js2)
+    check("static/jc.html 不得写死根路径 API（生产永久「请先登录」）", False,
+          'fetch("/api/jc/' in _jc_js2)
+    check("static/jc.html 必须按当前 URL 推导 API 基址", True,
+          "location.pathname" in _jc_js2)
+    _p2a_keys = ("p2a_pct_null_is_dash", "p2a_basketball_missing_winprob_unknown",
+                  "p2a_stamp_is_bjt", "p2a_snapshot_stamp_is_bjt",
+                  "p2a_quota_label_is_bjt_day", "p2a_history_date_is_bjt",
+                  "p2a_live_partial_refresh_label", "p2a_live_full_sync_label",
+                  "p2a_ai_analyze_no_internal_path", "p2a_ranklist_empty_state",
+                  "p2a_temp_leagues_no_hardcoded_color", "p2a_jc_api_base_from_url")
+    check("看板冒烟必须断言 P2-A 的 12 条前端口径（逐条 key）", [],
+          [k for k in _p2a_keys if k not in _smoke])
+
+    # ── P2-B 后端数字/时区/荐单口径（7 条）───────────────────────────────
+    _clv_src = read(ROOT / "web" / "services" / "clv.py")
+    check("CLV summary：n_days 必须是去重日期数（不许拿行数当天数）、n_rows 才是行数", True,
+          '"n_days": len(days)' in _clv_src and '"n_rows": len(rows)' in _clv_src
+          and '"n_days": len(rows)' not in _clv_src)
+    _rec_path = ROOT / "scripts" / "decision" / "recommend.py"
+    _rec_code = code_strings(_rec_path)
+    check("荐单候选池 = business_date >= 今日业务日（不是 max(business_date)）", True,
+          not any("max(business_date)" in s for s in _rec_code)
+          and any("m.business_date >= %s::date" in s for s in _rec_code))
+    check("荐单 made_at = 生成时刻（不许再取归档 run_at 的 decided_at）", True,
+          'made_at = p.get("made_at") or now_bjt()' in _rec_src)
+    check("荐单 EV 阈值必须是**显式政策值**且不许偷换成实测水位 0.129", True,
+          "MIN_EV = 0.05" in _rec_src and "MIN_EV = 0.129" not in _rec_src
+          and "EV > 0" in _rec_src)
+    _note_src = read(ROOT / "web" / "services" / "recommend.py")
+    check("用户可见水位文案 = 实测 12.9%（旧「25~33%」已废）", True,
+          "25~33%" not in _note_src and "12.9%" in _note_src)
+    for _p in (ROOT / "web" / "services" / "recommend.py", ROOT / "web" / "services" / "clv.py",
+               ROOT / "scripts" / "decision" / "recommend.py"):
+        _tz2 = [s for s in code_strings(_p) if "AT TIME ZONE" in s]
+        check(f"{_p.name} 的 SQL 时区常量 == Asia/Shanghai（不许 UTC）", True,
+              all("Asia/Shanghai" in s for s in _tz2) and "UTC" not in _tz2[0] if _tz2 else True)
+    check("准确率端点必须透出 overall 聚合（不许只给单联赛分片）", True,
+          "overall" in code_strings(ROOT / "web" / "routers" / "predictions.py"))
+
+    # ── P2-C 会话与运维（9 条）──────────────────────────────────────────
+    _auth_src = read(ROOT / "web" / "auth.py")
+    check("会话 cookie 的 Secure 必须跟请求协议走（不许只看 config.USE_HTTPS）", True,
+          "_cookie_secure" in _auth_src and "x-forwarded-proto" in _auth_src.lower())
+    _sess_src = read(ROOT / "web" / "session_store.py")
+    _vt = fn_code_strings(ROOT / "web" / "session_store.py", "validate_token")
+    check("validate_token 必须是只读（鉴权路径不许写库 ⇒ 写锁竞争会打成 500）", True,
+          not any(re.search(r"(?i)\b(delete|insert|update)\b", s) for s in _vt))
+    check("登录限速计数必须落盘（不许只在进程内存 ⇒ 重启即清零）", True,
+          "record_login_failure" in _auth_src and "login_failures" in _sess_src)
+    check("/health 的 code_sha 必须有进程内缓存（不许每次请求都 spawn git）", True,
+          "CODE_SHA_TTL_SECONDS" in _health_src and "_code_sha" in _health_src)
+    check("/health 不许回传服务器绝对路径（会话库路径要脱敏）", True,
+          "_safe_db_label" in _health_src)
+    _ai_src = read(ROOT / "web" / "routers" / "ai.py")
+    check("/api/v1/ai/* 不许回传服务器绝对路径", True, "_sanitize_paths" in _ai_src)
+    check("AI 分析空态 note 必须是中文且不许出现内部 API 路径", True,
+          "POST /api/v1/jobs/ai-analyze" not in _ai_src and "尚未生成分析" in _ai_src)
+    _jt_src = read(ROOT / "scripts" / "ingest" / "jc_topic.py")
+    check("rows_in/rows_ups 的口径必须写进 jc_topic.py（读入/落库/幂等跳过/设计跳过）", True,
+          all(s in _jt_src for s in ("读入行数", "落库行数", "幂等跳过", "设计跳过")))
+    _jr_src = read(ROOT / "scripts" / "ingest" / "jc_read.py")
+    check("异形文件名不许掀翻整批（必须有可区分异常 + 文件级隔离）", True,
+          "InvalidFileNameError" in _jr_src and "badname" in _jr_src)
+    check("隔离事件必须入台账且幂等（ok=false + not exists 去重）", True,
+          "not exists" in _jt_src and "record_quarantine" in _jt_src)
+    _idx_sql = ROOT / "docs" / "db" / "infra_p2_ingest_log_index.sql"
+    check("ingest_log 的 (at) 索引迁移文件在库且用 CONCURRENTLY", True,
+          _idx_sql.is_file()
+          and "CREATE INDEX CONCURRENTLY IF NOT EXISTS" in read(_idx_sql)
+          and "ops.ingest_log" in read(_idx_sql))
+    _ret_sh = read(ROOT / "docs" / "infra" / "jc-staging-retention.sh")
+    check("保留策略隔离动作必须写 ops 台账（不许零痕迹）", True,
+          "--record-quarantine" in _ret_sh)
+    check("配额「当日」读写两侧都必须是 BJT 自然日（不许一个 UTC 一个 BJT）", True,
+          "AT TIME ZONE 'Asia/Shanghai'" in read(ROOT / "scripts" / "store" / "jc_ops_view.py")
+          and "current_date" not in read(ROOT / "scripts" / "store" / "jc_ops_view.py")
+          and "now_bjt().date()" in read(ROOT / "scripts" / "ingest" / "api_get.py"))
 
     # ---- 21. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。

@@ -1,17 +1,29 @@
 """建议 4 子项 ①②：生成「今日推荐单」→ `analysis.ev_report`。
 
 口径（路线图 §6.6）：
-1. **候选池 = 竞彩当前在售场次**（`fact.jc_match` 的当前期次、`match_status='Selling'`）
+1. **候选池 = 竞彩当前在售场次**（`fact.jc_match` 的 `business_date >= 今日业务日(BJT)`、
+   `match_status='Selling'`）
    —— 不是「模型预测的 14 天窗口」（实测：那些场次当时还没开盘，无价可评）。
+   ⚠️ **P2（2026-10-23）**：旧实现取 `business_date = max(business_date)`
+   ⇒ 一旦库里出现 D+1 的卡，**今天还在售的场次会被整批踢出候选池**；
+   路线图 §6.6.2 ① 的口径是「`business_date >= 今日业务日`」⇒ 现在按此实现。
 2. **定价 = 竞彩官方 SP**（`fact.jc_offer` 的 had 快照 `options.h/d/a`）——
    不是 ESPN 赔率（现有 `ev_per_unit` 用的是 ESPN 赔率，那是另一个市场）。
 3. **模型概率 = 模型自己的输出**（`model.pred_archive_match.p_*`；无归档时按名 join
    最新的预测文件兜底）。两处都取模型自己的 `probs`/加权概率，**绝不**取市场先验。
-4. **每场最多推一侧**（EV 最高的那侧）：一场推多侧会自相矛盾（对冲），一场也只中一侧。
+4. **每场最多推一侧**（合格方向里 EV 最高的那侧）：一场推多侧会自相矛盾（对冲），一场也只中一侧。
+   ⚠️ **P2（2026-10-23）**：合格性**按方向**判定（EV 达标 **且** 模型概率 ≥ 下限），
+   不许因为某一侧概率低就把**整场**所有方向一起丢掉（详见 `pick_recommendation`）。
 5. **EV / Kelly 公式唯一真源**：`scripts/market/kelly.py`（与 web 层 combo 共用）。
-6. **保守**：默认 EV ≥ 5%、1/4 Kelly；并把「EV 含跨市场定价差」写进 note 与页面。
+6. **保守**：默认 EV ≥ **5%**（= 正 EV 之外的安全垫）、1/4 Kelly；并把「EV 含跨市场定价差」写进 note 与页面。
+   ⚠️ **水位 12.9%（2026-10-23 生产实测）≠ 推荐门槛**：对**单边**投注，
+   「扛掉水」等价于 **EV > 0**（推导见 `MIN_EV` 上方的注释）；水位只在**串关**上才需要单独扛。
 
-幂等：唯一键 `(match_id, option_code, made_at::date)`；重跑只更新价格与概率，不重复插行。
+幂等：唯一键 `(match_id, option_code, (made_at AT TIME ZONE 'Asia/Shanghai')::date)`；
+重跑只更新价格与概率，不重复插行。
+⚠️ **P2（2026-10-23）**：`made_at` = **这条荐单真正被生成的时刻**（BJT 墙钟），
+不是预测归档的 `run_at` ⇒ 当天 09:30 定时跑之前手动出单，**不会**落进昨天的桶、
+不会覆盖昨天那一行（`decided_at` 仍记模型意见时刻 = 归档 `run_at`，两者语义不同）。
 
 用法：
     PYTHONPATH=scripts python scripts/decision/recommend.py                 # 今日推荐单
@@ -37,8 +49,34 @@ from psycopg.types.json import Jsonb
 from store import pg
 
 # ── 阈值（保守档；路线图 §6.6.3 第 1 条：模型概率是市场锚定的，EV 含跨市场定价差）────
-MIN_EV = 0.05          # 单位 EV ≥ 5%
-MIN_P = 0.10           # 模型概率 ≥ 10%（不要长尾彩票）
+#
+# ⚠️ **P2（2026-10-23）：水位口径订正 —— 「EV 必须不低于水位」这句对**单边**是错的。**
+#
+# 实测水位（**生产实测**，2026-10-23 审计）：竞彩 had 三项 SP 的隐含概率和 − 1 = **12.9%**
+#   （交叉验证：路线图 §6.6.1 当日实测 SP 1.86/3.70/3.12 ⇒ 1/1.86+1/3.70+1/3.12 = 1.1284 ⇒ 12.84%，
+#     与 12.9% 互相印证；旧文案里那个「每元回报 0.75」的推导不成立，
+#     正确值 ≈ 0.89 元/元 ⇒ 水位 ≈ 11~13%）。
+#
+# 代数（m = 1+水位 = 三项隐含概率和，q = 去水后的市场概率，SP = 1/(m·q)）：
+#   单位 EV = p·SP − 1 = p/(m·q) − 1
+#   ⇒ **EV > 0 ⟺ p > m·q ⟺ p/q > m**（模型概率相对市场去水概率高出**整个水位**）
+#   ⇒ 对**单边**投注，「扛掉这笔水」= **EV > 0**，**不是** EV ≥ 12.9%。
+#   （EV ≥ 12.9% 等价于 p/q ≥ m² ≈ 1.273 —— 要求模型比市场高出 27%，是**另一个**门槛。）
+#   水位只在**串关**上才需要单独「扛」：串关 EV = ∏(p_i/q_i)/mⁿ − 1 ⇒ 门槛是 mⁿ。
+#
+# 生产实测（`analysis.ev_report`，2026-10-23 查）：达标荐单的 EV 分布
+#   日        条数  EV最小   EV中位   EV最大   ≥5%  ≥10%  ≥12.9%
+#   2026-10-23   3  0.0903  0.1082  0.2668    3     2      1
+#   2026-10-22   4  0.0777  0.1356  0.4482    4     3      2
+#   2026-10-21   7  0.0973  0.1417  1.3321    7     5      4
+#   2026-10-18  10  0.1001  0.2641  0.8470   10    10      7
+#   ⇒ 历史最低 EV = **0.0608**（8 天全量）⇒ 5% 门槛实际并没有放进负 EV 的荐单；
+#   ⇒ 把门槛抬到 12.9% 会把**正 EV 的好单**砍掉 50~70%（10-23：3 条 → 1 条），
+#     属**产品阈值政策**变更（路线图 §6.6.5.1 明确「阈值暂不动，等 n ≥ 100 再校准」）
+#     ⇒ **本轮不改阈值**，只把**用户可见文案**订正成实测值（见 web/services/recommend.py）。
+#     需要更保守/更激进时用 CLI `--min-ev` 覆盖（note 里会记下当时生效的门槛）。
+MIN_EV = 0.05          # 单位 EV ≥ 5%（= 在「正 EV 之外再加一道安全垫」；口径见上面的推导）
+MIN_P = 0.10           # 模型概率 ≥ 10%（不要长尾彩票）——**方向级**排除，见 pick_recommendation
 KELLY_FRACTION = DEFAULT_FRACTION   # 1/4 Kelly
 BANKROLL = 100.0       # 建议注额的口径基数（与展示的「本钱 100」一致）
 
@@ -145,6 +183,10 @@ class Candidate:
     low_confidence: bool = False
     source: str = "archive"          # archive | predfile
     decided_at: datetime | None = None   # 决策时刻（回溯模式 = 归档 run_at）
+    # ⚠️ P2（2026-10-23）：这条荐单**真正被生成**的时刻（BJT 墙钟）。
+    #   None = 落库时取当下（今日模式）；回溯模式显式给归档 run_at（历史重建）。
+    #   **不是** decided_at：decided_at 是「模型意见时刻」，made_at 才是「荐单生成时刻」。
+    made_at: datetime | None = None
     notes: list[str] = field(default_factory=list)
 
 
@@ -153,9 +195,24 @@ def pick_recommendation(cand: Candidate, *, min_ev: float = MIN_EV,
                         min_p: float = MIN_P,
                         fraction: float = KELLY_FRACTION,
                         bankroll: float = BANKROLL) -> dict[str, Any] | None:
-    """从一场里挑出**该推的那一侧**；不够阈值 ⇒ None（不推）。
+    """从一场里挑出**该推的那一侧**；没有合格方向 ⇒ None（不推）。
 
-    「每场最多推一侧」：三侧里取单位 EV 最高的；EV 最高仍不过阈值 ⇒ 整场不推。
+    ⚠️ **P2（2026-10-23）：合格性按「方向」判定，不按「整场」判定。**
+
+    旧实现：先取 **EV 最高**的那一侧，再看它的模型概率是否 ≥ 10%，
+    不过就把**整场**丢掉 ⇒ 两条规则互相打架：
+      ① 「不要长尾彩票」本意是**排除长尾方向**，旧实现却变成**整场连坐**；
+      ② 高 SP 冷门（模型概率很低、SP 很高）EV 可能最大 ⇒ 旧实现里它一旦概率 < 10%
+         就把整场否掉，而**别的方向根本没有机会被评估**（产品约定被绕过）。
+
+    现在的口径（自洽且可解释）：
+      · **方向级合格**：单位 EV ≥ ``min_ev`` **且** 模型概率 p ≥ ``min_p``；
+      · **「不要长尾彩票」= 方向级排除**：p < ``min_p`` 的方向（高 SP 冷门就在此列）
+        **一律不进推荐**，哪怕它的 EV 再大；
+      · 合格方向里取 **EV 最高**的一侧（每场最多推一侧：一场推多侧会自相矛盾）；
+      · 一个方向都不合格 ⇒ 这场不推（**不是**被某一条长尾连坐掉的）。
+    选中的方向与展示口径一致：返回的 ``sp`` / ``p`` / ``ev`` 就是被选中的那一侧，
+    ``all_ev`` 给出三侧 EV（含未入选侧，便于复算）。
     """
     best: dict[str, Any] | None = None
     all_ev: dict[str, float | None] = {}
@@ -169,11 +226,13 @@ def pick_recommendation(cand: Candidate, *, min_ev: float = MIN_EV,
         all_ev[code] = round(e, 6) if e is not None else None
         if e is None:
             continue
+        if e < min_ev:
+            continue          # EV 不达标 ⇒ 该方向不合格
+        if p < min_p:
+            continue          # 长尾彩票 ⇒ 该方向不合格（**方向级**排除，不是整场连坐）
         if best is None or e > best["ev"]:
             best = {"code": code, "ev": e, "sp": sp, "p": p}
     if best is None:
-        return None
-    if best["ev"] < min_ev or best["p"] < min_p:
         return None
     k = kelly_fraction(best["p"], best["sp"])
     return {
@@ -195,11 +254,20 @@ def pick_recommendation(cand: Candidate, *, min_ev: float = MIN_EV,
         "source": cand.source,
         "sp_snapshot_ts": cand.sp_snapshot_ts,
         "decided_at": cand.decided_at,
+        "made_at": cand.made_at,
+        "min_ev": min_ev,
+        "min_p": min_p,
         "notes": list(cand.notes),
     }
 
 
 # ── DB：候选装配 ────────────────────────────────────────────────────
+# ⚠️ **P2（2026-10-23）**：候选池口径从 `business_date = max(business_date)`
+# 改成 **`business_date >= 今日业务日(BJT)`**（路线图 §6.6.2 ① 的原文口径）。
+# 旧口径的坑：库里一旦出现 D+1 的卡，`max(business_date)` 就变成 D+1 ⇒
+# **今天还在售的场次被整批踢出候选池**（荐单凭空变少/变空，页面看不出原因）。
+# 「今日业务日」= **BJT 自然日**（`core.bjt.now_bjt().date()`，与 `fact.jc_match.business_date`
+# 的「营业日（北京）」同口径）；**不用** `current_date`（会话时区，生产 PG 常为 UTC ⇒ 差一天）。
 _SALE_SQL = """
 SELECT m.match_id, m.business_date, m.home_cn, m.away_cn, m.league_cn,
        o.options, o.snap_ts
@@ -207,7 +275,7 @@ SELECT m.match_id, m.business_date, m.home_cn, m.away_cn, m.league_cn,
   JOIN LATERAL (SELECT options, snap_ts FROM fact.jc_offer x
                   WHERE x.match_id = m.match_id AND x.play_type = 'had'
                   ORDER BY x.snap_ts DESC LIMIT 1) o ON TRUE
- WHERE m.business_date = (SELECT max(business_date) FROM fact.jc_match)
+ WHERE m.business_date >= %s::date
    AND m.match_status = 'Selling'
  ORDER BY m.match_id
 """
@@ -249,8 +317,14 @@ _SALE_COLS = ("match_id", "business_date", "home_cn", "away_cn",
               "league_cn", "options", "snap_ts")
 
 
-def load_sale_matches(conn: Connection) -> list[dict[str, Any]]:
+def load_sale_matches(conn: Connection, today: str | None = None) -> list[dict[str, Any]]:
     """竞彩当前期次在售场次（带 had 最新快照的原始 options）。
+
+    候选池 = ``business_date >= 今日业务日(BJT)`` ∩ ``match_status='Selling'``
+    （路线图 §6.6.2 ①；旧口径 `= max(business_date)` 会把今天还在售的场次踢出池子）。
+
+    ``today`` 缺省 = **BJT 自然日**（`core.bjt.now_bjt().date()`，唯一真源）；
+    可显式传入（测试 / 回溯用）。
 
     ⚠️ **按位置索引取列，不要写 `dict(r)`**：`store.pg.connect()` 用 psycopg3 默认的
     `tuple_row` ⇒ `conn.execute()` 返回的行是**普通 tuple**，`dict(tuple)` 会抛
@@ -258,8 +332,9 @@ def load_sale_matches(conn: Connection) -> list[dict[str, Any]]:
     「今日推荐单」永远是空的）。本仓库里 `dict(row)` 只有在**显式设了
     `cur.row_factory = dict_row`** 的地方才安全（见 `store/jc_view.py`）。
     """
+    day = today or now_bjt().date().isoformat()
     out: list[dict[str, Any]] = []
-    for r in conn.execute(_SALE_SQL).fetchall():
+    for r in conn.execute(_SALE_SQL, (day,)).fetchall():
         out.append({
             "match_id": int(r[0]), "business_date": r[1], "home_cn": r[2],
             "away_cn": r[3], "league_cn": r[4], "options": r[5], "snap_ts": r[6],
@@ -376,12 +451,26 @@ RETURNING report_id
 _NOTE_TMPL = ("推荐 {side}：竞彩官方 SP {sp} · 模型概率 {p} · 单位 EV {ev} · "
                "分数 Kelly {kelly}（1/4 Kelly 建议注额 {stake}）；"
                "定价=竞彩官方 SP（决策时刻 {ts}）；"
+               "入选门槛：单位 EV ≥ {min_ev}、模型概率 ≥ {min_p}"
+               "（低于此即长尾彩票，该方向不进推荐；"
+               "水位 12.9% 是 2026-10-23 生产实测的**市场水位**，对单边投注等价于 EV>0）；"
                "⚠️ 本模型概率为「市场锚定」，EV 含 ESPN↔竞彩 跨市场定价差，"
                "不等于模型有同等真实优势；{extra}")
 
 
 def write_reports(conn: Connection, picks: list[dict[str, Any]]) -> list[int]:
-    """写 `analysis.ev_report`（幂等：同场同侧同天只一行，重跑更新）。"""
+    """写 `analysis.ev_report`（幂等：同场同侧同天只一行，重跑更新）。
+
+    ⚠️ **P2（2026-10-23）：`made_at` = 这条荐单**真正被生成的时刻**（BJT 墙钟）。**
+    旧实现 `made_at = decided_at`（= 预测归档的 `run_at`）⇒ 当天 09:30 定时跑**之前**
+    手动出单时，`made_at` 落在**昨天**的桶里 ⇒ 唯一键
+    `(match_id, option_code, (made_at AT TIME ZONE 'Asia/Shanghai')::date)`
+    把这一行**写进昨天的桶、覆盖昨天那一行**。
+    ⇒ 现在 `made_at = picks[i].made_at or now_bjt()`：
+      · 今日模式（`made_at` 为 None）⇒ 取**当下** ⇒ 落进**今天**的桶（同日覆盖同日）；
+      · 回溯模式 ⇒ 显式给归档 `run_at`（历史重建，按历史日分桶，不影响今天）。
+    `decided_at`（模型意见时刻）语义不变，仍记归档 `run_at`。
+    """
     ids: list[int] = []
     for p in picks:
         side_cn = dict(_SIDES)[p["option_code"]]
@@ -398,6 +487,7 @@ def write_reports(conn: Connection, picks: list[dict[str, Any]]) -> list[int]:
             side=side_cn, sp=p["sp"], p=round(p["p"], 4), ev=round(p["ev"], 4),
             kelly=round(p["kelly"], 4), stake=p["stake"],
             ts=p.get("sp_snapshot_ts") or "-", extra="；".join(extra) or "无",
+            min_ev=p.get("min_ev", MIN_EV), min_p=p.get("min_p", MIN_P),
         )
         legs = [{
             "jc_match_id": p["match_id"], "play_type": "had", "option": p["option_code"],
@@ -405,8 +495,8 @@ def write_reports(conn: Connection, picks: list[dict[str, Any]]) -> list[int]:
             "all_ev": p.get("all_ev"), "home_cn": p["home_cn"], "away_cn": p["away_cn"],
             "source": p.get("source"), "sp_snapshot_ts": p.get("sp_snapshot_ts"),
         }]
-        decided = p.get("decided_at") or now_bjt()
-        made_at = decided
+        made_at = p.get("made_at") or now_bjt()   # 荐单**生成时刻**（BJT 墙钟）
+        decided = p.get("decided_at") or made_at   # 模型意见时刻（归档 run_at）
         row = conn.execute(_INSERT_SQL, (
             made_at, Jsonb(legs), p["p"], p["ev"], p["kelly"], None, note,
             p["match_id"], p["option_code"], p["sp"], p["p"],
@@ -452,6 +542,9 @@ def build_candidates(conn: Connection, *, backfill: bool = False,
                 sp_snapshot_ts=str(r[13]), league_key=r[8],
                 stars=r[4], confidence=float(r[5]) if r[5] is not None else None,
                 low_confidence=bool(r[6]), source="archive", decided_at=r[9],
+                # 回溯模式：这条荐单「历史时刻」生成 ⇒ made_at = 归档 run_at（按历史日分桶，
+                # 不污染今天的桶）。今日模式留 None ⇒ 落库时取当下（见 write_reports）。
+                made_at=r[9],
                 notes=["回溯模式：定价 = 决策时刻可见的最后一版竞彩 SP"],
             ))
             stats["with_prob"] += 1
@@ -530,8 +623,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--backfill", action="store_true",
                     help="回溯模式：历史归档 + 决策时刻可见价（用于攒首批样本）")
     ap.add_argument("--to", dest="to_date", help="回溯模式的截止比赛日 YYYY-MM-DD")
-    ap.add_argument("--min-ev", type=float, default=MIN_EV, help="单位 EV 阈值（默认 0.05）")
-    ap.add_argument("--min-p", type=float, default=MIN_P, help="模型概率下限（默认 0.10）")
+    ap.add_argument("--min-ev", type=float, default=MIN_EV,
+                    help="单位 EV 阈值（默认 0.05 = 正 EV 之外的安全垫；水位 12.9%% 是**市场水位**，"
+                         "对单边投注等价于 EV>0，不是 EV≥12.9%%）")
+    ap.add_argument("--min-p", type=float, default=MIN_P,
+                    help="模型概率下限（默认 0.10；低于此的方向不进推荐 = 不要长尾彩票）")
     ap.add_argument("--dry", action="store_true", help="只报计划，不写库")
     ap.add_argument("--max-offer-age-hours", type=float, default=DEFAULT_MAX_OFFER_AGE_HOURS,
                     help="定价赔率快照最大年龄（小时）；超龄即拒绝出单（默认 6）")
@@ -565,9 +661,10 @@ def main(argv: list[str] | None = None) -> int:
                           f"（阈值 {fresh['threshold_hours']} 小时，--allow-stale 放行）")
             for p in picks:
                 p["stale_note"] = stale_note
-        logger.info("recommend: 候选 %d（SP 齐 %d / 有模型概率 %d / 跳过超龄定价 %d）→ 达标 %d 条",
+        logger.info("recommend: 候选 %d（SP 齐 %d / 有模型概率 %d / 跳过超龄定价 %d）"
+                    "→ 达标 %d 条（门槛：EV ≥ %.3f、模型概率 ≥ %.2f）",
                     stats["sale"], stats["with_sp"], stats["with_prob"],
-                    stats["stale_skipped"], len(picks))
+                    stats["stale_skipped"], len(picks), args.min_ev, args.min_p)
         for p in picks:
             logger.info("  · %s vs %s [%s] %s SP=%.2f p=%.3f EV=%+.3f Kelly=%.3f",
                         p["home_cn"], p["away_cn"], p["league_key"] or "-", p["option_code"],

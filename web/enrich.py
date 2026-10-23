@@ -10,6 +10,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+# ⚠️ **P1（2026-10-23）**：观测文件名后缀必须是本进程自己的名字 ——
+#    `core.log` 是第一个执行 `observability.setup()` 的地方，写死 "predict"
+#    ⇒ 本子进程会与 predict 主进程**抢同一个 events 文件**。
+os.environ.setdefault("LEAGUE_PROCESS_NAME", "ai_enrich")
+
 from web.services import store
 
 LP_AI_PRIORITIES = os.environ.get("LP_AI_PRIORITIES", "")

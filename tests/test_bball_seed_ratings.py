@@ -18,8 +18,14 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import types
 from pathlib import Path
+
+# ⚠️ **P1（2026-10-23）**：占位路径必须是**绝对**路径（相对路径 `Path("unused")`
+#    一旦被真写，落点就是 CWD = 仓库根 ⇒ 仓库根多出 `unused` 文件，
+#    且它被 .gitignore 覆盖 ⇒ 污染隐形）。
+_UNUSED = Path(tempfile.gettempdir()) / "sports-lottery-test-unused"
 
 import pytest
 
@@ -41,8 +47,8 @@ _config_bball.ELO = {
 _config_bball.TEAM_CN = {
     "Atlanta Hawks": "ATL", "Boston Celtics": "BOS",
 }
-_config_bball.ELO_FILE = Path("unused")
-_config_bball.TEAMS_SEED_FILE = Path("unused")
+_config_bball.ELO_FILE = _UNUSED
+_config_bball.TEAMS_SEED_FILE = _UNUSED
 sys.modules.setdefault("bball.config_bball", _config_bball)
 
 

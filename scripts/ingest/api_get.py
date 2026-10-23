@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import hashlib
 import json
 import os
@@ -16,6 +15,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 
 from config import source_policy, spend_allowed
+from core.bjt import now_bjt
 from core.constants import TIMEOUT_API_FOOTBALL, TIMEOUT_FOOTBALL_DATA
 from core.log import logger
 from psycopg import Connection, pq, sql
@@ -82,7 +82,13 @@ def fetch(conn: Connection, *, source: str, table: str, endpoint: str, params: d
     ph = params_hash(source, endpoint, params)
     if (hit := cached(conn, table, ph)) is not None:
         return hit
-    day = dt.date.today()
+    # ⚠️ **P2-B3/A5（2026-10-23）**：配额「当日」按 **BJT 自然日**切，不是 UTC 日。
+    #   旧写法 `dt.date.today()` = **宿主本地日**（生产宿主 TZ=Etc/UTC ⇒ 仍是 UTC 日）
+    #   ⇒ BJT 00:00~08:00 读到的还是**昨天**的配额，且跨日重置晚了 8 小时。
+    #   写侧（这里）与读侧（`scripts/store/jc_ops_view.py` 的 `_QUOTA_SQL`）**必须同时**改，
+    #   否则读写两侧在凌晨窗口会落在不同的日键上。
+    #   口径真源：`core.bjt.now_bjt()`（= ZoneInfo("Asia/Shanghai")）。
+    day = now_bjt().date()
     if quota.remaining(conn, day, source, cap) < 1:
         raise quota.QuotaExceeded(f"{source} {day} 预检剩余 0（cap={cap}）：未发请求即收工")
     _guard(conn)  # 发请求之前：提交权已降级就必须炸，绝不允许静默 SAVEPOINT

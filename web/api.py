@@ -9,12 +9,24 @@
 """
 from __future__ import annotations
 
+import os as _os
 import sys as _sys
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+
+# ⚠️ **P1（2026-10-23）**：本进程在 observability 里的名字。
+#    必须在**任何** `core.*` / `web.routers.*` 导入**之前**设好 ——
+#    `core/__init__.py` 会 eager import `core.predictor` → `core.log`，
+#    而 `core.log` 是**第一个**执行 `observability.setup()` 的地方
+#    （`observability.setup` 的重入守门：process_name 不一致 ⇒ RuntimeError）。
+#    旧写法把 process_name 写死在 core/log.py 里 = "predict" ⇒
+#    web 进程先装成 "predict"，随后 api.py 想装成 "web" ⇒ RuntimeError 被吞
+#    ⇒ **生产上从来没有 events.web.jsonl / runtime.web.log**，
+#    web 事件写进了 predict 子进程的文件（H9 跨进程隔离失效）。
+_os.environ.setdefault("LEAGUE_PROCESS_NAME", "web")
 
 # scripts/（core 纯函数，如 core.backtest.league_accuracy）供 web 复用：
 # 追加到 sys.path 末尾（不前置），避免 scripts/ 下同名包遮蔽 web/、store/。

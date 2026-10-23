@@ -7,11 +7,19 @@ P1-4 修复：/health 必须探真依赖，避免 DB 宕掉 / 预测卡 24h 时�
 
 探活是「只 connect + 一行 SELECT + 一次 stat」级别，单次 /health 请求
 < 50ms；任何探活失败 → 503，body 携带失败明细便于监控告警。
+
+⚠️ **P2-C（2026-10-23）两处订正**：
+  ① ``code_sha`` **缓存**（TTL = ``CODE_SHA_TTL_SECONDS``）：旧实现每次 /health
+     都 ``subprocess.run(["git", "rev-parse", ...])`` ⇒ **每次请求一个子进程**，
+     而 /health 是**免鉴权**的（监控需要）⇒ 可被无鉴权地放大成进程创建风暴。
+  ② /health 回传的**服务器绝对路径**（会话库路径）已脱敏成**相对路径/文件名**：
+     免鉴权端点不该泄露部署目录布局（对攻击者有用、对运维无用）。
 """
 from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -20,9 +28,32 @@ logger = logging.getLogger("web.health")
 # 预测"新鲜"窗口：超过此窗口认为引擎卡住（默认 24h）。
 PREDICTION_FRESH_HOURS = 24
 
+# code_sha 缓存 TTL（秒）：git 短 sha 一天也变不了几次，5 分钟足够；
+# 关键点是**不再每次请求都 spawn 一个 git 子进程**。
+CODE_SHA_TTL_SECONDS = 300.0
+_code_sha_cache: dict = {"value": None, "at": 0.0}
+_code_sha_lock = threading.Lock()
+
+
+def _safe_db_label(path: Path) -> str:
+    """会话库路径的**脱敏标签**：仓库内 ⇒ 相对路径；仓库外 ⇒ 只给文件名。
+
+    ⚠️ /health **免鉴权**（监控轮询需要）⇒ 绝不能回传服务器绝对路径
+    （泄露部署目录布局，对攻击者有用、对运维无用）。
+    """
+    from web import config
+
+    try:
+        return str(path.relative_to(config.BASE_DIR))
+    except ValueError:
+        return path.name
+
 
 def _probe_sessions_db(sessions_db_path: str | Path) -> dict:
-    """轻量 SQLite 探活：connect + SELECT 1；任何失败返回 dict 含 error。"""
+    """轻量 SQLite 探活：connect + SELECT 1；任何失败返回 dict 含 error。
+
+    ⚠️ ``path`` 字段**只给相对路径/文件名**（P2-C：免鉴权端点不许泄露绝对路径）。
+    """
     try:
         path = Path(sessions_db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -31,12 +62,13 @@ def _probe_sessions_db(sessions_db_path: str | Path) -> dict:
             row = conn.execute("SELECT 1 AS ok").fetchone()
             # 默认 sqlite3.Row 不开启；用 fetchone()[0] 取首列（已 AS ok）
             ok = row is not None and row[0] == 1
-            return {"ok": ok, "path": str(path)}
+            return {"ok": ok, "path": _safe_db_label(path)}
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001 - 探活容错
         logger.warning("health: sessions.db probe failed: %s", exc)
-        return {"ok": False, "path": str(sessions_db_path), "error": str(exc)}
+        return {"ok": False, "path": _safe_db_label(Path(sessions_db_path)),
+                "error": str(exc)}
 
 
 def _probe_predictions_fresh(
@@ -71,7 +103,27 @@ def _probe_predictions_fresh(
         return {"ok": False, "error": str(exc)}
 
 
-def _code_sha() -> str | None:
+def _spawn_git_sha() -> str | None:
+    """真去 git 问一次 HEAD（**唯一** spawn 子进程的地方，有缓存兜底）。"""
+    try:
+        import subprocess
+
+        repo = Path(__file__).resolve().parents[2]
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(repo), capture_output=True, text=True, timeout=5,
+            # 非 UTF-8 locale（Windows GBK 控制台）下，git 的输出可能解码失败
+            # ⇒ 探版本直接降级成 None ⇒ 换成替换字符，不让整个探活崩掉。
+            errors="replace",
+        )
+        sha = (out.stdout or "").strip()
+        return sha or None
+    except Exception as exc:  # noqa: BLE001 - 版本探不出来不影响探活本体
+        logger.warning("health: code_sha probe failed: %s", exc)
+        return None
+
+
+def _code_sha(force: bool = False) -> str | None:
     """**运行中代码**对应的 git commit（短 sha）。读不到就返回 None（不编数）。
 
     ⚠️ 为什么需要（2026-10-23 生产实测踩到）：
@@ -83,20 +135,23 @@ def _code_sha() -> str | None:
     ⇒ 把代码版本暴露出来，任何巡检都能一眼看出「服务落后于仓库」；
     配套自检脚本 ``tools/check_service_freshness.py``（比对 /health 的 code_sha
     与仓库 HEAD，不一致 ⇒ 退出码 1 + 打印修复命令）。
-    """
-    try:
-        import subprocess
 
-        repo = Path(__file__).resolve().parents[2]
-        out = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=str(repo), capture_output=True, text=True, timeout=5,
-        )
-        sha = (out.stdout or "").strip()
-        return sha or None
-    except Exception as exc:  # noqa: BLE001 - 版本探不出来不影响探活本体
-        logger.warning("health: code_sha probe failed: %s", exc)
-        return None
+    ⚠️ **P2-C（2026-10-23）**：旧实现**每次调用都 spawn 一个 git 子进程**
+    ⇒ /health 每次请求一个进程（且免鉴权 ⇒ 可被无鉴权放大）。
+    ⇒ 现在**进程内缓存 + TTL**（``CODE_SHA_TTL_SECONDS``）：
+    第二次请求**不再** spawn 子进程（``force=True`` 才强制刷新）。
+    """
+    now = time.time()
+    with _code_sha_lock:
+        cached_at = _code_sha_cache["at"]
+        if (not force and cached_at
+                and now - cached_at < CODE_SHA_TTL_SECONDS):
+            return _code_sha_cache["value"]
+    value = _spawn_git_sha()
+    with _code_sha_lock:
+        _code_sha_cache["value"] = value
+        _code_sha_cache["at"] = time.time()
+    return value
 
 
 def check() -> dict:

@@ -76,12 +76,18 @@ class ApiFootballService:
         # 无法同步；用文件级 O_CREAT|O_EXCL 锁（与 web.services.jobs._exclusive_lock
         # 同模式）。每个 worker 单独 _read → _check → _write 之前必须持锁，
         # 否则后写者覆盖前写者，每日最多超限 (workers × 1) 次。
+        #
+        # ⚠️ **P2（2026-10-23）：「当日」按 BJT 自然日，不是 UTC 日。**
+        # 旧实现用 ``datetime.fromtimestamp(now, timezone.utc).date()`` ⇒ 配额日界线落在
+        # **BJT 08:00**（UTC 00:00）⇒ BJT 00:00~08:00 这一段读到的仍是**昨天**的额度，
+        # 而且跨日重置也晚了 8 小时。竞彩/体彩的一切「当日」口径都是北京时间日历日
+        # （仓库既有口径：`core.bjt.now_bjt()` / `web.services.store.bjt_today()`）。
         from web.services.jobs import _exclusive_lock  # 复用既有锁实现
 
         lock_path = self._quota_path().with_suffix(".lock")
         with _exclusive_lock(lock_path, timeout=10):
             now = self.now()
-            today = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
+            today = self._bjt_day(now)
             try:
                 state = json.loads(self._quota_path().read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -99,6 +105,13 @@ class ApiFootballService:
             tmp = self._quota_path().with_suffix(".tmp")
             tmp.write_text(json.dumps(state), encoding="utf-8")
             tmp.replace(self._quota_path())
+
+    @staticmethod
+    def _bjt_day(now: float) -> str:
+        """epoch 秒 → **BJT 自然日** 'YYYY-MM-DD'（当日额度按北京时间日历日切）。"""
+        from zoneinfo import ZoneInfo
+
+        return datetime.fromtimestamp(now, ZoneInfo("Asia/Shanghai")).date().isoformat()
 
     def _get(self, endpoint: str, params: dict[str, object]) -> dict:
         self._enabled()

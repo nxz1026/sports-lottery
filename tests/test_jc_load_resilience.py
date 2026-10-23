@@ -112,16 +112,69 @@ def test_rejected_file_with_rows_mismatch_still_loads(tmp_path):
 
     ⚠️ 「行数不符」不等于「读不出来」：文件在、能读 ⇒ 照装。
     （不许趁修 gaps 口径时把这条契约改掉。）
+
+    ⚠️ **P1（2026-10-23）**：旧版这条断言只查 ``out["gap"] is False`` ⇒
+    **「文件到底有没有被读」根本没验** ⇒ 2026-10-23 那次「把 rejected 挡在读盘之外」
+    的回归（数据被静默丢弃、台账却记 ok=true rows_in=0）**照样绿**。
+    ⇒ 现在必须验：**read_lines 真的被调用了** + **行数真的进去了** + **台账留了注记**。
     """
     cur = _Cur()
     marker = tmp_path / "m.done"
     marker.write_text("x\n", encoding="utf-8")
-    f = tmp_path / "jczq_offer" / "a.jsonl"
+    f = tmp_path / "jclq_offer" / "a.jsonl"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text('{"kind":"line"}\n', encoding="utf-8")
 
-    with patch.object(jc_topic, "read_lines", return_value=[{"kind": "line"}]):
-        out = jc_topic.load_topic(cur, tmp_path, marker, "jczq_offer", f, "rejected")
+    read_calls: list = []
 
+    def _fake_read_lines(p):
+        read_calls.append(p)
+        return [{"kind": "line"}]
+
+    with patch.object(jc_topic, "read_lines", side_effect=_fake_read_lines):
+        out = jc_topic.load_topic(cur, tmp_path, marker, "jclq_offer", f, "rejected")
+
+    assert read_calls, "rejected 的文件**必须被读盘**（旧回归：不读 ⇒ 数据静默丢弃）"
     assert out["gap"] is False, "rejected 不是缺档（文件在盘上）"
-    assert "lines" in out
+    assert out["lines"] == 1, "rejected 的文件**必须照常装载**（行数要真的进去）"
+    # 台账必须留「manifest 行数不符」的注记（可见），但 ok 仍为 true（ticket 2q3b：done=true）
+    sql = _sqls(cur)
+    assert "ops.ingest_log" in sql
+    ing = [params for s, params in cur.calls if "ops.ingest_log" in s]
+    assert ing, "必须写 ingest_log"
+    assert ing[0][5] is True, "rejected 照常装载 ⇒ ok=true（ticket 2q3b）"
+    assert ing[0][1] == "jclq_offer/a.jsonl"
+    assert ing[0][2] == 1, "rows_in 必须是**实际读到的行数**，不是 0"
+    notes = ing[0][4]
+    assert notes is not None, "必须留下 manifest-mismatch 的注记（否则台账看不出异常）"
+
+
+def test_permission_denied_file_records_not_ok_and_no_file_arrival(tmp_path):
+    """P1（2026-10-23）：文件读不出来（权限）⇒ **不许**记 ok=true。
+
+    旧行为：``read_lines`` 吞掉 ``PermissionError`` 返回 [] ⇒ n=0 / rej=[] ⇒
+    记 **ok=true, rows_in=0** ⇒ **数据被静默丢弃，而台账说「装成功」**
+    （生产实测：permission-denied 44 次，每次都这样）。
+    ⇒ 现在：ok=false + 原因进 rejected + **不写 file_arrival**（仍会被重试）。
+    """
+    cur = _Cur()
+    marker = tmp_path / "m.done"
+    marker.write_text("x\n", encoding="utf-8")
+    f = tmp_path / "jclq_offer" / "a.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text('{"kind":"line"}\n', encoding="utf-8")
+
+    def _denied(p):
+        raise jc_topic.UnreadableFileError("permission-denied")
+
+    with patch.object(jc_topic, "read_lines", side_effect=_denied):
+        out = jc_topic.load_topic(cur, tmp_path, marker, "jclq_offer", f, "jsonl")
+
+    assert out["lines"] == 0 and out["ups"] == 0
+    assert out["gap"] is False, "读不出来 ≠ 缺档（文件在盘上）"
+    sql = _sqls(cur)
+    assert "ops.ingest_log" in sql, "必须留痕"
+    assert "ops.file_arrival" not in sql, "读不出来 ⇒ 不许写「已装载」台账（否则永远不再重试）"
+    ing = [params for s, params in cur.calls if "ops.ingest_log" in s]
+    assert ing[0][5] is False, "读不出来 ⇒ ok=false（不许谎报成功）"
+    assert "permission-denied" in str(ing[0][4]), "必须写明原因"

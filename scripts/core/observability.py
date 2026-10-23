@@ -56,11 +56,40 @@ _INSTALL_LOCK = threading.Lock()
 _EVENTS_WRITE_LOCK = threading.Lock()
 
 
+def _default_logs_dir() -> Path:
+    """默认 logs 目录。
+
+    ⚠️ **P1（2026-10-23）**：优先看 env ``LEAGUE_LOGS_DIR``。
+    为什么需要它：``FOOTBALL_DIR`` 由 ``LP_OUTPUT_DIR`` 决定，而 ``LP_OUTPUT_DIR``
+    **同时**决定「预测产物目录」—— 测试进程不能改它（会读不到真预测文件），
+    但**必须**把观测日志挪走（否则测试与**子进程**都在往生产 logs 目录写，
+    而那些文件全被 .gitignore 覆盖 ⇒ 污染完全隐形）。
+    ⇒ 单独开一个 env：只挪日志，不动产物。
+    生产不设这个 env ⇒ 行为不变（``FOOTBALL_DIR / "logs"``）。
+
+    ⚠️ **P1（2026-10-23）第二道保险**：``LEAGUE_LOGS_DIR`` 只存在于**父进程**的
+    ``os.environ``；任何**自带 env 的子进程**（实测：``subprocess.run(env={...})``）
+    拿不到它 ⇒ 又写回生产 logs 目录 ⇒ 污染（且完全隐形）。
+    ⇒ 兜底判据用 pytest 的 ``PYTEST_CURRENT_TEST``：pytest 会把它写进
+    ``os.environ`` ⇒ **子进程继承** ⇒ 只要跑在 pytest 里（含它的子进程），
+    日志一律落临时目录，**绝不写仓库**。
+    """
+    env_dir = os.environ.get("LEAGUE_LOGS_DIR")
+    if env_dir:
+        return Path(env_dir)
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        # 与 tests/conftest.py 的 _TEST_ROOT 保持一致（同一份临时日志，便于排障）。
+        import tempfile
+
+        return Path(tempfile.gettempdir()) / "sports-lottery-test-root" / "logs"
+    from core.constants import FOOTBALL_DIR
+    return FOOTBALL_DIR / "logs"
+
+
 def logs_dir() -> Path:
-    """当前安装到的 logs 目录（默认 ``FOOTBALL_DIR / "logs"``）。"""
+    """当前安装到的 logs 目录（默认 ``LEAGUE_LOGS_DIR`` 或 ``FOOTBALL_DIR / "logs"``）。"""
     if _LOGS_DIR is None:
-        from core.constants import FOOTBALL_DIR
-        return FOOTBALL_DIR / "logs"
+        return _default_logs_dir()
     return _LOGS_DIR
 
 
@@ -111,8 +140,7 @@ def setup(*, dir: Path | None = None, level: str | int | None = None,
                 )
             return logs_dir()
         if dir is None:
-            from core.constants import FOOTBALL_DIR
-            dir = FOOTBALL_DIR / "logs"
+            dir = _default_logs_dir()
         dir.mkdir(parents=True, exist_ok=True)
         _LOGS_DIR = dir
         # 文件名后缀：process_name=None → "runtime.log" / "events.jsonl"（保持旧契约）；

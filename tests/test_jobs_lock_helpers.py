@@ -178,3 +178,86 @@ def test_drop_stale_lock_cross_process_alive_pid_keeps_lock(tmp_path, monkeypatc
     jobs_mod._drop_stale_lock(lock_path)
     # 活进程持有 → 不删
     assert lock_path.exists()
+
+
+# ──────────────────────── P1-H2：同进程活锁不许被偷删 ────────────────────────
+#
+# ⚠️ 2026-10-23 审计挖出的**真 bug**（不是测试写错）：
+#   `_drop_stale_lock` 对「同进程（pid == self）」用「持锁 age ≥ 5s ⇒ 判废」的
+#   粗暴规则，原意是清「线程崩死留下的残留锁」，实际会**连同同进程另一个线程
+#   正在合法持有的锁一起删**。
+#   实测（修复前）：持锁线程**仍存活**时锁文件被删 ⇒ 第三个写者 0.01s 内进入
+#   临界区 ⇒ **互斥彻底失效** ⇒ 并发写互相污染 jobs/<id>.json。
+#   ⇒ 修法：进程内锁登记表（`_register_lock` / `_unregister_lock` /
+#     `_lock_held_in_process`）；`_drop_stale_lock` 判定 stale 前先查表，
+#     **登记在册 ⇒ 立即 return**。
+#
+# 下面 4 测既是回归，也是**反向对照**：把修复回退（旧行为），
+# `test_live_in_process_lock_cannot_be_stolen` 必定 FAIL。
+
+
+def test_live_in_process_lock_cannot_be_stolen(tmp_path):
+    """P1-H2：同进程活线程持有的锁，第二个写者**拿不到**（互斥不失效）。
+
+    反向对照：修复前 `_drop_stale_lock` 会因「同进程 + mtime 老」把活锁删掉
+    ⇒ 第二个写者直接拿到锁 ⇒ ``pytest.raises(LockTimeout)`` 会因
+    「DID NOT RAISE」而 FAIL。
+    """
+    lock_path = tmp_path / "live.lock"
+    with jobs_mod._exclusive_lock(lock_path, timeout=1):
+        # 模拟「已经持锁很久」：把 mtime 改老（修复前的 stale 规则只看 age）
+        target_mtime = time.time() - 300
+        os.utime(lock_path, (target_mtime, target_mtime))
+
+        # 第二个写者：必须被挡住
+        with pytest.raises(LockTimeout):
+            with jobs_mod._exclusive_lock(lock_path, timeout=0.2):
+                pass
+
+        # 活锁必须还在（修复前这里会 False —— 锁被偷删了）
+        assert lock_path.exists()
+        assert lock_path.read_text(encoding="utf-8") == str(os.getpid())
+    # 退出后正常释放
+    assert not lock_path.exists()
+
+
+def test_drop_stale_lock_keeps_registered_lock_regardless_of_age(tmp_path):
+    """P1-H2：登记在册的锁，mtime 多老都不许删（登记在册 ⇒ 活人持锁）。"""
+    lock_path = tmp_path / "registered.lock"
+    lock_path.write_text(str(os.getpid()), encoding="utf-8")
+    target_mtime = time.time() - 300
+    os.utime(lock_path, (target_mtime, target_mtime))
+
+    jobs_mod._register_lock(lock_path)
+    try:
+        assert jobs_mod._lock_held_in_process(lock_path) is True
+        jobs_mod._drop_stale_lock(lock_path)
+        assert lock_path.exists(), "登记在册的锁被当成 stale 删了"
+    finally:
+        jobs_mod._unregister_lock(lock_path)
+
+
+def test_unregistered_old_lock_is_still_cleaned_up(tmp_path):
+    """P1-H2：**不在册**的同进程残留锁仍按原规则清理（不破坏既有清理意图）。"""
+    lock_path = tmp_path / "leftover.lock"
+    lock_path.write_text(str(os.getpid()), encoding="utf-8")
+    target_mtime = time.time() - 300
+    os.utime(lock_path, (target_mtime, target_mtime))
+
+    assert jobs_mod._lock_held_in_process(lock_path) is False
+    jobs_mod._drop_stale_lock(lock_path)
+    assert not lock_path.exists(), "线程崩死留下的残留锁没被清理"
+
+
+def test_lock_registry_cleared_on_release_and_on_error(tmp_path):
+    """P1-H2：登记表在正常退出与抛异常两种路径下都要注销（不许漏登记）。"""
+    lock_path = tmp_path / "registry.lock"
+    with jobs_mod._exclusive_lock(lock_path, timeout=1):
+        assert jobs_mod._lock_held_in_process(lock_path) is True
+    assert jobs_mod._lock_held_in_process(lock_path) is False
+
+    with pytest.raises(RuntimeError):
+        with jobs_mod._exclusive_lock(lock_path, timeout=1):
+            assert jobs_mod._lock_held_in_process(lock_path) is True
+            raise RuntimeError("boom")
+    assert jobs_mod._lock_held_in_process(lock_path) is False

@@ -469,10 +469,21 @@ class TestTrainLeagueCLI:
         Windows GBK 控制台：subprocess 进程可能输出含中文 logger 警告，强制
         ``errors="replace"`` 让 decode 不会因 cp936 字节失败而让测试崩溃。
         """
+        # ⚠️ env 必须带 ``LEAGUE_LOGS_DIR``：子进程用自己的 env ⇒ 不继承父进程的
+        #    ⇒ core.log 会按默认口径把观测日志写进**生产** logs 目录
+        #    （实测：全量 pytest 会把 scripts/logs/events.predict.jsonl 写脏，
+        #    而那些文件被 .gitignore 覆盖 ⇒ 污染完全隐形）。
+        env = {"PYTHONPATH": "scripts",
+               "PATH": __import__("os").environ["PATH"],
+               "LEAGUE_LOGS_DIR": __import__("os").environ.get(
+                   "LEAGUE_LOGS_DIR",
+                   __import__("os").path.join(
+                       __import__("tempfile").gettempdir(),
+                       "sports-lottery-test-root", "logs"))}
         return subprocess.run(
             [sys.executable, "-m", "core.retrain_baseline", *args],
             cwd=str(SCRIPTS_DIR.parent),
-            env={"PYTHONPATH": "scripts", "PATH": __import__("os").environ["PATH"]},
+            env=env,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
 

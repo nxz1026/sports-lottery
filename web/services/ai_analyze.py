@@ -11,11 +11,19 @@
 调用：
   同步：在进程内调 analyze(date_str) -> dict 立即返回结果并落盘
   异步：jobs.py 触发 python -m web.services.ai_analyze YYYY-MM-DD 子进程（与 predict 共享配额与并发守卫）
+
+⚠️ **P1（2026-10-23）**：本模块是**独立子进程**（`python -m web.services.ai_analyze`），
+`sys.path[0]` 只有**仓库根** ⇒ `core.*` / `store.*` / `ai.*` 全都**不在**路径上
+⇒ 生产实测 `ModuleNotFoundError: No module named 'core'` ⇒ **exit 1**，
+而看板的 AI 面板却显示「尚未生成。先点『生成当日分析』」（面板也在说谎）。
+⇒ 本模块必须**自己**把 `scripts/` 加进 `sys.path`（自举），
+不能指望父进程的环境（jobs.py 的 `_build_env()` 是**白名单**透传，PYTHONPATH 不在其中）。
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +32,17 @@ logger = logging.getLogger("web.services.ai_analyze")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT_DIR = REPO_ROOT / "predictions" / "ai_analysis"
+
+# ⚠️ **P1（2026-10-23）**：进程名（观测文件名后缀）必须在 import core 之前定下来
+#    —— `core.log` 是第一个执行 `observability.setup()` 的地方，
+#    写死 "predict" 会让本子进程与 predict 主进程**抢同一个 events 文件**。
+os.environ.setdefault("LEAGUE_PROCESS_NAME", "ai_analyze")
+
+# ⚠️ **P1（2026-10-23）**：自举 `scripts/`（core / store / ai 三个包都在它下面）。
+#    追加到 **末尾**（不前置），避免 scripts/ 下同名包遮蔽 web/。
+_SCRIPTS_DIR = str(REPO_ROOT / "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.append(_SCRIPTS_DIR)
 
 # 复用 core.log 的 logger（与 web 服务一致）
 try:
@@ -108,6 +127,13 @@ def _class_per_match(predictions: dict, fixtures: list) -> list[dict]:
     out: list[dict] = []
     if not predictions:
         return out
+    # P0（2026-10-23）：**模型概率走唯一真源** `core.model_probs`。
+    # ⚠️ 旧实现读 `reasoning_factors.{home_ml_true_prob, draw_true_prob, away_ml_true_prob}`
+    # —— ① `draw_ml_true_prob` 这个键**根本不存在** ⇒ 平局腿取到的是 `draw_true_prob`
+    # （**市场先验**）；② `*_true_prob` 是 ESPN 去水概率，不是模型输出。
+    # ⇒ 旧实现会把「市场先验」当「模型胜平负真实概率」喂给 LLM，**解读本身就说错了**。
+    from core.model_probs import resolve_model_probs
+
     from ai.llm_client import generate
     for league_key, doc in (predictions or {}).items():
         items = (doc.get("data") or {}).get("predictions", []) or []
@@ -118,14 +144,16 @@ def _class_per_match(predictions: dict, fixtures: list) -> list[dict]:
             away = e.get("away") or "?"
             direction = e.get("direction") or ""
             score = e.get("predicted_score") or ""
-            rf = e.get("reasoning_factors") or {}
-            p_home = rf.get("home_ml_true_prob")
-            p_draw = rf.get("draw_true_prob")
-            p_away = rf.get("away_ml_true_prob")
+            probs = resolve_model_probs(e) or {}
+            p_home = probs.get("home")
+            p_draw = probs.get("draw")
+            p_away = probs.get("away")
+            prob_txt = (f"主{p_home} 平{p_draw} 客{p_away}" if probs
+                        else "（这场模型没算出赢面）")
             prompt = (
                 f"你是体彩数据分析师。一句话中文解读（≤60 字）：{home} vs {away}，"
                 f"模型方向「{direction}」，预测比分「{score}」，模型胜平负真实概率"
-                f"主{p_home} 平{p_draw} 客{p_away}。"
+                f"{prob_txt}。"
                 "要求：客观、含风险提示，禁用收益承诺/投注建议字样。输出 JSON：{\"text\":\"...\"}"
             )
             try:

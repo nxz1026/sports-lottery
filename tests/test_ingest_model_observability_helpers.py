@@ -133,16 +133,27 @@ def test_d124_1_stamp_extracts_datetime(jc_read_mod):
 
 
 def test_d124_2_stamp_invalid_name_raises_attribute_error(jc_read_mod):
-    """D-124-2: _stamp 文件名无时间戳 → regex 没匹配 → m.group() AttributeError.
+    """D-124-2: _stamp 文件名无时间戳 → 显式抛错, **不静默返 None**。
 
-    这是契约外"fast-fail"行为: 不静默返 None, 而是显式 AttributeError.
+    ⚠️ **P2-C（2026-10-23）改**：异常类型从 ``AttributeError``（``m.group()``
+    在 ``m is None`` 上的意外产物）改成**可区分**的 ``InvalidFileNameError``
+    （``jc_read`` 里与 ``UnreadableFileError`` 同级的「文件级可隔离错误」）。
+
+    为什么必须改：旧行为是**掀翻整批**（``_window`` 里一个异形文件名 ⇒
+    AttributeError ⇒ ``load_batch`` 整批 rollback ⇒ marker 永久 ok=false
+    ⇒ 每 10 分钟重装整批）。审计 P2「_stamp 遇异形文件名掀翻整批」。
+    ⇒ 现在抛的类型让调用方能**按文件隔离**（记失败 + 原因，其余文件继续）。
+    本测试的**契约意图不变**：显式抛错，不返 None。
     """
     mod = jc_read_mod
 
-    with pytest.raises(AttributeError):
+    with pytest.raises(mod.InvalidFileNameError):
         mod._stamp("not_a_timestamp.txt")
-    with pytest.raises(AttributeError):
+    with pytest.raises(mod.InvalidFileNameError):
         mod._stamp("20251017.json")  # 缺少 - 分隔符
+    # 非法时间戳（如 13 月 45 日）也走同一条可区分的路，而不是 datetime 的裸 ValueError
+    with pytest.raises(mod.InvalidFileNameError):
+        mod._stamp("2026-13-45T99-99__001.jsonl")
 
 
 # D-124-3: _count_lines

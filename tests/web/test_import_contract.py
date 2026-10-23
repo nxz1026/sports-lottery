@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -29,6 +30,14 @@ def _clean_env() -> dict:
     """构造不含 PYTHONPATH 的环境（生产 unit 里就没有 PYTHONPATH）。"""
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
+    # ⚠️ **P1（2026-10-23）**：子进程**不许**写生产 logs 目录。
+    #    `web/api.py` 会装挂 observability（进程名 web）⇒ 默认目录 = FOOTBALL_DIR/logs
+    #    = 生产目录 ⇒ 每跑一次这条用例就往生产 events.web.jsonl 里写几行
+    #    （而它被 .gitignore 覆盖 ⇒ 污染隐形）。
+    #    ⇒ LP_OUTPUT_DIR 决定 core.constants.FOOTBALL_DIR ⇒ 把它指到临时目录。
+    out_root = Path(tempfile.gettempdir()) / "sports-lottery-test-root" / "import-contract"
+    out_root.mkdir(parents=True, exist_ok=True)
+    env["LP_OUTPUT_DIR"] = str(out_root)
     # 确保 cwd 是仓库根（生产的 WorkingDirectory）
     return env
 

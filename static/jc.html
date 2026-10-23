@@ -45,7 +45,7 @@
 <body>
 <main>
   <h1>竞彩看板（jc）</h1>
-  <div id="auth">请先登录 <a href="/login">/login</a></div>
+  <div id="auth"><span id="authMsg">请先登录</span> <a id="loginLink" href="/login">/login</a></div>
   <section id="s-fix"><h2>场次 × 盘口</h2><p class="note" id="n-fix"></p><div id="t-fix"></div></section>
   <section id="s-bt"><h2>基线指标</h2><p class="note" id="n-bt"></p><div id="t-bt"></div></section>
   <section id="s-is"><h2>期次</h2><p class="note" id="n-is"></p><div id="t-is"></div></section>
@@ -56,6 +56,22 @@
 </main>
 <script>
 (function () {
+  /* P2-A10：API 基址**不许写死根路径**。
+   * 旧实现 4 个 fetch 全写 "/api/jc/..." ⇒ 生产（本页实际挂在 /dashboard/jc/static/jc.html）
+   *   请求打到**另一个服务**的根路径 /api/jc/*，拿到的是门户的 401（text/plain）
+   *   ⇒ 页面**永远**显示「请先登录」，即使带着有效 lp_session 也一样（实测 2026-10-23）。
+   * 修法：按**当前 URL** 推导前缀（范式照抄 static/dailyimage.html:69-71）：
+   *   生产 /dashboard/jc/static/jc.html ⇒ 前缀 /dashboard/jc ⇒ 基址 /dashboard/jc/api/jc/
+   *   本机 /static/jc.html（8077 根路径）  ⇒ 前缀 ""           ⇒ 基址 /api/jc/
+   * 登录入口同理（生产是 /dashboard/jc/login，见 dashboard.html 的 LOGIN）。 */
+  var _path = window.location.pathname;
+  var _idx = _path.indexOf("/static/");
+  var _m = _path.match(/^(.*\/dashboard\/jc)(?:\/|$)/);
+  var _PREFIX = _idx >= 0 ? _path.slice(0, _idx) : (_m ? _m[1] : "");
+  var API_BASE = _PREFIX + "/api/jc/";
+  var _login = document.getElementById("loginLink");
+  if (_login) _login.href = _PREFIX + "/login";
+
   var FIX_COLS = ["match_num","league_cn","home_cn","away_cn","kickoff_bj","match_status",
                   "play_type","snap_ts","goal_line","options"];
   var BT_COLS = ["play_type","n_fp","brier","brier_uniform","acc","clv_filled"];
@@ -128,20 +144,34 @@
   var COLS_BY_KEY = { team: TEAM_COLS, topic: TOPIC_COLS, quota: QUOTA_COLS, rej: REJ_COLS };
   var OPS_KEYS = ["team", "topic", "quota", "rej"];
 
-  function showAuthOnly() {
+  function hideAllSections() {
     ["s-fix", "s-bt", "s-is", "s-team", "s-topic", "s-quota", "s-rej"].forEach(function (id) {
       document.getElementById(id).style.display = "none";
     });
+  }
+  function showAuthOnly() {
+    hideAllSections();
+    document.getElementById("authMsg").textContent = "请先登录";
+    document.getElementById("auth").style.display = "";
+  }
+  /* P2-A10：只有 401/403 才叫「请先登录」；其它失败（404 / 5xx / 网络错误）说「加载失败」。
+   * 旧实现一律 showAuthOnly() ⇒ 一次路径写错就被误报成「你没登录」（实测：根路径 401
+   * 来自另一个服务，页面却显示「请先登录」）。 */
+  function showLoadFailed(msg) {
+    hideAllSections();
+    document.getElementById("authMsg").textContent = "数据加载失败：" + msg;
     document.getElementById("auth").style.display = "";
   }
 
   Promise.all([
-    fetch("/api/jc/fixtures", { credentials: "same-origin" }),
-    fetch("/api/jc/backtest", { credentials: "same-origin" }),
-    fetch("/api/jc/issues?limit=20", { credentials: "same-origin" }),
-    fetch("/api/jc/ops", { credentials: "same-origin" })
+    fetch(API_BASE + "fixtures", { credentials: "same-origin" }),
+    fetch(API_BASE + "backtest", { credentials: "same-origin" }),
+    fetch(API_BASE + "issues?limit=20", { credentials: "same-origin" }),
+    fetch(API_BASE + "ops", { credentials: "same-origin" })
   ]).then(function (rs) {
     if (rs.some(function (r) { return r.status === 401 || r.status === 403; })) { showAuthOnly(); return; }
+    var bad = rs.filter(function (r) { return !r.ok; });
+    if (bad.length) { showLoadFailed("HTTP " + bad[0].status); return; }
     return Promise.all(rs.map(function (r) { return r.json(); }))
       .then(function (ds) {
         render("fix", ds[0], FIX_COLS);
@@ -154,7 +184,7 @@
           render(k, body, COLS_BY_KEY[k]);
         });
       });
-  }).catch(function () { showAuthOnly(); });
+  }).catch(function (e) { showLoadFailed(e && e.message ? e.message : "网络错误"); });
 })();
 </script>
 </body>

@@ -23,8 +23,15 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import types
 from pathlib import Path
+
+# ⚠️ **P1（2026-10-23）**：占位路径必须是**绝对**路径。
+#    旧写法 `Path("unused")` 是**相对路径** ⇒ 一旦有代码真去写它，
+#    落点就是 **CWD = 仓库根** ⇒ 仓库根多出一个 `unused` 文件
+#    （实测：被测试夹具的假队名覆盖；且它被 .gitignore 覆盖 ⇒ 污染隐形）。
+_UNUSED = Path(tempfile.gettempdir()) / "sports-lottery-test-unused"
 
 import pytest
 
@@ -44,12 +51,12 @@ _config_bball.ELO = {
     "INITIAL": 1500.0, "SCALE": 400, "K": 20, "HOME_ADV": 100,
 }
 _config_bball.TEAM_CN = {"Atlanta Hawks": "ATL", "Boston Celtics": "BOS"}
-_config_bball.ELO_FILE = Path("unused")
-_config_bball.TEAMS_SEED_FILE = Path("unused")
+_config_bball.ELO_FILE = _UNUSED
+_config_bball.TEAMS_SEED_FILE = _UNUSED
 # 占位: R39-3 只用 ELO 常量; 其他属性让 from .config_bball import 不爆
 _config_bball.LEAGUE = {"odds_sport": "basketball_nba", "name": "NBA"}
 _config_bball.PREDICT = {"LEAGUE_PACE": 98.5, "AVG_PPG": 112.0, "HOME_SCORE_ADV": 2.5, "ELO_TO_POINTS": 0.06, "SPREAD_CONFIDENCE": 0.65, "TOTAL_CONFIDENCE": 0.6}
-_config_bball.DATA_DIR = Path("unused")
+_config_bball.DATA_DIR = _UNUSED
 _config_bball.TEAM_CN_ALIASES = {}
 sys.modules.setdefault("bball.config_bball", _config_bball)
 

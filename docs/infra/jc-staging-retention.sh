@@ -47,6 +47,17 @@ DIR=${JC_STAGING_DIR:-/srv/league-staging/incoming/cn-collector}
 #    但 ``/srv/league-staging/bad`` 是 league 拥有且可写 ⇒ 用它。
 QUAR=${JC_QUARANTINE_DIR:-/srv/league-staging/bad}
 KEEP_DAYS=${JC_STAGING_KEEP_DAYS:-30}
+# 仓库根（用于调用 `python -m ingest.jc_topic --record-quarantine` 写隔离台账）。
+# ⚠️ **P2-C9（2026-10-23）**：隔离动作原来**不写任何台账** ⇒ 隔离区里的文件在
+#    ``ops.ingest_log`` 里**零痕迹**（生产实测 29 个文件，19 个连一行记录都没有）
+#    ⇒ 页面上看不到「有 N 个文件被隔离」= **静默丢数据**。
+#    ⇒ 现在每个被隔离的文件都写一行台账（ok=false + rejected=[{"reason":"quarantined"}]）。
+#    ⇒ 台账写入是**幂等**的（7 天窗口内同文件同原因只记一次）⇒ 可安全重跑。
+REPO=${LEAGUE_REPO:-/home/ubuntu/DSH/sports-lottery}
+# 隔离清单：Python 块是**用 league 身份**跑的 ⇒ 清单必须 league 可写
+# （/home/ubuntu/logs 归 ubuntu，league 写不进去 ⇒ 改用 /tmp + 放开权限）。
+Q_LIST=$(mktemp /tmp/jc-staging-quarantine.XXXXXX)
+chmod 666 "$Q_LIST"
 APPLY=0
 [ "${1:-}" = "--apply" ] && APPLY=1
 LOG=/home/ubuntu/logs/jc-staging-retention.log
@@ -74,10 +85,12 @@ fi
 
 # ── 1) 坏文件：隔离（保留证据，不直接删） ────────────────────────────
 log "-- 扫描坏文件（逐行 json.loads）--"
-sudo -n -u league python3 - "$DIR" "$QUAR/$STAMP" "$APPLY" <<'PY'
+: > "$Q_LIST"
+sudo -n -u league python3 - "$DIR" "$QUAR/$STAMP" "$APPLY" "$Q_LIST" <<'PY'
 import json, shutil, sys
 from pathlib import Path
 root = Path(sys.argv[1]); qdir = Path(sys.argv[2]); apply_ = sys.argv[3] == "1"
+qlist = Path(sys.argv[4])
 if apply_:
     qdir.mkdir(parents=True, exist_ok=True)   # ⚠️ dry-run 不建（否则每次留一个空目录）
 bad = []
@@ -98,6 +111,7 @@ for t in sorted(p.name for p in root.iterdir() if p.is_dir()):
             bad.append((t, f, 0))
 print("BAD_FILES=%d" % len(bad))
 moved = 0
+quarantined = []
 for t, f, line in bad:
     rel = f.relative_to(root)
     print("  %-52s line=%d" % (str(rel), line))
@@ -106,9 +120,36 @@ for t, f, line in bad:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(f), str(dest))
         moved += 1
+        quarantined.append("%s\t%d" % (str(rel), line))
 print("QUARANTINED=%d dir=%s" % (moved, qdir))
+# ⚠️ **P2-C9**：把被隔离的文件**写进清单** ⇒ 外层 shell 据此写 ops 台账
+#    （原来隔离后**零痕迹** ⇒ 页面看不到「有 N 个文件被隔离」= 静默丢数据）。
+if apply_ and quarantined:
+    try:
+        qlist.parent.mkdir(parents=True, exist_ok=True)
+        qlist.write_text("\n".join(quarantined) + "\n", encoding="utf-8")
+    except OSError as e:
+        print("WARN: 写隔离清单失败：%s" % e)
 PY
 [ $? -eq 0 ] || { log "✗ 坏文件扫描失败"; exit 8; }
+
+# ⚠️ **P2-C9（2026-10-23）**：隔离事件入台账（幂等）。
+#    写不进台账**不许**中断清理（文件已经移走了，中断只会让下一轮重复扫）⇒ 只告警。
+if [ "$APPLY" = "1" ] && [ -s "$Q_LIST" ]; then
+  _q_n=0
+  while IFS=$'\t' read -r _rel _line; do
+    [ -n "$_rel" ] || continue
+    if sudo -n -u league env PYTHONPATH="$REPO/scripts" \
+         python3 -m ingest.jc_topic --record-quarantine \
+           --src-file "$_rel" --reason quarantined \
+           --detail "坏文件被保留策略隔离（行 $_line）" >>"$LOG" 2>&1; then
+      _q_n=$((_q_n + 1))
+    else
+      log "⚠ 隔离台账写入失败（文件已隔离，但台账缺行）：$_rel"
+    fi
+  done < "$Q_LIST"
+  log "-- 隔离台账已写 $_q_n 条（ops.ingest_log，ok=false + reason=quarantined）--"
+fi
 
 # ── 2) 过期文件：先移走盘上文件 ───────────────────────────────────────
 # ⚠️ 判据用**文件名里的日期**（``YYYY-MM-DD`` 前缀）而不是 mtime ——
@@ -180,3 +221,5 @@ PY
 fi
 
 log "== 结束 =="
+# 清理临时清单（P2-C9 引入）
+rm -f "$Q_LIST"
