@@ -89,6 +89,86 @@ def stale_lines(text: str, phrases: list[str]) -> list[int]:
     return out
 
 
+# ── AST 工具：守门断言必须**精确判定代码行为**，不能靠字符串匹配 ──────────
+# 为什么：源码里的 docstring / 注释会逐字引用旧写法（订正记录、教学价值），
+#        朴素字符串匹配会命中自己的说明 ⇒ 假失败（R46 的 09:00 规则已踩过）。
+#        「函数里出现了某个字符串」≠「函数会用那个字符串」—— 要看的是
+#        **代码**（可执行语句）里的常量，不是文档里的。
+
+def _docstring_ids(tree: ast.AST) -> set[int]:
+    """收集该模块里所有 docstring 常量节点的 id（用来把它们从「代码字符串」里排除）。"""
+    ids: set[int] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = getattr(n, "body", [])
+            if body and isinstance(body[0], ast.Expr) \
+                    and isinstance(body[0].value, ast.Constant) \
+                    and isinstance(body[0].value.value, str):
+                ids.add(id(body[0].value))
+    return ids
+
+
+def code_strings(p: Path) -> set[str]:
+    """返回该文件**代码**（不含 docstring）里用到的字符串常量集合。"""
+    tree = ast.parse(read(p))
+    doc_ids = _docstring_ids(tree)
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in doc_ids:
+            out.add(n.value)
+    return out
+
+
+def find_fn(p: Path, name: str):
+    """按名字找函数定义节点（找不到返回 None）。"""
+    tree = ast.parse(read(p))
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
+            return n
+    return None
+
+
+def fn_code_strings(p: Path, name: str) -> set[str]:
+    """函数体**代码**里的字符串常量（排除它自己的 docstring）。"""
+    fn = find_fn(p, name)
+    if fn is None:
+        return set()
+    doc_ids = _docstring_ids(fn)
+    out: set[str] = set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in doc_ids:
+            out.add(n.value)
+    return out
+
+
+def fn_imports(p: Path, name: str) -> set[str]:
+    """函数体里 import 的模块名集合（``from X import Y`` ⇒ X；``import X`` ⇒ X）。"""
+    fn = find_fn(p, name)
+    if fn is None:
+        return set()
+    mods: set[str] = set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.ImportFrom) and n.module:
+            mods.add(n.module)
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                mods.add(a.name)
+    return mods
+
+
+def top_level_imports(p: Path) -> set[str]:
+    """**模块顶层**（不在函数体内）的 import 模块名集合。"""
+    tree = ast.parse(read(p))
+    mods: set[str] = set()
+    for n in tree.body:
+        if isinstance(n, ast.ImportFrom) and n.module:
+            mods.add(n.module)
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                mods.add(a.name)
+    return mods
+
+
 def main() -> int:
     readme = read(ROOT / "README.md")
     agents = read(ROOT / "AGENTS.md")
@@ -1763,6 +1843,78 @@ def main() -> int:
           "#### 6.13.6" in _roadmap)
     check("路线图 §6.13.6 记了根因（每 10 分钟重装 ⇒ 每天 1 万行）与实测数字", True,
           "1208" in _roadmap or "1 万行" in _roadmap)
+
+    # ── P0：模型概率**唯一真源**（2026-10-23 三路审计发现的口径塌方）────────
+    # 事故（生产实测，斯图加特 vs 门兴格拉德巴赫 / 德甲 / 2026-10-23）：
+    #   probs            = {h:0.6466, d:0.1405, a:0.2129}  ← 决策层（推荐单）用的
+    #   ml_proba         = [0.9778, 0.0081, 0.0141]         ← 卡片概率条/edge/EV 用的
+    #   confidence_score = 0.793（=(p−0.25)×2 的**把握度评分**）  ← 卡片标成「这条的赢面」
+    #   reasoning_factors.draw_true_prob = 0.137（**市场先验**）  ← 串关 EV 用的
+    # ⇒ 同一页面上 4 个「赢面」互相矛盾：卡片说主胜「每投 1 元多赚 0.33 元」，
+    #    决策层用**同一个模型**算出主胜 EV = −0.159 ⇒ 卡片让买主胜、推荐单让买客胜。
+    # 口径纪律（唯一真源 scripts/core/model_probs.py 的 docstring 里是权威版）：
+    #   模型概率 = probs.{h,d,a}（融合后最终值）；绝不用 ml_proba（分类器原始输出）、
+    #   绝不用 *_true_prob（ESPN 市场先验）。
+    _mp_path = SCRIPTS / "core" / "model_probs.py"
+    check("模型概率唯一真源模块在库（scripts/core/model_probs.py）", True, _mp_path.is_file())
+    _mp_code = code_strings(_mp_path)
+    check("唯一真源不许读 ml_proba（ML 分类器原始输出，未与规则模型融合）", False,
+          any("ml_proba" in s for s in _mp_code))
+    check("唯一真源不许读 *_true_prob（ESPN 去水市场先验，不是模型输出）", False,
+          any(re.search(r"\b\w+_true_prob\b", s) for s in _mp_code))
+    _mp_tol = None
+    for _n in ast.parse(read(_mp_path)).body:
+        if isinstance(_n, ast.Assign) and any(getattr(t, "id", "") == "DEFAULT_SUM_TOL"
+                                              for t in _n.targets) \
+                and isinstance(_n.value, ast.Constant) and isinstance(_n.value.value, (int, float)):
+            _mp_tol = float(_n.value.value)
+    check("模型概率求和容差 ≥ 1e-3（融合后按 4 位小数四舍五入，误差上界 ≈1.5e-4；"
+          "旧容差 1e-6 把 99/162 真实场次误判为非法）", True,
+          _mp_tol is not None and _mp_tol >= 1e-3)
+
+    _arch_path = SCRIPTS / "model" / "archive.py"
+    _arch_fns = {n.name for n in ast.walk(ast.parse(read(_arch_path)))
+                  if isinstance(n, ast.FunctionDef)}
+    check("归档层不许自带第二份概率校验实现（_as_prob 必须消失 ⇒ 口径只有一份）", False,
+          "_as_prob" in _arch_fns)
+    check("归档层不许自带第二份 probs→键前缀映射（_PROBS_PREFIX 必须消失）", False,
+          any(isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "_PROBS_PREFIX"
+                                                for t in n.targets)
+              for n in ast.parse(read(_arch_path)).body))
+    check("归档层 _prob 必须委托唯一真源 core.model_probs", True,
+          "core.model_probs" in fn_imports(_arch_path, "_prob"))
+
+    _pred_path = ROOT / "web" / "routers" / "predictions.py"
+    check("web API 校验层不许再读 ml_proba（AST 判定，免疫 docstring 里的订正记录）", False,
+          any("ml_proba" in s for s in fn_code_strings(_pred_path, "_validated_model_probs")))
+    check("web API 校验层必须走唯一真源 core.model_probs", True,
+          "core.model_probs" in fn_imports(_pred_path, "_validated_model_probs"))
+    check("预测摘要必须透出 probs（页面要能直接看到模型真值，不必反推 edge_prob）", True,
+          "probs" in fn_code_strings(_pred_path, "_prediction_summary"))
+
+    _combo_path = ROOT / "web" / "routers" / "combo.py"
+    check("串关不许读 reasoning_factors 的 *_ml_true_prob（draw_ml_true_prob 键**根本不存在**"
+          " ⇒ 平局腿实际取到市场先验）", [],
+          sorted(s for s in code_strings(_combo_path) if "_ml_true_prob" in s))
+    check("串关必须走唯一真源 core.model_probs", True,
+          "core.model_probs" in fn_imports(_combo_path, "_resolve_model_probs"))
+
+    _tick_path = ROOT / "web" / "routers" / "ticket.py"
+    check("票面三向概率不许回退 ml_proba（分类器原始输出，强弱悬殊场次会塌方）", False,
+          any("ml_proba" in s for s in fn_code_strings(_tick_path, "_model_three")))
+    check("票面必须走唯一真源 core.model_probs", True,
+          "core.model_probs" in fn_imports(_tick_path, "_model_three"))
+
+    _web_toplevel: list[str] = []
+    for _rel in ("web/api.py", "web/routers/predictions.py", "web/routers/combo.py",
+                 "web/routers/ticket.py"):
+        for _m in top_level_imports(ROOT / _rel):
+            if _m == "scripts" or _m.startswith("scripts."):
+                _web_toplevel.append(f"{_rel}:{_m}")
+    check("web 层禁止顶层 import scripts.*（只能在函数内延迟 import）", [], _web_toplevel)
+    check("看板冒烟必须断言 P0 口径（模型概率唯一真源 / 赢面≠把握度 / 赔率来源标注）", True,
+          "p0_modelProbs_noMlFallback" in _smoke and "p0_confBlock" in _smoke
+          and "p0_marketLabel_source" in _smoke)
 
     # ---- 21. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。

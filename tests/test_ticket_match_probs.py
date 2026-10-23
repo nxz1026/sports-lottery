@@ -34,13 +34,26 @@ from web.routers.ticket import _match_probs
 
 def _entry(home="Liverpool", away="ManU",
            home_ml=0.6, draw=0.25, away_ml=0.15):
-    """构造预测 entry; 包含 reasoning_factors (含三向) + home/away 用于 fuzzy 候选。"""
+    """构造预测 entry; **模型概率**用 `probs`（融合后最终值）+ home/away 用于 fuzzy 候选。
+
+    ⚠️ P0（2026-10-23）：旧夹具用 `reasoning_factors.{home_ml_true_prob, draw_true_prob,
+    away_ml_true_prob}` —— 那不是模型概率（`draw_ml_true_prob` 键**根本不存在**，
+    `*_true_prob` 是 ESPN **市场先验**）⇒ 已改成唯一真源 `probs.{h,d,a}`。
+    """
+    return {
+        "home": home, "away": away,
+        "probs": {"h": home_ml, "d": draw, "a": away_ml},
+    }
+
+
+def _entry_market_prior_only(home="Liverpool", away="ManU"):
+    """只带**市场先验**（`reasoning_factors.*_true_prob`）的 entry —— P0 必须拒绝它。"""
     return {
         "home": home, "away": away,
         "reasoning_factors": {
-            "home_ml_true_prob": home_ml,
-            "draw_true_prob": draw,
-            "away_ml_true_prob": away_ml,
+            "home_true_prob": 0.6,
+            "draw_true_prob": 0.25,
+            "away_true_prob": 0.15,
         },
     }
 
@@ -122,3 +135,27 @@ def test_match_probs_d36_model_three_none_when_no_proba():
     }}
     out = _match_probs("Liverpool", "ManU", pred)
     assert out is None
+
+
+def test_match_probs_p0_rejects_market_prior_only():
+    """P0（2026-10-23）：只有**市场先验**（`reasoning_factors.*_true_prob`）时必须返 None。
+
+    `*_true_prob` 是 ESPN 赔率去水后的**市场先验**，不是模型输出 ⇒ 拿它算命中概率
+    是循环论证（用庄家的赔率去猜庄家的结果）。旧实现读 `draw_true_prob` 当平局腿
+    ⇒ 票面概率失真 ⇒ 必须拒绝。
+    """
+    pred = {("Liverpool", "ManU"): _entry_market_prior_only()}
+    assert _match_probs("Liverpool", "ManU", pred) is None
+
+
+def test_match_probs_p0_rejects_ml_proba_only():
+    """P0（2026-10-23）：只有 `ml_proba`（ML 分类器原始输出）时必须返 None。
+
+    `ml_proba` 未经与规则模型融合，强弱悬殊的场次会塌成 [0.978, 0.008, 0.014] ⇒
+    拿它当「模型赢面」会让票面与推荐单/卡片互相矛盾。
+    """
+    pred = {("Liverpool", "ManU"): {
+        "home": "Liverpool", "away": "ManU",
+        "ml_proba": [0.9778, 0.0081, 0.0141],
+    }}
+    assert _match_probs("Liverpool", "ManU", pred) is None

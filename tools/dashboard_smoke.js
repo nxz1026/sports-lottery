@@ -170,6 +170,24 @@ const PANELS = [
   { id: 'recordPanel', must: '推荐单战绩' },
 ];
 
+// ── P0：模型概率口径（2026-10-23 三路审计发现的口径塌方）─────────────────
+// 事故：同一场比赛（斯图加特 vs 门兴格拉德巴赫）页面上出现 4 个互相矛盾的「赢面」：
+//   probs            = {h:0.6466, d:0.1405, a:0.2129}  ← 决策层（推荐单）用的
+//   ml_proba         = [0.9778, 0.0081, 0.0141]         ← 卡片概率条 / edge / EV 用的
+//   confidence_score = 0.793（=(p−0.25)×2 的把握度评分）  ← 卡片标成「这条的赢面」
+// ⇒ 卡片让买主胜、推荐单让买客胜（实测主胜 EV +0.33 vs −0.159）。
+// 这里用**运行时**断言（不是字符串匹配）：函数真的被调用一次，看它到底算出什么。
+const P0_CHECKS = [
+  ['p0_modelProbs_noMlFallback', 'modelProbs() 不许兜底 ml_proba（分类器原始输出）'],
+  ['p0_modelProbs_trueSource', 'modelProbs() 必须认后端已校验的 model_probs'],
+  ['p0_confBlock', '「这条的赢面」= 模型概率对应方向那一项（不是把握度评分）'],
+  ['p0_marketLabel_source', '卡片必须标明赔率来源（ESPN vs 竞彩官方 SP）'],
+  ['p0_marketLabel_noEdge', 'edge 缺失时必须明说「与庄家对比暂不可用」，不许静默消失'],
+  ['p0_marketLabel_negEv', 'EV 为负时必须说「亏」，不许说「多赚」'],
+  ['p0_detail_sameSource', '详情面板「模型算出的赢面」必须与卡片同源'],
+  ['p0_detailTech_label', '技术面板必须把 ml_proba 标成「未融合 · 仅供排障」'],
+];
+
 async function main() {
   if (loadError) {
     console.error('FAIL: 看板内联脚本加载即抛异常：' + (loadError && loadError.stack ? loadError.stack : loadError));
@@ -186,6 +204,45 @@ async function main() {
       await run(loadClv);
       await run(loadRecommend);
       await run(loadAccuracy);
+      // ── P0 口径断言（运行时调用真实函数）──────────────────────────────
+      out.p0_modelProbs_noMlFallback = modelProbs({ ml_proba: [0.9778, 0.0081, 0.0141] }) === null;
+      out.p0_modelProbs_trueSource = (() => {
+        const q = modelProbs({ model_probs: { home: 0.6466, draw: 0.1405, away: 0.2129 } });
+        return !!q && Math.abs(q[0] - 0.6466) < 1e-9 && Math.abs(q[1] - 0.1405) < 1e-9;
+      })();
+      out.p0_confBlock = (() => {
+        const rec = {
+          direction: 'home', home: '斯图加特', away: '门兴格拉德巴赫',
+          confidence_score: 0.793,
+          model_probs: { home: 0.6466, draw: 0.1405, away: 0.2129 },
+        };
+        const h = confBlock(rec);
+        // 必须印出模型概率 64.7%，且**不许**印把握度评分 79.3%
+        return h.indexOf('64.7%') >= 0 && h.indexOf('79.3%') < 0 && h.indexOf('模型概率') >= 0;
+      })();
+      out.p0_marketLabel_source = marketLabel({
+        direction: 'home', home: 'A', away: 'B',
+        model_probs: { home: 0.6466, draw: 0.1405, away: 0.2129 },
+        market: { source: 'espn', decimal_odds: { home: 1.36 } },
+      }).indexOf('ESPN') >= 0;
+      out.p0_marketLabel_noEdge = marketLabel({
+        direction: 'home', home: 'A', away: 'B',
+        model_probs: { home: 0.6466, draw: 0.1405, away: 0.2129 },
+        market: { source: 'espn', decimal_odds: { home: 1.36 } },
+      }).indexOf('与庄家对比暂不可用') >= 0;
+      out.p0_marketLabel_negEv = marketLabel({
+        direction: 'home', home: 'A', away: 'B',
+        model_probs: { home: 0.6466, draw: 0.1405, away: 0.2129 },
+        market: { source: 'espn', decimal_odds: { home: 1.36 }, edge_prob: { home: 0.21 }, ev_per_unit: { home: -0.159 } },
+      }).indexOf('长期亏') >= 0;
+      out.p0_detail_sameSource = (() => {
+        const q = dtProbs({ ml_proba: [0.9778, 0.0081, 0.0141], model_probs: { home: 0.6466, draw: 0.1405, away: 0.2129 } });
+        return !!q && Math.abs(q[0] - 0.6466) < 1e-9 && Math.abs(q[1] - 0.1405) < 1e-9;
+      })();
+      out.p0_detailTech_label = (() => {
+        const h = detailTech({ ml_proba: [0.9778, 0.0081, 0.0141] });
+        return h.indexOf('未融合') >= 0 && h.indexOf('仅供排障') >= 0;
+      })();
       out.__html = ${ids}.reduce((a, id) => {
         const e = document.getElementById(id);
         a[id] = e ? String(e.innerHTML || '') : '';
@@ -232,8 +289,17 @@ async function main() {
     console.log('OK  : #' + p.id + ' 渲染出 ' + htmlOut.length + ' 字符，含「' + p.must + '」'
       + (p.must2 ? (' + 「' + p.must2 + '」') : ''));
   }
+  // ── P0 口径断言结果 ────────────────────────────────────────────────────
+  for (const [key, desc] of P0_CHECKS) {
+    if (res[key] !== true) {
+      console.error('FAIL: ' + desc + '（' + key + ' = ' + JSON.stringify(res[key]) + '）');
+      failed = true;
+    } else {
+      console.log('OK  : ' + desc);
+    }
+  }
   if (failed) process.exit(1);
-  console.log('看板内联 JS 运行时冒烟：3 个面板全部渲染出真内容');
+  console.log('看板内联 JS 运行时冒烟：3 个面板全部渲染出真内容 + P0 口径断言全过');
   // ⚠️ 必须显式退出：看板现在有 setInterval（每 60 秒自动刷新推荐单面板），
   //    node 里的定时器会**挂住事件循环**⇒ 不 exit 的话冒烟脚本永远不结束。
   process.exit(0);

@@ -1,7 +1,8 @@
 """combo EV 引擎端点（POST /api/v1/combo/eval）。
 
 路由层做：
-  1) 装配：从 fixtures_on 拿竞彩官方赔率，从 latest_by_league 拿 reasoning_factors 模型概率
+  1) 装配：从 fixtures_on 拿竞彩官方赔率，从 latest_by_league 拿**模型概率**
+     （P0 2026-10-23：改走唯一真源 core.model_probs，不再读 reasoning_factors 的混合字段）
   2) 调纯函数 web.services.combo.evaluate_combo
   3) 响应封装 + auth
 
@@ -14,11 +15,20 @@
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from web.auth import require_auth
 from web.services import combo as combo_mod
+
+# scripts/（core 纯函数，如 core.model_probs —— 「模型概率唯一真源」）供本模块复用：
+# 追加到 sys.path **末尾**（不前置），避免 scripts/ 下同名包遮蔽 web/、store/
+# （与 web/api.py 的做法一致）。自举 ⇒ 本模块与导入顺序无关（R47 同款加固）。
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent.parent / "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.append(_SCRIPTS_DIR)
 
 logger = logging.getLogger("web.combo")
 router = APIRouter(prefix="/api/v1", tags=["combo"])
@@ -27,6 +37,21 @@ router = APIRouter(prefix="/api/v1", tags=["combo"])
 _SIDE_KEY = {"主胜": "h", "平": "d", "客胜": "a",
              "让胜": "h", "让平": "d", "让负": "a",
              "home": "h", "draw": "d", "away": "a"}
+# resolve_model_probs 返回的是 {home, draw, away}（展示侧键名）
+_PROB_KEY = {"h": "home", "d": "draw", "a": "away"}
+
+
+def _resolve_model_probs(entry: dict | None) -> dict[str, float] | None:
+    """模型概率**唯一真源**（``core.model_probs``）；取不到 ⇒ None（不编数）。
+
+    P0（2026-10-23）：旧实现读 ``reasoning_factors.{home_ml_true_prob, draw_true_prob,
+    away_ml_true_prob}`` —— ``draw_ml_true_prob`` 这个键**根本不存在** ⇒ 平局腿实际
+    取到的是 ``draw_true_prob``（**市场先验**）；且与决策层/卡片不同源 ⇒ 串关 EV 与
+    推荐单 EV 互相矛盾（实测同一场：推荐单 +0.267 vs 串关 −0.084）。
+    """
+    from core.model_probs import resolve_model_probs
+
+    return resolve_model_probs(entry)
 
 
 def _assemble_legs(selections: list[dict]) -> list[dict]:
@@ -108,14 +133,17 @@ def _assemble_legs(selections: list[dict]) -> list[dict]:
                         entry = cand
                         break
             if entry is not None:
-                rf = entry.get("reasoning_factors") or {}
-                p_field = {"h": "home_ml_true_prob", "d": "draw_true_prob",
-                           "a": "away_ml_true_prob"}.get(key)
-                if p_field:
-                    try:
-                        p_model = float(rf.get(p_field) or 0.0)
-                    except (TypeError, ValueError):
-                        p_model = 0.0
+                # P0（2026-10-23）：模型概率走**唯一真源** core.model_probs
+                # （model_probs → probs.{h,d,a} → reasoning_factors.*_prob_weighted）。
+                # ⚠️ 旧实现读 reasoning_factors.{home_ml_true_prob, draw_true_prob,
+                # away_ml_true_prob} —— ① `draw_ml_true_prob` 这个键**根本不存在**
+                # （reasoning_factors 里只有 home/away 两个 _ml_ 变体）⇒ 平局腿实际
+                # 取到的是 `draw_true_prob`，那是**市场先验**（ESPN 去水概率），不是模型输出；
+                # ② 与决策层/卡片不同源 ⇒ 串关 EV 与推荐单 EV 互相矛盾
+                # （实测同一场：推荐单 +0.267 vs 串关 −0.084）。
+                probs = _resolve_model_probs(entry)
+                if probs:
+                    p_model = float(probs.get(_PROB_KEY.get(key, "")) or 0.0)
         out.append({"side": side, "odds": odds, "p_model": p_model})
     return out
 

@@ -248,7 +248,8 @@ def test_combo_assemble_legs_dict_hit_for_p_model(monkeypatch):
     ])
     monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {
         ("A", "B"): {"home": "A", "away": "B",
-                     "reasoning_factors": {"home_ml_true_prob": 0.6}},
+                     # P0（2026-10-23）：模型概率走唯一真源 `probs.{h,d,a}`
+                     "probs": {"h": 0.6, "d": 0.25, "a": 0.15}},
     })
 
     legs = combo_mod._assemble_legs([{"home": "A", "away": "B", "side": "主胜"}])

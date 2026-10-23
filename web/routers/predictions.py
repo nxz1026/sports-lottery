@@ -13,14 +13,23 @@ from __future__ import annotations
 
 import logging
 import math
+import sys
 import time
 from datetime import date
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 
 from web.auth import require_auth
 from web.services import store
 from web.services.datasource import LEAGUES
+
+# scripts/（core 纯函数，如 core.model_probs —— 「模型概率唯一真源」）供本模块复用：
+# 追加到 sys.path **末尾**（不前置），避免 scripts/ 下同名包遮蔽 web/、store/
+# （与 web/api.py 的做法一致）。自举 ⇒ 本模块与导入顺序无关（R47 同款加固）。
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent.parent / "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.append(_SCRIPTS_DIR)
 
 logger = logging.getLogger("web.predictions")
 router = APIRouter(prefix="/api/v1", tags=["predictions"])
@@ -41,21 +50,29 @@ def _bball_extras(doc: dict) -> dict:
 
 
 def _validated_model_probs(doc: dict) -> dict | None:
-    """Return only an explicit, complete normalized 1X2 probability vector."""
-    value = doc.get("model_probs", doc.get("ml_proba"))
-    if isinstance(value, (list, tuple)) and len(value) == 3:
-        value = dict(zip(("home", "draw", "away"), value))
-    if not isinstance(value, dict) or set(value) != {"home", "draw", "away"}:
-        return None
-    try:
-        probs = {key: float(value[key]) for key in ("home", "draw", "away")}
-    except (TypeError, ValueError):
-        return None
-    if any(not math.isfinite(v) or not 0 <= v <= 1 for v in probs.values()):
-        return None
-    if abs(sum(probs.values()) - 1.0) > 1e-6:
-        return None
-    return probs
+    """返回**唯一真源**的 1X2 模型概率向量，或 None（含义是「不知道」，不是 0）。
+
+    P0（2026-10-23 实测事故）：旧实现读 ``doc["ml_proba"]``，而 ``ml_proba`` 存的是
+    **ML 分类器原始输出**（未经与规则模型融合），在强弱悬殊的场次会塌成
+    ``[0.978, 0.008, 0.014]``。被当成「模型概率」后造成三处硬伤：
+
+    ① 卡片概率条与卡片**自己推荐的 direction** 自相矛盾（direction 来自 ``probs``）；
+    ② ``edge_prob`` / ``ev_per_unit`` 全是**假账** —— 卡片说主胜「每投 1 元长期多赚
+       0.33 元」，而决策层用**同一个模型**算出主胜 EV = **−0.159**（要亏）；
+    ③ 卡片让买主胜、推荐单让买客胜 —— 同一页面上两个面板互相打脸。
+
+    ⇒ 改走 ``core.model_probs``（模型概率唯一真源，口径与事故复盘见该模块 docstring）：
+    ``model_probs`` → ``probs.{h,d,a}`` → ``reasoning_factors.*_prob_weighted``。
+    **不用** ``ml_proba``（分类器原始输出），**不用** ``*_true_prob``（ESPN 市场先验）。
+
+    容差从 1e-6 放宽到 1e-3：融合后概率写入预测文件时按 4 位小数四舍五入，
+    三项求和的舍入误差上界 ≈ 1.5e-4 ⇒ 旧容差把 **99/162（61%）** 的真实场次
+    误判为「非法向量」，``edge_prob`` / ``ev_per_unit`` 整体缺失 ⇒ 卡片静默不显示
+    「比庄家高/低 X 个点」，用户看不出缺了什么。
+    """
+    from core.model_probs import resolve_model_probs
+
+    return resolve_model_probs(doc)
 
 
 def _market_projection(doc: dict) -> dict:
@@ -115,7 +132,10 @@ def _prediction_summary(doc: dict, day) -> dict:
     }
     for key in ("odds_data_available", "confidence_note", "reasoning_factors",
                 "ml_model_used", "ml_proba", "poisson_top3", "lambda_home",
-                "lambda_away", "lambda_home_ci95", "lambda_away_ci95"):
+                "lambda_away", "lambda_home_ci95", "lambda_away_ci95",
+                # P0（2026-10-23）：把**模型概率真源**（probs，融合后最终值）也透出，
+                # 便于前端/排障直接看到「模型到底认为多大赢面」，不必反推 edge_prob。
+                "probs"):
         if key in doc:
             summary[key] = doc[key]
     if "spread_pred" in doc or "total_pred" in doc or "win_prob" in doc:

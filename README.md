@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2750 passed / 75 skipped / 0 failed**（2825 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 手动模式+新鲜度守门+采集端原子性 +32** + **§6.13.6 保留策略+gaps 口径+坏文件不掀翻整批 +5** + **§6.13.7 看板假的无数据（部署后服务没重启）+6**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2764 passed / 75 skipped / 0 failed**（2839 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 手动模式+新鲜度守门+采集端原子性 +32** + **§6.13.6 保留策略+gaps 口径+坏文件不掀翻整批 +5** + **§6.13.7 看板假的无数据（部署后服务没重启）+6** + **§6.14 模型概率唯一真源（P0：同一页面 4 个赢面）+14**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1313,7 +1313,7 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
 - **③ 部署后自检**：新增 `tools/check_service_freshness.py` —— 比对 `/health` 的 `code_sha` 与仓库 `HEAD`，
   不一致 ⇒ **退出码 1** + 打印 `sudo systemctl restart league-web`；并把 README 部署链路里那条**错的**「自动重启」说法订正为「**必须显式 restart**」。
 
-**新增 6 项守门断言**（`tools/check_docs_claims.py`，**359 项**）：`/health` 必须暴露 `code_sha`、
+**新增 6 项守门断言**（`tools/check_docs_claims.py`，**375 项**）：`/health` 必须暴露 `code_sha`、
 自检脚本必须在库且会比对 `code_sha` 与 HEAD、看板必须印「数据截至」、看板必须自动刷新、
 看板冒烟必须断言「数据截至」（`tools/dashboard_smoke.js` 的 `must2`）——否则这条行为没了也照样绿。
 
@@ -1382,7 +1382,7 @@ UTC 18:00 / 18:30 = 北京 02:00 / 02:30 夜间低峰）。**坏文件隔离而�
 ⇒ **去掉 `commit()`**（断言同事务内读，事务由 fixture 回滚收尾 ⇒ 库里一行不留），
 已按 `src_file='f.jsonl'` 精确清掉这批垃圾行，并加守门（AST 判定真库用例不许 `commit()`）。
 
-**新增 43 项守门断言**（`tools/check_docs_claims.py`，**359 项**）—— 重点：gaps 口径三处**走 AST 判定**
+**新增 43 项守门断言**（`tools/check_docs_claims.py`，**375 项**）—— 重点：gaps 口径三处**走 AST 判定**
 （`_from_manifest` 的 state 字面量集合 == `{"absent"}` / `load_topic` 的 `state=="absent"` 早退分支且不写 `ops.*`、不抛异常 /
 `load_batch` 空候选兜底 == `absent`）、坏文件不掀翻整批四连、`read_lines` 只许 catch `PermissionError`、
 保留策略九项、**台账窗口 > 落港窗口**（机器判定）、cron 安装器两条任务 + 幂等标记块、文档同步三项、
@@ -1577,7 +1577,7 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**守门断言累计 359 项**（`tools/check_docs_claims.py`，359 项；建议 6 再加 21 项、顺手修再加 7 项、
+**守门断言累计 375 项**（`tools/check_docs_claims.py`，375 项；建议 6 再加 21 项、顺手修再加 7 项、
 复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项、**§6.12 事故修复再加 15 项**、
 **§6.12.5/6.12.6 赔率口径修正再加 5 项**、**六联赛重训对拍再加 4 项**、**§6.13 本轮再加 30 项**、
 **§6.13.5 采集端改手动 + 新鲜度守门 + 原子性再加 33 项**、

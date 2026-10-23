@@ -14,7 +14,6 @@
 """
 from __future__ import annotations
 
-import math
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -72,20 +71,6 @@ def stable_match_key(rec: dict) -> str:
     return str(rec.get("match") or rec.get("name") or "").strip()
 
 
-def _as_prob(v: Any) -> float | None:
-    """数值校验：bool / 非数值 / 非有限 / 越界 ⇒ None（不猜、不补默认值）。"""
-    if v is None or isinstance(v, bool) or not isinstance(v, (int, float)):
-        return None
-    f = float(v)
-    if not math.isfinite(f) or not 0.0 <= f <= 1.0:
-        return None
-    return f
-
-
-# probs 的键 → reasoning_factors 里的键前缀
-_PROBS_PREFIX = {"h": "home", "d": "draw", "a": "away"}
-
-
 def _prob(rec: dict, code: str) -> float | None:
     """取**模型自己的**概率（code ∈ 'h'/'d'/'a'）。
 
@@ -103,16 +88,14 @@ def _prob(rec: dict, code: str) -> float | None:
          只是 3 位精度；用于 2026-10-14 之前那批没有 `probs` 的历史预测文件）。
 
     两者都没有 ⇒ 返回 None（该场不参与 CLV，**不拿别的数顶替**）。
+
+    **P0（2026-10-23）**：本函数已**委托** `core.model_probs.resolve_prob` ——
+    「模型概率」的口径现在只有一份实现（scripts 归档/决策层 与 web API/串关/票面 共用）。
+    口径纪律与事故复盘见 `scripts/core/model_probs.py` 模块 docstring。
     """
-    probs = rec.get("probs") or {}
-    if isinstance(probs, dict):
-        f = _as_prob(probs.get(code))
-        if f is not None:
-            return f
-    rf = rec.get("reasoning_factors") or {}
-    if isinstance(rf, dict):
-        return _as_prob(rf.get(f"{_PROBS_PREFIX[code]}_prob_weighted"))
-    return None
+    from core.model_probs import resolve_prob
+
+    return resolve_prob(rec, code)
 
 
 def _jc_index(conn: Connection, day_from: str, day_to: str) -> list[tuple[int, str, str]]:

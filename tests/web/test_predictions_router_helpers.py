@@ -29,14 +29,24 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
 
 
 def test_validated_model_probs_list_of_three():
-    """R24 #1：list/tuple of 3 floats → 归一化为 home/draw/away dict。"""
+    """R24 #1：list/tuple of 3 floats → 归一化为 home/draw/away dict。
+
+    P0（2026-10-23）：``ml_proba`` **不再**被接受 —— 它是 ML 分类器原始输出
+    （未与规则模型融合），不是「模型概率」；塌成 [0.978,0.008,0.014] 时算出的
+    edge/EV 全是假账。唯一真源是 ``probs``（融合后最终值）。
+    """
     from web.routers.predictions import _validated_model_probs
     # 标准 1x2 列表输入
     out = _validated_model_probs({"model_probs": [0.5, 0.3, 0.2]})
     assert out == {"home": 0.5, "draw": 0.3, "away": 0.2}
     # tuple 输入同样接受
-    out = _validated_model_probs({"ml_proba": (0.6, 0.25, 0.15)})
+    out = _validated_model_probs({"model_probs": (0.6, 0.25, 0.15)})
     assert out == {"home": 0.6, "draw": 0.25, "away": 0.15}
+    # 真源：probs（h/d/a 键）
+    out = _validated_model_probs({"probs": {"h": 0.6, "d": 0.25, "a": 0.15}})
+    assert out == {"home": 0.6, "draw": 0.25, "away": 0.15}
+    # ml_proba（分类器原始输出）→ 必须拒绝
+    assert _validated_model_probs({"ml_proba": (0.6, 0.25, 0.15)}) is None
 
 
 def test_validated_model_probs_rejects_wrong_length_list():
@@ -78,16 +88,22 @@ def test_validated_model_probs_rejects_out_of_range_or_nan():
 
 
 def test_validated_model_probs_rejects_not_normalized():
-    """R24 #1：概率和偏离 1.0 超过 1e-6 → None（容差严格）。"""
+    """P0（2026-10-23）：容差从 1e-6 放宽到 **1e-3**。
+
+    融合后概率写入预测文件时按 **4 位小数**四舍五入（predictor._assemble_result），
+    三项求和的舍入误差上界 ≈ 1.5e-4 ⇒ 旧容差 1e-6 把 **99/162（61%）** 的真实场次
+    误判为「非法向量」⇒ edge_prob / ev_per_unit 整体缺失、卡片静默不显示
+    「比庄家高/低 X 个点」（用户看不出缺了什么）。
+    """
     from web.routers.predictions import _validated_model_probs
-    # 和 1.0 偏差 0.0001 越界
+    # 和 1.0 偏差 0.1 ⇒ 越界 → None
     assert _validated_model_probs({"model_probs": {
-        "home": 0.5, "draw": 0.3, "away": 0.2001}}) is None
-    # 和 1.0 偏差 1e-8 仍接受
+        "home": 0.5, "draw": 0.3, "away": 0.1}}) is None
+    # 和 1.0 偏差 1e-4（4 位小数四舍五入的正常误差）→ 接受
     out = _validated_model_probs({"model_probs": {
-        "home": 0.5, "draw": 0.3, "away": 0.2 - 1e-8}})
+        "home": 0.5, "draw": 0.3, "away": 0.2001}})
     assert out is not None
-    assert abs(out["home"] + out["draw"] + out["away"] - 1.0) < 1e-6
+    assert abs(out["home"] + out["draw"] + out["away"] - 1.0) <= 1e-3
 
 
 def test_market_projection_missing_when_no_market():

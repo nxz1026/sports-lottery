@@ -141,9 +141,9 @@ def test_assemble_legs_picks_odds_and_p_model_from_fixtures(monkeypatch):
     # R19 #C：combo 改走 pred_index_by_pair 反查；mock 入口切换
     monkeypatch.setattr(ws, "pred_index_by_pair", lambda: {
         ("A", "B"): {"home": "A", "away": "B",
-                     "reasoning_factors": {"home_ml_true_prob": 0.55,
-                                           "draw_true_prob": 0.25,
-                                           "away_ml_true_prob": 0.20}},
+                     # P0（2026-10-23）：模型概率走唯一真源 `probs.{h,d,a}`
+                     # （旧夹具用 reasoning_factors.*_ml_true_prob = 市场先验，不是模型输出）
+                     "probs": {"h": 0.55, "d": 0.25, "a": 0.20}},
     })
 
     legs = combo_mod._assemble_legs([

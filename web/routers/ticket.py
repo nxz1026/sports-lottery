@@ -15,10 +15,19 @@ ml_proba）逐场推荐，输出 14场 逐场票面 + 任九(top9) 组合命中�
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from web.auth import require_auth
+
+# scripts/（core 纯函数，如 core.model_probs —— 「模型概率唯一真源」）供本模块复用：
+# 追加到 sys.path **末尾**（不前置），避免 scripts/ 下同名包遮蔽 web/、store/
+# （与 web/api.py 的做法一致）。自举 ⇒ 本模块与导入顺序无关（R47 同款加固）。
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent.parent / "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.append(_SCRIPTS_DIR)
 
 logger = logging.getLogger("web.ticket")
 
@@ -26,17 +35,21 @@ router = APIRouter(prefix="/api/v1", tags=["ticket"])
 
 
 def _model_three(e: dict) -> dict | None:
-    """从预测 entry 提三向模型概率 {主胜,平,客胜}；三侧都在才算（不归一、不编数）。"""
-    rf = (e.get("reasoning_factors") or {})
-    h = rf.get("home_ml_true_prob")
-    d = rf.get("draw_true_prob")
-    a = rf.get("away_ml_true_prob")
-    if all(v is not None for v in (h, d, a)) and all(isinstance(v, (int, float)) for v in (h, d, a)):
-        return {"主胜": float(h), "平": float(d), "客胜": float(a)}
-    ml = e.get("ml_proba")
-    if isinstance(ml, list) and len(ml) == 3 and all(isinstance(v, (int, float)) for v in ml):
-        return {"主胜": float(ml[0]), "平": float(ml[1]), "客胜": float(ml[2])}
-    return None
+    """从预测 entry 提三向模型概率 {主胜,平,客胜}；三侧都在才算（不归一、不编数）。
+
+    P0（2026-10-23）：改走**模型概率唯一真源** ``core.model_probs``。
+    ⚠️ 旧实现读 ``reasoning_factors.{home_ml_true_prob, draw_true_prob, away_ml_true_prob}``
+    —— 其中 ``draw_ml_true_prob`` 这个键**根本不存在** ⇒ 平局腿实际取到的是
+    ``draw_true_prob``（**市场先验**）；又回退到 ``ml_proba``（ML 分类器原始输出，
+    强弱悬殊的场次会塌成 [0.978, 0.008, 0.014]）。
+    ⇒ 票面的三向概率与推荐单/卡片不同源、且平局腿是市场价 ⇒ 命中概率失真。
+    """
+    from core.model_probs import resolve_model_probs
+
+    probs = resolve_model_probs(e)
+    if not probs:
+        return None
+    return {"主胜": probs["home"], "平": probs["draw"], "客胜": probs["away"]}
 
 
 def _match_probs(home: str, away: str, pred_by_pair: dict) -> dict | None:

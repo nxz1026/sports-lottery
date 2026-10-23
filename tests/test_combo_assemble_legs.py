@@ -94,8 +94,12 @@ def _stub_teams_match_safe(monkeypatch, matches: list):
 def test_assemble_legs_d62_1_happy_path_exact_with_p_model(monkeypatch):
     """R45-1 D-62-1: 主流程 — exact 命中 + pred_by_pair 字典命中。
 
-    fixtures had opts.h='1.80' + pred_by_pair[('阿森纳','切尔西')].reasoning_factors.home_ml_true_prob=0.55。
+    fixtures had opts.h='1.80' + pred_by_pair[('阿森纳','切尔西')].probs.h=0.55。
     side='主胜' 映射 key='h' -> odds=1.80 + p_model=0.55。
+
+    ⚠️ P0（2026-10-23）：夹具原先用 `reasoning_factors.home_ml_true_prob` ——
+    那不是模型概率（`draw_ml_true_prob` 键根本不存在、`*_true_prob` 是市场先验）⇒
+    已改成唯一真源 `probs.{h,d,a}`。
     """
     _stub_fixtures(monkeypatch, [
         {"match_num": 7001, "home_cn": "阿森纳", "away_cn": "切尔西",
@@ -104,11 +108,7 @@ def test_assemble_legs_d62_1_happy_path_exact_with_p_model(monkeypatch):
     _stub_pred_by_pair(monkeypatch, {
         ("阿森纳", "切尔西"): {
             "home": "阿森纳", "away": "切尔西",
-            "reasoning_factors": {
-                "home_ml_true_prob": 0.55,
-                "draw_true_prob": 0.25,
-                "away_ml_true_prob": 0.20,
-            },
+            "probs": {"h": 0.55, "d": 0.25, "a": 0.20},
         },
     })
     _stub_teams_match_safe(monkeypatch, [])  # 不会调 fuzzy (exact 命中)
@@ -247,11 +247,7 @@ def test_assemble_legs_d62_7_p_model_fuzzy_fallback_to_pred(monkeypatch):
         # 字典键是英文别名, 与 fixture home/away 不一致 -> exact miss
         ("Manchester United", "Manchester City"): {
             "home": "Manchester United", "away": "Manchester City",
-            "reasoning_factors": {
-                "home_ml_true_prob": 0.45,
-                "draw_true_prob": 0.30,
-                "away_ml_true_prob": 0.25,
-            },
+            "probs": {"h": 0.45, "d": 0.30, "a": 0.25},
         },
     })
     # 第一次 fuzzy (p_model L106 兜底): True 命中

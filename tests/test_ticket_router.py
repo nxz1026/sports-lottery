@@ -38,9 +38,13 @@ def client(monkeypatch):
 
     # 每场都有预测 entry
     entries = [{"home": f"主{i}", "away": f"客{i}",
-                "reasoning_factors": {"home_ml_true_prob": 0.6 if i % 2 == 0 else 0.2,
-                                      "draw_true_prob": 0.3,
-                                      "away_ml_true_prob": 0.1 if i % 2 == 0 else 0.5}}
+                # P0（2026-10-23）：模型概率唯一真源 = probs（h/d/a，融合后最终值）。
+                # 旧夹具用 reasoning_factors.{home_ml_true_prob, draw_true_prob,
+                # away_ml_true_prob} —— 其中 draw_ml_true_prob **根本不存在**，
+                # 平局腿实际取到的是**市场先验** ⇒ 票面命中概率失真。
+                "probs": {"h": 0.6 if i % 2 == 0 else 0.2,
+                          "d": 0.3,
+                          "a": 0.1 if i % 2 == 0 else 0.5}}
                for i in range(14)]
     # R20 #t：ticket 改走 store.pred_index_by_pair 反查字典；mock 入口切换
     from web.services import store as ws
@@ -93,9 +97,20 @@ def test_ticket_route_choose_invalid(client):
     assert client.post("/api/v1/ticket/sfc", json={"choose": 0}).status_code == 400
 
 
-def test_model_three_ref_and_ml_fallback():
-    assert ticket_router._model_three({"reasoning_factors": {}, "ml_proba": [0.6, 0.3, 0.1]}) \
+def test_model_three_uses_canonical_probs():
+    """P0（2026-10-23）：票面三向概率只认**唯一真源**。
+
+    读取顺序：``probs.{h,d,a}`` → ``reasoning_factors.*_prob_weighted``（旧文件回退）。
+    ``ml_proba``（ML 分类器原始输出，未融合、会长塌方）**一律拒绝**。
+    """
+    assert ticket_router._model_three({"probs": {"h": 0.6, "d": 0.3, "a": 0.1}}) \
         == {"主胜": 0.6, "平": 0.3, "客胜": 0.1}
+    # 旧预测文件回退：reasoning_factors.*_prob_weighted（模型输出，3 位精度）
+    assert ticket_router._model_three({"reasoning_factors": {
+        "home_prob_weighted": 0.6, "draw_prob_weighted": 0.3, "away_prob_weighted": 0.1}}) \
+        == {"主胜": 0.6, "平": 0.3, "客胜": 0.1}
+    # ml_proba（分类器原始输出）→ 拒绝
+    assert ticket_router._model_three({"ml_proba": [0.6, 0.3, 0.1]}) is None
 
 
 def test_model_three_missing_and_bad():

@@ -71,10 +71,15 @@ def test_validated_model_probs_d96_1_happy_normalized_probs(preds_mod):
     out_list = preds_mod._validated_model_probs(doc_list)
     assert out_list == {"home": 0.4, "draw": 0.3, "away": 0.3}
 
-    # ml_proba 路径 (L45 fallback)
+    # P0（2026-10-23）：ml_proba 是 **ML 分类器原始输出**（未与规则模型融合），
+    # 不是「模型概率」⇒ **不再被接受**。实测它会塌成 [0.978, 0.008, 0.014]，
+    # 被当成模型概率后算出的 edge/EV 全是假账（主胜 EV 被算成 +0.33，
+    # 而决策层用同一个模型算出 −0.159 ⇒ 卡片与推荐单给相反建议）。
     doc_ml = {"ml_proba": {"home": 0.6, "draw": 0.2, "away": 0.2}}
-    out_ml = preds_mod._validated_model_probs(doc_ml)
-    assert out_ml == {"home": 0.6, "draw": 0.2, "away": 0.2}
+    assert preds_mod._validated_model_probs(doc_ml) is None
+    # 唯一真源 = probs（predictor 融合后的最终概率，与决策层同口径）
+    doc_probs = {"probs": {"h": 0.6, "d": 0.2, "a": 0.2}}
+    assert preds_mod._validated_model_probs(doc_probs) == {"home": 0.6, "draw": 0.2, "away": 0.2}
 
 
 def test_validated_model_probs_d96_2_validation_failures_return_none(preds_mod):
