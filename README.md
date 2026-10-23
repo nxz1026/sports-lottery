@@ -1294,8 +1294,9 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
   `made_at` 取的是决策时刻（B6）、「不要长尾彩票」整场连坐（B7，改方向级）。
 - **会话与运维 9 条**：cookie `Secure` 不跟请求协议走（C1）、**鉴权路径每次写库** ⇒ 写锁竞争打成 500（C2）、
   `/health` 每次请求 spawn git（C3）、AI 端点回传绝对路径（C4）、登录限速只在内存 ⇒ 重启清零（C5）、
-  `ops.ingest_log` 314 万行且 `at` 无索引（C6）、`rows_in`/`rows_ups` 口径只在口头（C7）、
-  异形文件名掀翻整批（C8）、隔离动作零痕迹（C9）。
+  `ops.ingest_log` 314 万行且 `at` 无索引（C6，**生产已建索引**：9 秒，
+  `idx_ingest_log_at` 32MB + `idx_ingest_log_topic_src_id` 259MB，保留窗口查询由 Seq Scan 419MB → Index Scan）、`rows_in`/`rows_ups` 口径只在口头（C7）、
+  异形文件名掀翻整批（C8）、隔离动作零痕迹（C9，**生产脚本已同步**并干跑通过）。
 
 **B. 收尾时又挖出 2 个真 bug（§6.15(10)）**
 
