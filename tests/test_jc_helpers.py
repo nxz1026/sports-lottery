@@ -88,6 +88,8 @@ def test_picks_context_happy_path_renders_two_picks(monkeypatch):
     monkeypatch.setattr("web.services.store.latest_by_league",
                         lambda: {})
     # 3) mock store.jc_view.fixtures_on 返 5 row big5
+    import store
+
     jc_view_module = types.ModuleType("store.jc_view")
     jc_view_module.fixtures_on = lambda date_iso: [
         # 5 big5 候选, 但 _br 把 matched 过滤掉, 应让 picks = []
@@ -96,6 +98,9 @@ def test_picks_context_happy_path_renders_two_picks(monkeypatch):
         {"match_num": 7002, "home_cn": "皇马", "away_cn": "巴萨",
          "league_cn": "西甲", "goal_line": "0"},
     ]
+    # ⚠️ 打**包属性**：`from store import jc_view` 取的是包对象上的属性，
+    #    只换 sys.modules 条目在「别的测试已导入过」时换不掉它（见下方 D-47 用例的注释）
+    monkeypatch.setattr(store, "jc_view", jc_view_module, raising=False)
     monkeypatch.setitem(sys.modules, "store.jc_view", jc_view_module)
     # 4) 直接 verify 降级: happy 路径的 picks = [] 当没 matched 时, helper 应返 ""
     # 这里我们仅校验 sport != 'football' 不进 try, 走 happy 至少不抛
@@ -124,10 +129,27 @@ def test_news_context_d47_exception_falls_back_to_chinese_placeholder(monkeypatc
     """R42-4 D-47: _news_context store.jc_view 抛异常 -> '（暂无在售）' (silent fallback)。
 
     锁定降级语义: 业务日志打 warn, 不抛穿, 返中文占位符让前端降级显示。
+
+    ⚠️ **2026-10-23 修一个真缺陷（order-dependent ⇒ 只在全量跑时红）**：
+    原来用 ``monkeypatch.setitem(sys.modules, "store.jc_view", fake)`` 注入替身，
+    但 `_news_context` 里是 **``from store import jc_view``（延迟 import）** ——
+    它取的是 **`store` 包对象上的属性**，不是 `sys.modules` 条目。
+    ⇒ 单跑本文件时 `store` 包还没被导入过 ⇒ `from store import jc_view` 会
+    **真的去导入并把真模块 setattr 到 store 包上**……不对，反过来：
+    全量跑时**别的测试已经导入过** `store.jc_view` ⇒ `store.jc_view` 属性
+    **已被缓存成真模块** ⇒ `setitem(sys.modules, ...)` 换掉了模块表条目，
+    **却换不掉包属性** ⇒ `_news_context` 拿到**真模块** ⇒ 真连生产库 ⇒
+    返真实在售场次（实测「斯图加特vs门兴格拉德巴赫；…」）而不是「（暂无在售）」。
+    ⇒ **修法：直接 patch 包属性**（`monkeypatch.setattr(store, "jc_view", fake)`），
+    这才是 `from store import jc_view` 真正会取到的东西。
     """
+    import store
+
     jc_view_module = types.ModuleType("store.jc_view")
     jc_view_module.fixtures_on = lambda date_iso: (_ for _ in ()).throw(
         RuntimeError("simulated DB down"))
+    # 两条都打：包属性（`from store import jc_view` 真正取的东西）+ 模块表条目
+    monkeypatch.setattr(store, "jc_view", jc_view_module, raising=False)
     monkeypatch.setitem(sys.modules, "store.jc_view", jc_view_module)
 
     out = jc_mod._news_context("football")

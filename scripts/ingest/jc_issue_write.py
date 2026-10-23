@@ -54,7 +54,15 @@ def _validate(table: str, row: dict) -> dict:
     """三道闸（全 ValueError）：未知表 → 未登记列 → 主键缺列；通过 ⇒ 空串归一后的 row。
 
     委托给 ``ingest._upsert_helper.validate``，PK 列由 ``_PK_BY_TABLE`` 拿。
+
+    ⚠️ **2026-10-23 修一个真 bug**：原来直接 ``_PK_BY_TABLE[table]`` ——
+    **未知表会在取 PK 时先炸 `KeyError`**，根本走不到 validate 里的「未知表 → ValueError」。
+    ⇒ 契约（docstring 与 `upsert_issue_instruction` 的「响亮 ValueError」）与实际行为**不一致**：
+    调用方按契约 `except ValueError` 接，会**漏接 KeyError** ⇒ 报错类型不可预期。
+    ⇒ 现在**先查表名再取 PK**：未知表照样由 validate 抛 `ValueError`（契约归位）。
     """
+    if table not in _PK_BY_TABLE:
+        raise ValueError(f"未知写指令目标表 {table!r}")
     return _validate_impl(table, COLUMNS, row, _PK_BY_TABLE[table])
 
 

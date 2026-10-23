@@ -10,9 +10,19 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1].parent
+
+# ⚠️ **2026-10-23 修**：这条文件里有一条用例要**真的跑 node** 验 esc() 的转义结果。
+# Oracle（Linux）生产机**没装 node** ⇒ 原来硬编码 `"node"` 会抛 FileNotFoundError
+# ⇒ 报成**失败**（红），而它其实是「本项未检查」。
+# ⇒ 照仓库既有惯例（`tests/test_dashboard_smoke.py` 同一写法）：没 node ⇒ skip，不阻断。
+pytestmark = pytest.mark.skipif(shutil.which("node") is None,
+                                reason="当前环境未安装 node ⇒ 本项未检查（非失败）")
 
 
 def test_dailyimage_html_has_esc_utility():
@@ -84,7 +94,14 @@ def test_esc_renders_payload_safely():
     path = os.path.join(os.environ.get("TEMP", "/tmp"), "_esc_test.js")
     open(path, "w", encoding="utf-8").write(js_src)
     try:
-        r = subprocess.run(["node", path], capture_output=True, text=True, timeout=5)
+        # ⚠️ **2026-10-23 修**：原来硬编码 `"node"` ⇒ 环境没装 node 时
+        # 直接抛 `FileNotFoundError`（**测试红**，不是"本项未检查"）。
+        # 本仓库的既有惯例（`tests/test_dashboard_smoke.py`）是：
+        # 没装 node ⇒ **skip（未检查）**，不许当成失败。
+        # ⇒ 这里统一用 `shutil.which("node")`，并在本条上标注 skipif。
+        node_bin = shutil.which("node")
+        assert node_bin, "node 不存在（应由 skipif 拦下）"
+        r = subprocess.run([node_bin, path], capture_output=True, text=True, timeout=5)
         out = r.stdout
     finally:
         try:

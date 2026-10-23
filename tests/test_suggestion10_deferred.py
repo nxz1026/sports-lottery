@@ -281,7 +281,19 @@ def conn():
 
 
 def test_db_mapping_table_has_unique_ids_and_bexi(conn):
-    """真库：映射表已建、一个官方 id 只属一支队、279 与 506 都指向 #2351。"""
+    """真库：映射表已建、一个官方 id 只属一支队、**279 → #2355 / 506 → #2351**。
+
+    ⚠️ **2026-10-23 订正**：本断言原先写「279 与 506 都指向 #2351」，那是
+    **2026-10-22 纠正之前**的旧状态。纠正依据（README v4.6 / 路线图 §6.13.2）：
+    279 的 payload 字面是「**贝西克塔斯**」，挂在「毕尔巴鄂竞技」(#2351) 头上是
+    **从对手反推球队的猜测**；用俱乐部身份真主键 `af_id` 核对：
+    #2351 毕尔巴鄂竞技 af_id=531 → Athletic Club（506 归它 ✓）、
+    #2355 皇家贝蒂斯 af_id=543 → Real Betis（**279 + 505 归它 ✓**）
+    ⇒ **279 已改指 #2355**，506 仍指 #2351。生产库实测：
+    `SELECT jc_id, team_id FROM ref.team_sporttery WHERE jc_id IN (279,506)`
+    ⇒ `279|2355` / `506|2351`。
+    ⇒ **生产是对的、是这条断言旧了**（本条曾因此在 Oracle 上 failed）。
+    """
     exists = conn.execute("SELECT to_regclass('ref.team_sporttery') IS NOT NULL").fetchone()[0]
     assert exists, "ref.team_sporttery 未建（先跑 docs/db/suggestion10_team_sporttery_map.sql）"
     dup = conn.execute("SELECT count(*) FROM (SELECT sport, jc_id FROM ref.team_sporttery "
@@ -289,13 +301,16 @@ def test_db_mapping_table_has_unique_ids_and_bexi(conn):
     assert dup == 0, f"有 {dup} 个官方 id 指向多支行"
     rows = conn.execute("SELECT jc_id, team_id FROM ref.team_sporttery "
                          "WHERE jc_id IN (279, 506) ORDER BY jc_id").fetchall()
-    assert rows == [(279, 2351), (506, 2351)], rows
+    assert rows == [(279, 2355), (506, 2351)], rows
 
 
 def test_db_resolve_bexi_both_ids(conn):
-    """真库：resolve_jc_teams 对 279/506 都返回 #2351。"""
+    """真库：resolve_jc_teams(279, 506) → (#2355 皇家贝蒂斯, #2351 毕尔巴鄂竞技)。
+
+    ⚠️ 2026-10-23 订正：见上一条的说明 —— 279 已改指 #2355（纠正前是 #2351）。
+    """
     home, away = jc_write.resolve_jc_teams(conn.cursor(), 279, 506)
-    assert (home, away) == (2351, 2351)
+    assert (home, away) == (2355, 2351)
 
 
 def test_db_materialize_dry_run_writes_nothing(conn):

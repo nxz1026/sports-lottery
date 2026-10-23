@@ -1378,6 +1378,44 @@ def main() -> int:
     check("采集端不许在 _pid_alive 之外裸用 ctypes.windll（Windows 专有，会让 Linux 侧测试崩）",
           True, not _windll_outside)
 
+    # ── 2026-10-23：测试不许写生产仓库的文件（Oracle 上真污染过） ──────────
+    # 事故：Oracle 跑全量 pytest 后，仓库里 scripts/references/team_translations.json
+    # 被多写了「阿森纳 vs 切尔西」「Liverpool」「Everton」等测试夹具队名。
+    # 根因：parse._warm_team_names → 真调 core.i18n.warm_translations → 真调 LLM
+    #      → save_translations 写 TRANSLATION_CACHE_FILE（指向**仓库内生产文件**）；
+    #      生产机有 LLM 凭证 ⇒ 翻译真成功 ⇒ 真落盘（开发机无凭证 ⇒ 本机复现不了）。
+    _conftest = read(ROOT / "tests" / "conftest.py")
+    check("测试隔离 i18n 翻译缓存（autouse fixture，生产文件不许被测试写）", True,
+          "isolate_i18n_cache" in _conftest
+          and "autouse=True" in _conftest
+          and "TRANSLATION_CACHE_FILE" in _conftest)
+    # 未知表必须抛 ValueError（契约），不许是 KeyError（2026-10-23 修的真 bug：
+    # 原先 _PK_BY_TABLE[table] 在校验前求值 ⇒ 未知表先炸 KeyError，调用方按契约
+    # except ValueError 会漏接）
+    _jc_issue_write = read(ROOT / "scripts" / "ingest" / "jc_issue_write.py")
+    check("未知表抛 ValueError 而不是 KeyError（契约归位：调用方只 catch ValueError）",
+          True,
+          "if table not in _PK_BY_TABLE:" in _jc_issue_write
+          and "raise ValueError(f\"未知写指令目标表" in _jc_issue_write)
+    # 队名映射断言必须跟上 2026-10-22 的纠正终态（279 → #2355 皇家贝蒂斯，
+    # 506 仍 → #2351 毕尔巴鄂竞技）。生产是对的、是断言旧了。
+    _s10 = read(ROOT / "tests" / "test_suggestion10_deferred.py")
+    check("队名映射断言已跟上 279→#2355 的纠正终态（不许再断言旧的 #2351）", True,
+          "(279, 2355)" in _s10 and "(506, 2351)" in _s10
+          and "(2355, 2351)" in _s10
+          and "rows == [(279, 2351), (506, 2351)]" not in _s10)
+    # node 依赖的用例：没装 node ⇒ skip（未检查），不许报成失败
+    _xss = read(ROOT / "tests" / "web_ui" / "test_dailyimage_xss.py")
+    check("node 依赖用例没装 node 时是 skip 而非失败（照 test_dashboard_smoke 惯例）", True,
+          "shutil.which(\"node\")" in _xss
+          and "pytest.mark.skipif" in _xss
+          and 'subprocess.run(["node"' not in _xss)
+    # 延迟 import 的替身必须打**包属性**：`from store import jc_view` 取的是包属性，
+    # 只换 sys.modules 条目换不掉它（order-dependent ⇒ 只在全量跑时红）
+    _jc_helpers_t = read(ROOT / "tests" / "test_jc_helpers.py")
+    check("延迟 import 的替身打的是包属性（order-dependent 失败已修）", True,
+          "monkeypatch.setattr(store, \"jc_view\"" in _jc_helpers_t)
+
     # README / 路线图：旧话必须带订正标记；v4.6 段必须存在
     check("README/路线图 不再把「补数据属待排期」当现状陈述", True,
           not stale_lines(readme, ["补数据属待排期"])
