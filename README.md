@@ -1328,7 +1328,16 @@ UTC 18:00 / 18:30 = 北京 02:00 / 02:30 夜间低峰）。**坏文件隔离而�
 业务表行数与修复前**逐字一致**（`jc_match=471` / `jc_offer=182600` / `jc_result=474` / `jc_issue=184` /
 `jc_issue_prize=191` / `lottery_draw=214`）。
 
-**新增 36 项守门断言**（`tools/check_docs_claims.py`，**352 项**）—— 重点：gaps 口径三处**走 AST 判定**
+**⚠️ 顺带挖出并修掉一个「测试污染生产库」缺陷（既有问题，本轮才发现）**：
+核对行数时发现 `fact.jc_issue` 从 184 涨到 194 ⇒ 按 `first_seen_at` 定位到新增行
+`src_file='f.jsonl'` / `src_hash='h1'` / `game_num='90'` / 随机 `issue_no` ⇒
+真凶是 `tests/test_jc_issue_match_prize.py` 的两个真库用例**`conn.commit()`**，
+使 fixture 的 `finally: rollback()` **完全失效** ⇒ **每跑一次全量 pytest 就往生产库
+塞 35 行夹具垃圾**（与上一轮修的「测试不许写生产仓库文件」同类，上一轮只堵了文件没堵库）。
+⇒ **去掉 `commit()`**（断言同事务内读，事务由 fixture 回滚收尾 ⇒ 库里一行不留），
+已按 `src_file='f.jsonl'` 精确清掉这批垃圾行，并加守门（AST 判定真库用例不许 `commit()`）。
+
+**新增 37 项守门断言**（`tools/check_docs_claims.py`，**353 项**）—— 重点：gaps 口径三处**走 AST 判定**
 （`_from_manifest` 的 state 字面量集合 == `{"absent"}` / `load_topic` 的 `state=="absent"` 早退分支且不写 `ops.*`、不抛异常 /
 `load_batch` 空候选兜底 == `absent`）、坏文件不掀翻整批四连、`read_lines` 只许 catch `PermissionError`、
 保留策略九项、**台账窗口 > 落港窗口**（机器判定）、cron 安装器两条任务 + 幂等标记块、文档同步三项、
@@ -1523,11 +1532,11 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**守门断言累计 352 项**（`tools/check_docs_claims.py`，352 项；建议 6 再加 21 项、顺手修再加 7 项、
+**守门断言累计 353 项**（`tools/check_docs_claims.py`，353 项；建议 6 再加 21 项、顺手修再加 7 项、
 复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项、**§6.12 事故修复再加 15 项**、
 **§6.12.5/6.12.6 赔率口径修正再加 5 项**、**六联赛重训对拍再加 4 项**、**§6.13 本轮再加 30 项**、
 **§6.13.5 采集端改手动 + 新鲜度守门 + 原子性再加 33 项**、
-**§6.13.6 保留策略 + gaps 口径 + 坏文件不掀翻整批再加 36 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+**§6.13.6 保留策略 + gaps 口径 + 坏文件不掀翻整批再加 37 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
 回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
 物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字、
 **「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）、

@@ -226,7 +226,16 @@ def conn():
 
 
 def test_endtoend_jc_issue_match_writes(conn):
-    """一整期 jc_issue ⇒ fact.jc_issue + 2 行 fact.jc_issue_match；replay 幂等。"""
+    """一整期 jc_issue ⇒ fact.jc_issue + 2 行 fact.jc_issue_match；replay 幂等。
+
+    ⚠️ **2026-10-23 修生产污染**：原来这里有 ``conn.commit()`` ⇒ fixture 的
+    ``finally: c.rollback()`` 在 commit 之后**完全失效** ⇒ 每跑一次全量 pytest
+    就往**生产库** fact.jc_issue / jc_issue_match / jc_issue_draw / jc_issue_prize
+    里塞进 **35 行夹具垃圾**（``game_num='90'`` + 随机 ``issue_no='T'+hex`` +
+    ``src_file='f.jsonl'``）⇒ 实测生产库已被塞了 5 轮（first_seen_at 01:20~01:43）。
+    ⇒ **去掉 commit()**：断言全在同一事务里读（PG 的 read-your-own-writes 成立），
+    事务由 fixture 的 rollback 收尾 ⇒ **库里一行都不留**。
+    """
     from store.parse_jcissue import parse_jc_issue
     issue_payload = {**ISSUE_PAYLOAD, "lotteryDrawNum": PK_ISSUE["issue_no"]}
     ins_list = parse_jc_issue(issue_payload)
@@ -234,7 +243,6 @@ def test_endtoend_jc_issue_match_writes(conn):
     ups_n = 0
     for ins in ins_list:
         ups_n += jc_issue_write.upsert_issue_instruction(cur, ins, "h1", "f.jsonl")
-    conn.commit()
     assert ups_n == 3
     n_parent = cur.execute("select count(*) from fact.jc_issue where game_num=%s and issue_no=%s",
                            [PK_ISSUE["game_num"], PK_ISSUE["issue_no"]]).fetchone()[0]
@@ -250,7 +258,6 @@ def test_endtoend_jc_issue_match_writes(conn):
     # replay 幂等
     for ins in ins_list:
         jc_issue_write.upsert_issue_instruction(cur, ins, "h1", "f.jsonl")
-    conn.commit()
     n_match2 = cur.execute("select count(*) from fact.jc_issue_match where game_num=%s and issue_no=%s",
                            [PK_ISSUE["game_num"], PK_ISSUE["issue_no"]]).fetchone()[0]
     assert n_match2 == 2
@@ -258,7 +265,10 @@ def test_endtoend_jc_issue_match_writes(conn):
 
 def test_endtoend_jc_issue_prize_writes(conn):
     """一整期 jc_issue_result ⇒ fact.jc_issue_draw + 2 行 fact.jc_issue_prize。
-    FK ⇒ 先把 parent fact.jc_issue 行占上（同 game_num/issue_no），再落 draw+prize。"""
+    FK ⇒ 先把 parent fact.jc_issue 行占上（同 game_num/issue_no），再落 draw+prize。
+
+    ⚠️ 同上：**不许 commit()**（生产污染），断言在同一事务里读。
+    """
     from store.parse_jcissue import parse_jc_issue, parse_jc_issue_result
     cur = conn.cursor()
     # 先落 parent jc_issue 占位（同 issue_no）
@@ -268,7 +278,6 @@ def test_endtoend_jc_issue_prize_writes(conn):
     ins_list = parse_jc_issue_result(draw_payload)
     for ins in ins_list:
         jc_issue_write.upsert_issue_instruction(cur, ins, "h1", "f.jsonl")
-    conn.commit()
     n_draw = cur.execute("select count(*) from fact.jc_issue_draw where game_num=%s and issue_no=%s",
                          [PK_DRAW["game_num"], PK_DRAW["issue_no"]]).fetchone()[0]
     n_prize = cur.execute("select count(*) from fact.jc_issue_prize where game_num=%s and issue_no=%s",

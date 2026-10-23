@@ -1694,6 +1694,22 @@ def main() -> int:
           [], _jct_hard)
     check("真包测试改成动态挑「盘上最老的可解析文件」（保留策略删掉旧的也不会失效）",
           True, "_pick_real" in _jct)
+    # ⚠️ **真库端到端用例不许 commit()**：fixture 的 ``finally: rollback()`` 在 commit
+    #    之后**完全失效** ⇒ 每跑一次全量 pytest 就往**生产 fact 表**塞夹具垃圾行
+    #    （2026-10-23 实测：``game_num='90'`` + 随机 ``issue_no='T'+hex`` +
+    #    ``src_file='f.jsonl'``，5 轮共 175 行）⇒ 断言走 AST（免疫 docstring 里的提及）。
+    _commit_leaks: list[str] = []
+    for _rel in ("tests/test_jc_issue_match_prize.py", "tests/test_jc_topic_issue.py"):
+        try:
+            _t = ast.parse(read(ROOT / _rel))
+        except SyntaxError:
+            continue
+        for _n in ast.walk(_t):
+            if (isinstance(_n, ast.Call) and isinstance(_n.func, ast.Attribute)
+                    and _n.func.attr == "commit"):
+                _commit_leaks.append(f"{_rel}:{_n.lineno}")
+    check("真库端到端用例不许 commit()（fixture 的 rollback 会失效 ⇒ 污染生产库）",
+          [], _commit_leaks)
 
     # ⚠️⚠️ **硬不变量**：台账窗口必须 > 落港窗口。
     #    否则台账比文件先消失 ⇒ 装载器把老文件判成「孤儿(未装载)」⇒ 每轮全部重装
