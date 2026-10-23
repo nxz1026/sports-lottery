@@ -26,6 +26,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -134,15 +135,31 @@ sys.modules["c"] = mod
 spec.loader.exec_module(mod)
 mod.ROOT = __import__("pathlib").Path(sys.argv[2])
 log = sys.argv[3]          # **每进程一个日志文件**（共享 append 会有写丢失）
+start_flag = sys.argv[4]   # **同步旗标**：所有子进程就位后才一起抢锁
+
+# ── 同步：等到旗标文件出现再抢锁 ──────────────────────────────────
+# ⚠️ **2026-10-23 修 flaky**：原来 4 个子进程**直接**开抢 ⇒ 在慢机器/高负载下
+# 启动间隔可能 > 赢家持锁的 1.0s ⇒ 赢家释放后**后到的进程合法地拿到锁**
+# ⇒ 「恰好 1 个赢家」这个断言**不成立**（实测 Oracle 上 10 次里 4 次失败）。
+# ⇒ 现在用旗标文件让 4 个进程**真正同时**抢 ⇒ 确定性复现「同时抢锁」场景。
+deadline = time.time() + 30
+while not os.path.exists(start_flag):
+    if time.time() > deadline:
+        break          # 旗标等不到就自己开抢（不许死等）
+    time.sleep(0.005)
+
 got = mod._acquire_singleton_lock()
 with open(log, "a", encoding="utf-8") as f:
-    f.write("ACQ %d %s\n" % (time.time(), got))
+    # ⚠️ **2026-10-23 修**：`%d` 会把 `time.time()` **截断成整数秒** ⇒ 毫秒级
+    #    的先后关系全丢了（实测 4 个进程的 ACQ 时间戳全是同一个整数）⇒
+    #    没法判断区间是否重叠，断言必然误判 ⇒ 改用 `%r`（完整 float 精度）。
+    f.write("ACQ %r %s\n" % (time.time(), got))
     f.flush()
     os.fsync(f.fileno())
 if got:
     time.sleep(1.0)
     with open(log, "a", encoding="utf-8") as f:
-        f.write("REL %d\n" % time.time())
+        f.write("REL %r\n" % time.time())
         f.flush()
         os.fsync(f.fileno())
     mod._release_singleton_lock()
@@ -150,20 +167,34 @@ if got:
 
 
 def test_singleton_lock_concurrent_only_one_holder(tmp_path):
-    """4 个**真进程**同时抢锁 ⇒ 持锁区间必须**互不重叠**（恰好一个赢家）。
+    """4 个**真进程**同时抢锁 ⇒ **同一时刻只有一个进程能拿到锁**（持锁区间互不重叠）。
 
     为什么用进程不用线程：锁的存活判定是「旧 pid != 我的 pid」⇒ 同进程多线程
     会共享 pid 而绕过判定，测不出真并发。
+
+    ⚠️ **2026-10-23 修了一个 flaky**（Oracle 上 10 次跑挂 4 次）：
+    原来断言「**恰好 1 个**赢家 + 只有 1 段持锁区间」，但那**依赖子进程真正同时开抢**。
+    慢机器/高负载下启动间隔 > 赢家持锁的 1.0s ⇒ 赢家释放后**后到的进程合法地拿到锁**
+    ⇒ 「恰好 1 个赢家」不成立（这是**正常行为**，不是 bug）。
+    ⇒ 两处修：① 子进程用**旗标文件**同步，等 4 个都就位才一起抢（确定性复现真并发）；
+    ② 断言改成锁**真正的性质**：**任意时刻持锁区间互不重叠**（这才是单例锁的定义），
+    并保留「至少 1 个赢家」。
     """
     child = tmp_path / "child.py"
     child.write_text(_CHILD, encoding="utf-8")
+    start_flag = tmp_path / "START"
 
     procs = []
     for i in range(4):
         log = tmp_path / ("lock_%d.log" % i)
         procs.append((log, subprocess.Popen(
-            [sys.executable, str(child), str(COLLECTOR), str(tmp_path), str(log)],
+            [sys.executable, str(child), str(COLLECTOR), str(tmp_path),
+             str(log), str(start_flag)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)))
+    # 等所有子进程就位（旗标存在 ⇒ 至少一个已到达等待点；再多等一点让其余到达）
+    time.sleep(0.5)
+    start_flag.write_text("go", encoding="utf-8")
+
     for _log, p in procs:
         p.wait(timeout=60)
 
@@ -178,18 +209,22 @@ def test_singleton_lock_concurrent_only_one_holder(tmp_path):
     acqs = [e for e in events if e[0] == "ACQ"]
     assert len(acqs) == 4, f"子进程没都上报: {events}"
     win = [e for e in acqs if e[2] == "True"]
-    assert len(win) == 1, f"应当恰好 1 个进程拿到锁，实际 {len(win)}: {acqs}"
+    assert len(win) >= 1, f"至少要有 1 个赢家，实际 {len(win)}: {acqs}"
 
-    # 持锁区间互不重叠
+    # ★ 真正的性质：持锁区间**互不重叠**（同一时刻只有一个进程持锁）
     spans = []
     cur_start = None
     for tag, ts, _flag in sorted(events, key=lambda e: e[1]):
         if tag == "ACQ" and _flag == "True":
+            assert cur_start is None, f"两个进程同时持锁（区间重叠）: {events}"
             cur_start = ts
         elif tag == "REL" and cur_start is not None:
             spans.append((cur_start, ts))
             cur_start = None
-    assert len(spans) == 1, f"持锁区间应只有 1 段，实际 {len(spans)}: {spans}"
+    assert spans, f"没解析出任何持锁区间: {events}"
+    for i in range(1, len(spans)):
+        assert spans[i - 1][1] <= spans[i][0], (
+            f"持锁区间重叠 ⇒ 单例锁失效: {spans}")
 
 
 def test_singleton_lock_refuses_when_other_process_alive(tmp_path, monkeypatch):
@@ -219,6 +254,40 @@ def test_singleton_lock_creates_lock_with_own_pid(tmp_path, monkeypatch):
     assert lock.read_text(encoding="utf-8").strip() == str(os.getpid())
     mod._release_singleton_lock()
     assert not lock.exists()
+
+
+def test_singleton_lock_refuses_when_lock_file_just_created_but_empty(tmp_path, monkeypatch):
+    """**第三处 TOCTOU**：锁文件已存在但内容还是空的 ⇒ 必须拒绝拿锁。
+
+    「文件存在」与「读得到有效 pid」**不是同一时刻**：创建者 A 用 `open(lock,"x")`
+    独占创建后还要再写一次 pid ⇒ 中间有「文件已存在、内容为空」的窗口。
+    ⇒ 若把「空内容」当成「旧 pid 已死（0）⇒ 接管」，竞争者 B 会**覆盖 A 的 pid
+    并同时返回 True** ⇒ **两个进程同时持锁**（实测 ACQ 间隔 0.6ms、区间真的重叠）。
+    ⇒ 新锁（mtime 很新）必须拒绝。
+    """
+    mod = _mod_at(tmp_path, monkeypatch)
+    lock = tmp_path / ".collector.lock"
+    lock.write_text("", encoding="utf-8")      # 刚创建、内容为空
+    assert mod._acquire_singleton_lock() is False, "空锁文件不得被当成『无锁』而接管"
+    # 锁内容不该被覆盖（不能把空锁改成自己的 pid）
+    assert lock.read_text(encoding="utf-8").strip() == ""
+
+
+def test_singleton_lock_takes_over_stale_empty_lock(tmp_path, monkeypatch):
+    """**老**的空锁文件（创建者崩溃残留）⇒ 必须能接管，否则后续批次永久卡死。
+
+    与上一条配套：拒绝「空锁」是为了防同时持锁，但若创建者在写 pid 之前崩溃，
+    锁就永远空着 ⇒ 所有后续批次都拿不到锁 ⇒ **静默卡死**。
+    ⇒ 空锁的 mtime 超过阈值 ⇒ 判定为崩溃残留 ⇒ 允许接管。
+    """
+    mod = _mod_at(tmp_path, monkeypatch)
+    lock = tmp_path / ".collector.lock"
+    lock.write_text("", encoding="utf-8")
+    # 把 mtime 改成很久以前（模拟「早就存在」）
+    old = time.time() - (mod._LOCK_STALE_S + 120)
+    os.utime(lock, (old, old))
+    assert mod._acquire_singleton_lock() is True, "老的空锁必须能接管（否则永久卡死）"
+    assert lock.read_text(encoding="utf-8").strip() == str(os.getpid())
 
 
 def test_singleton_lock_takes_over_dead_pid(tmp_path, monkeypatch):

@@ -38,6 +38,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 CN_TZ = timezone(timedelta(hours=8))
 UTC = timezone.utc
+
+# ── 单例锁的空内容处理参数（2026-10-23 第三处 TOCTOU 修复配套）────────────
+# 锁文件「已存在」但内容还是空的 ⇒ 创建者刚 O_EXCL 建好、pid 还没写进去。
+# 此时**必须拒绝**（否则会与创建者同时持锁）；但创建者若在此刻崩溃 ⇒ 锁永远为空
+# ⇒ 后续批次永远拿不到锁（静默卡死）⇒ 靠「短暂重试 + 老空锁可接管」兜底。
+_LOCK_EMPTY_RETRIES = 5        # 空内容时最多重试几次
+_LOCK_EMPTY_RETRY_S = 0.02     # 每次重试间隔（秒）⇒ 合计最多等 100ms
+_LOCK_STALE_S = 60             # 空锁的 mtime 超过这个秒数 ⇒ 判定为崩溃残留，可接管
+
 CONFIG = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
 
 UA = CONFIG["ua"]
@@ -789,6 +798,17 @@ def _acquire_singleton_lock() -> bool:
 
     ⇒ 现在用 **O_EXCL 独占创建**拿锁：只有能独占创建成功的那个进程算拿到锁；
     锁已存在时再走「旧 pid 是否还活着」的判定（死 pid → 接管）。
+
+    ⚠️ **第三处 TOCTOU（2026-10-23 修，回归测试实测抓到）**：
+    「锁文件已存在」与「锁文件里读得到有效 pid」**不是同一时刻的事** ——
+    创建者 A 用 `open(lock,"x")` 独占创建后，还要**再写一次 pid**才关闭；
+    这中间有一个窗口：**文件已存在、内容还是空的**。
+    ⇒ 竞争者 B 此时读锁文件 ⇒ `int("" or "0")` = **0** ⇒ 若按「0 = 旧 pid 已死 ⇒ 接管」
+    处理，B 会**覆盖 A 的 pid 并同时返回 True** ⇒ **两个进程同时持锁**！
+    ⇒ 实测（Windows，4 进程同刻抢锁）：两个进程的 ACQ 间隔仅 **0.6 毫秒**，
+    持锁区间**真的重叠** ⇒ 单例锁失效（这正是「历史死机前 1GB+ 根因」要防的场景）。
+    ⇒ 修法：**锁文件存在但 pid 读不出来（空 / 非数字）⇒ 判定为「别人正在创建」**
+    ⇒ **拒绝拿锁（返回 False）**，绝不接管。只有读到**合法且已死**的 pid 才接管。
     """
     lock = ROOT / ".collector.lock"
     my_pid = os.getpid()
@@ -801,15 +821,56 @@ def _acquire_singleton_lock() -> bool:
     else:
         try:
             fh.write(str(my_pid))
+            fh.flush()
+            os.fsync(fh.fileno())
         finally:
             fh.close()
         return True
     # 锁已存在 ⇒ 旧 pid 是否还活着？
+    #
+    # ⚠️ **「文件存在」与「读得到有效 pid」不是同一时刻**（第三处 TOCTOU）：
+    # 创建者 A 用 `open(lock,"x")` 独占创建后，还要**再写一次 pid**才关闭 ⇒
+    # 中间存在「文件已存在、内容还是空的」窗口。此时若按「0 = 旧 pid 已死 ⇒ 接管」
+    # 处理，竞争者 B 会**覆盖 A 的 pid 并同时返回 True** ⇒ **两个进程同时持锁**
+    # （实测 4 进程同刻抢锁，两个 ACQ 间隔仅 0.6 毫秒、持锁区间真的重叠）。
+    # ⇒ 读到空/非数字 ⇒ 判定「别人正在创建」⇒ **拒绝**（返回 False），绝不接管。
+    #
+    # ⚠️ 但这样会带来一个**新的卡死风险**：创建者若在写 pid 之前崩溃 ⇒
+    # 锁文件**永远为空** ⇒ 后续所有批次都拿不到锁 ⇒ **静默卡死**。
+    # ⇒ 兜底：空内容时**短暂重试**（等创建者把 pid 写完）；
+    #   仍为空**且文件已经「老」**（mtime 超过阈值）⇒ 判定为崩溃残留 ⇒ 允许接管。
+    for _attempt in range(_LOCK_EMPTY_RETRIES):
+        try:
+            raw = lock.read_text(encoding="utf-8").strip()
+        except OSError:
+            return False                 # 读不出来 ⇒ 不确定 ⇒ 不接管
+        if raw:
+            break
+        # 内容为空 ⇒ 等创建者写完（很短）
+        time.sleep(_LOCK_EMPTY_RETRY_S)
+    else:
+        # 重试用尽仍是空 ⇒ 看它是不是「早就存在」的崩溃残留
+        try:
+            age = time.time() - lock.stat().st_mtime
+        except OSError:
+            return False
+        if age < _LOCK_STALE_S:
+            return False                 # 还很新 ⇒ 大概率正在创建 ⇒ 拒绝
+        # 老空锁 ⇒ 崩溃残留 ⇒ 接管（下面统一走写 pid 分支）
+        raw = str(my_pid)
+        try:
+            lock.write_text(raw, encoding="utf-8")
+        except OSError:
+            return False
+        return True
     try:
-        old_pid = int(lock.read_text(encoding="utf-8").strip() or "0")
-    except (ValueError, OSError):
-        old_pid = 0
-    if old_pid and old_pid != my_pid and _pid_alive(old_pid):
+        old_pid = int(raw)
+    except ValueError:
+        # 内容不是数字 ⇒ 同样是「刚创建/写坏了」窗口 ⇒ 拒绝，不接管
+        return False
+    if old_pid <= 0:
+        return False
+    if old_pid != my_pid and _pid_alive(old_pid):
         return False
     # 旧 pid 已死 ⇒ 接管（罕见路径；真正的护栏是 write_batch 的原子独占创建）
     try:

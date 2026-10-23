@@ -1377,6 +1377,20 @@ def main() -> int:
     ]
     check("采集端不许在 _pid_alive 之外裸用 ctypes.windll（Windows 专有，会让 Linux 侧测试崩）",
           True, not _windll_outside)
+    # ── 第三处 TOCTOU：锁文件「已存在」与「读得到有效 pid」不是同一时刻 ──────
+    # 创建者 O_EXCL 建好锁后还要再写一次 pid ⇒ 中间有「文件存在、内容为空」的窗口；
+    # 若把空内容当成「旧 pid 已死(0)⇒接管」⇒ 竞争者会**与创建者同时持锁**
+    # （实测 4 进程同刻抢锁，两个 ACQ 间隔仅 0.6ms、持锁区间真的重叠）。
+    check("采集端锁文件内容为空时必须拒绝拿锁（第三处 TOCTOU：不许当成无锁而接管）",
+          True,
+          "for _attempt in range(_LOCK_EMPTY_RETRIES):" in _collector
+          and "_LOCK_EMPTY_RETRIES" in _collector
+          and "if raw:" in _collector
+          and "_LOCK_STALE_S" in _collector)
+    check("采集端老空锁（创建者崩溃残留）必须可接管（否则后续批次永久卡死）",
+          True,
+          "_LOCK_STALE_S" in _collector
+          and "st_mtime" in _collector)
 
     # ── 2026-10-23：测试不许写生产仓库的文件（Oracle 上真污染过） ──────────
     # 事故：Oracle 跑全量 pytest 后，仓库里 scripts/references/team_translations.json

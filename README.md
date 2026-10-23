@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2737 passed / 75 skipped / 0 failed**（2812 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 手动模式+新鲜度守门+采集端原子性 +30**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2739 passed / 75 skipped / 0 failed**（2814 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 手动模式+新鲜度守门+采集端原子性 +32**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -1456,10 +1456,10 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**守门断言累计 314 项**（`tools/check_docs_claims.py`，314 项；建议 6 再加 21 项、顺手修再加 7 项、
+**守门断言累计 316 项**（`tools/check_docs_claims.py`，316 项；建议 6 再加 21 项、顺手修再加 7 项、
 复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项、**§6.12 事故修复再加 15 项**、
 **§6.12.5/6.12.6 赔率口径修正再加 5 项**、**六联赛重训对拍再加 4 项**、**§6.13 本轮再加 30 项**、
-**§6.13.5 采集端改手动 + 新鲜度守门 + 原子性再加 31 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+**§6.13.5 采集端改手动 + 新鲜度守门 + 原子性再加 33 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
 回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
 物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字、
 **「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）、
@@ -1936,6 +1936,7 @@ naive/aware 时间戳直接比、`p_model` 误取市场先验、CLI 漏 `__main_
   - **配套新增「定价赔率新鲜度守门」**（`scripts/decision/recommend.py`）：手动模式下「忘了先采集就出荐单」是新的静默失败路径（页面看着完全正常）。全局闸：全库 `had` 最新快照超 6h ⇒ 拒绝出单（退出码 3，打印修复命令，`--allow-stale` 可显式放行并在 note 留痕）；逐场闸：该场快照超龄 ⇒ 跳过该场。页面同步显示「定价赔率快照 X 小时前」，过期标红
   - **顺带修掉一个数据丢失级缺陷**：篮球赛果 `jclq_result` 的 pageSize=30 时接口 `total=42 / pages=2` ⇒ **每批只取第 1 页 30 场、漏 12 场真实比赛**（埃菲斯vs拜仁、巴黎vs博洛尼亚、皇马vs阿斯维尔 等）⇒ 已改 pageSize=100（重采实测 30 → 42 行）
   - **再修一个文件损坏级缺陷（2026-10-23 查日志时挖出）**：采集端**两处 TOCTOU** ⇒ Boot+Logon 把多个计划任务在同一刻拉起时（实测 21:49 一次拉起 4 个），多个批次会**同时拿到单例锁**、给同一 topic 选到**同一个文件名** ⇒ 两个进程各写一半 ⇒ **文件内容交织、变成非法 JSON**（远端装载报 `JSONDecodeError`，坏文件留在盘上反复报错）⇒ 两处都改用 **O_EXCL 独占创建**（`open(path,"x")`），回归测试 `tests/test_collector_atomicity.py`（并发写不撞名 + 4 个真进程抢锁只有一个赢家）
+  - **再补第三处 TOCTOU（同日，回归测试自己抓出来的）**：**「锁文件已存在」与「读得到有效 pid」不是同一时刻** —— 创建者 `open(lock,"x")` 建好锁后还要**再写一次 pid** ⇒ 中间有「文件已存在、内容还是空的」窗口 ⇒ 竞争者读到 `0` 若按「旧 pid 已死 ⇒ 接管」处理，会**覆盖创建者的 pid 并同时返回 True** ⇒ **两个进程真的同时持锁**（实测两个 ACQ 间隔仅 **0.6 毫秒**、持锁区间重叠）⇒ 现在**空内容 ⇒ 拒绝拿锁**（并短暂重试等创建者写完）+ **老空锁（创建者崩溃残留）⇒ 允许接管**（避免后续批次永久卡死）
   - **再订正一处平台耦合（同日，Oracle 侧实测发现）**：拿锁后的「旧 pid 是否还活着」判定原本直接用 `ctypes.windll`（**Windows 专有**）⇒ 采集机跑得好好的，但 `collector.py` 同时是仓库里的生产代码、其测试会在 **Linux（Oracle）** 上跟着全量 pytest 跑 ⇒ Oracle 上子进程直接 `AttributeError` 崩、**2 条锁测试 failed** ⇒ 抽出 `_pid_alive()`：**Windows 走 `OpenProcess`**、**POSIX 走 `os.kill(pid, 0)`**（只探测不发信号；⚠️ Windows 上**不能**用 `os.kill(pid,0)`，那边会 `TerminateProcess` 把目标杀掉）⇒ **两侧都实测 7 passed**，且不再有平台跳过
   - **顺带清掉 Oracle 上 5 条既有失败（2026-10-23 复核全量时挖出，`c78c5be` 上同样失败 ⇒ 非本轮引入）**：① **队名映射断言旧了**（`tests/test_suggestion10_deferred.py` 仍断言 `279→#2351`，而 **2026-10-22 已纠正**为 `279→#2355 皇家贝蒂斯`（`af_id=543`=Real Betis），生产库实测 `279|2355` / `506|2351` ⇒ **生产是对的、断言旧了**）；② **未知表抛错类型不对**（`jc_issue_write._validate` 里 `_PK_BY_TABLE[table]` 在校验前求值 ⇒ 未知表先炸 `KeyError`，与契约「响亮 ValueError」不符 ⇒ 调用方按契约 `except ValueError` 会**漏接**）；③ **node 依赖的用例在没装 node 的机器上报成失败**（应按 `test_dashboard_smoke` 惯例 skip）；④ **order-dependent 失败**（`from store import jc_view` 取的是**包属性**，测试只换 `sys.modules` 条目换不掉它 ⇒ 全量跑时拿到**真模块**、真连生产库）；⑤ **测试会写生产仓库文件**（`parse._warm_team_names` → 真调 LLM → 写 `scripts/references/team_translations.json`，实测 Oracle 上多出「阿森纳 vs 切尔西」「Liverpool」「Everton」等测试夹具队名 ⇒ 已加 `tests/conftest.py` 的 **autouse 隔离**，**测试永远碰不到生产文件**）
 - 推送：`ssh oracle-league`（`league@140.83.62.161`，专用 keypair，受限 shell tar 流式白名单）→ `/srv/league-staging/incoming/cn-collector/`（topic 子目录 + `.done` 清单，属主 league:league）；`ssh oracle`（ubuntu）仅运维
