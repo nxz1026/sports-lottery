@@ -255,6 +255,11 @@ const fetchStub = (url) => {
       text: () => Promise.resolve(''),
     });
   }
+  // ⚠️ P2-K：网络故障态 —— 除 /me 外全部**请求失败**（模拟断网 / 服务不可达）。
+  //    用来验证「首屏取不到数据时顶部不许写『最近同步』」。
+  if (stubMode === 'failed' && u.indexOf('/me') < 0) {
+    return Promise.reject(new Error('网络错误（桩）'));
+  }
   const body = payloadFor(u);
   return Promise.resolve({
     status: 200, ok: true,
@@ -288,6 +293,9 @@ function buildSandbox(extra, domStub) {
     location: { href: 'http://127.0.0.1/dashboard/jc/', pathname: '/dashboard/jc/', reload() {} },
     setTimeout, clearTimeout, setInterval, clearInterval,
     URLSearchParams,
+    // ⚠️ P2-K：`api()` 的超时靠 AbortController ⇒ 沙箱必须提供它，
+    //    否则「请求永远挂着 ⇒ 必须超时失败」这条根本测不了。
+    AbortController,
     IntersectionObserver: class { constructor() {} observe() {} disconnect() {} unobserve() {} },
   }, extra || {});
   sb.window = sb;
@@ -452,6 +460,9 @@ const P2A_CHECKS = [
   // P2-J：用户可见面板里不许漏出 Markdown 标记（前端不渲染 ⇒ 只会原样显示）
   ['p2j_normal_panels_no_markdown_marker', '正常态面板渲染结果里不许出现 Markdown 标记（**）'],
   ['p2j_degraded_panels_no_markdown_marker', '降级态面板渲染结果里不许出现 Markdown 标记（**）'],
+  // P2-K：请求不许永远挂着；首屏取不到数据时顶部不许假装「最近同步」
+  ['p2k_hanging_request_times_out', '请求永远挂着时必须超时失败（不许 promise 永不 settle）'],
+  ['p2k_live_not_claimed_synced_when_partial_failure', '首屏有数据没取到时，顶部不许写「最近同步」'],
 ];
 
 async function main() {
@@ -523,6 +534,43 @@ async function main() {
       out.p0_detailTech_label = (() => {
         const h = detailTech({ ml_proba: [0.9778, 0.0081, 0.0141] });
         return h.indexOf('未融合') >= 0 && h.indexOf('仅供排障') >= 0;
+      })();
+      // ── P2-K：首屏不许停在「连接中…」───────────────────────────────
+      // ① 请求**永远挂着** ⇒ api() 必须**超时失败**（不许 promise 永不 settle）。
+      //    ⚠️ 必须打 api()（不是 fetchTo）—— 否则「api 绕开超时」这种回退抓不到。
+      //    ⚠️ 必须再套一个 2 秒硬闸：回退后 api() 会永远挂着 ⇒ 断言要能**返回 false**
+      //    而不是把整个冒烟挂死。
+      out.p2k_hanging_request_times_out = await (async () => {
+        const _f = fetch;
+        try {
+          // 真实的 fetch 会响应 abort ⇒ 桩也必须响应，否则测不到超时路径。
+          fetch = (u, init) => new Promise((_res, rej) => {
+            if (init && init.signal) {
+              init.signal.addEventListener('abort', () => rej(new Error('aborted')));
+            }
+          });
+          const verdict = await Promise.race([
+            api('/hang-forever', 60).then(() => 'RESOLVED', (e) => 'REJECTED:' + String((e && e.message) || e)),
+            new Promise((r) => setTimeout(() => r('HUNG'), 2000)),
+          ]);
+          return verdict.indexOf('REJECTED:请求超时') >= 0;
+        } finally { fetch = _f; }
+      })();
+      // ② 首屏有面板取不到数据 ⇒ 顶部**不许**写「最近同步」（那是假时间戳）。
+      //    ⚠️ 必须**恢复正常态**：'failed' 模式会把各面板重渲染成失败文案，
+      //    不还原就会污染后面 P2-A 断言的输入（实测踩过：p2a_snapshot_stamp_is_bjt 假 FAIL）。
+      out.p2k_live_not_claimed_synced_when_partial_failure = await (async () => {
+        __setStubMode('failed');
+        let ok = false;
+        try {
+          await _probeAuthAndBoot();
+          const t = String(document.getElementById('liveText').textContent || '');
+          ok = t.indexOf('未取到') >= 0 && t.indexOf('最近同步') < 0;
+        } finally {
+          __setStubMode('normal');
+          await _probeAuthAndBoot();
+        }
+        return ok;
       })();
       // ── P2-A 口径断言（运行时调用真实函数 / 真渲染面板）───────────────
       // A1：pct() —— Number(null)===0 ⇒ 旧实现把「没有值」印成「0.0%」

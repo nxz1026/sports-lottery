@@ -271,14 +271,40 @@ const API="/dashboard/jc/api/v1", LOGIN="/dashboard/jc/login", state={pred:null,
 // 竞彩/彩票只读 API 基址（与 API 同一 nginx 前缀，同源自动带 cookie）
 const JCAPI="/dashboard/jc/api/jc";
 const $=s=>document.querySelector(s), esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
-async function api(path){
-  const r=await fetch(API+path,{credentials:"same-origin",headers:{Accept:"application/json"}});
+/* P2-K（2026-10-23）：请求**不许永远挂着**。
+ * 事故（生产浏览器验收时当场撞上）：整块页面停在「连接中…」，所有面板停在
+ * 「正在加载…」，顶部时间戳永远不变，**用户看不到任何错误提示、也没有重试入口**。
+ * nginx 侧证据：那一轮 8 个 API **全部 200 且响应体完整发出**，随后客户端自己
+ * 断开（499）⇒ 服务端没拖住；但页面代码**确实有个真缺口**：
+ *   `Promise.all([...])` 只要**任一** loader 的 fetch **永不 settle**
+ *   （半开连接 / 服务端收了连接不回数据 / 代理挂起），
+ *   Promise.all 就**永不 resolve** ⇒ `.finally` 不执行 ⇒ 首屏永远「连接中…」。
+ * ⇒ 修法：① 请求加**超时**（AbortController）⇒ 挂起变成**失败**（各面板已有
+ *   try/catch 会印出「加载失败 + 重试按钮」）；② 首屏改 `Promise.allSettled`
+ *   ⇒ 一个面板拖不死其它面板；③ 顶部时间戳在有失败时**如实**写「N 项未取到」
+ *   （不许假装"最近同步"）。 */
+const API_TIMEOUT_MS=20000;
+let apiFailCount=0, apiOkCount=0;
+async function fetchTo(url,init,ms){
+  const lim=ms||API_TIMEOUT_MS;
+  const ctl=(typeof AbortController!=="undefined")?new AbortController():null;
+  let timedOut=false;
+  const timer=ctl?setTimeout(()=>{timedOut=true;ctl.abort()},lim):null;
+  try{return await fetch(url,ctl?Object.assign({},init||{},{signal:ctl.signal}):init)}
+  catch(e){if(timedOut)throw Error("请求超时（"+Math.round(lim/1000)+" 秒无响应）");throw e}
+  finally{if(timer)clearTimeout(timer)}
+}
+async function api(path,timeoutMs){
+  let r;
+  try{r=await fetchTo(API+path,{credentials:"same-origin",headers:{Accept:"application/json"}},timeoutMs)}
+  catch(e){apiFailCount++;throw e}
   let b=null;try{b=await r.json()}catch(_){}
   // R47 恢复独立登录页：P5（093dafa）删掉登录页时的前提是「Nginx Basic Auth 在反代层把关」，
   // 但生产 nginx 对 /dashboard/jc/ 是 auth_basic off（免凭据 200），且 require_auth 只认
   // lp_session cookie、不接受 Basic 头 → 公网看板实际失去了唯一登录入口。401 跳回登录页。
   if(r.status===401){location.href=LOGIN;throw Error("未登录")}
-  if(!r.ok)throw Error((b&&b.message)||`HTTP ${r.status}`);
+  if(!r.ok){apiFailCount++;throw Error((b&&b.message)||`HTTP ${r.status}`)}
+  apiOkCount++;
   return b
 }
 function stateBox(el,msg,error){el.innerHTML=`<div class="empty ${error?"error":""}">${esc(msg)}${error?"<br><button class=\"btn\" onclick=\"location.reload()\">重试</button>":""}</div>`}
@@ -699,10 +725,14 @@ function markUnlogged(){
 function setLiveFullSync(){const lt=$("#liveText");if(lt)lt.textContent="最近同步 · "+bjtClock(new Date(),false)+" BJT"}
 function tickRecommend(){if(document.hidden)return;return loadRecommend().then(()=>{const lt=$("#liveText");if(lt)lt.textContent="推荐单已刷新 · "+bjtClock(new Date(),false)+" BJT"}).catch(()=>{})}
 /* 启动探测是否已登录：未登录就**跳登录页**（不再停在假 loading 状态）。
- * 保留「跳过批量 fetch」的用意（避免 7 个 401 噪声），但**必须**给用户一条出路。 */
+ * 保留「跳过批量 fetch」的用意（避免 7 个 401 噪声），但**必须**给用户一条出路。
+ * ⚠️ P2-K（2026-10-23）：首屏用 `Promise.allSettled`（不是 `Promise.all`）——
+ *   `Promise.all` 里**任一** loader 挂住 ⇒ 整条链**永不 resolve** ⇒ 顶部时间戳
+ *   永远停在「连接中…」，用户看不到任何错误也没有重试入口（实测撞过一次）。
+ *   ⇒ 改 allSettled + `api()` 超时（有失败就**如实**写「N 项未取到」）。 */
 async function _probeAuthAndBoot(){
   try{
-    const r=await fetch(API+"/me",{credentials:"same-origin"});
+    const r=await fetchTo(API+"/me",{credentials:"same-origin"});
     if(r.status===401||r.status===403){
       markUnlogged();
       const lt=$("#liveText"); if(lt)lt.textContent="未登录 · 正在跳登录页";
@@ -710,7 +740,17 @@ async function _probeAuthAndBoot(){
       return;
     }
   }catch(_){ /* 网络问题：仍尝试批量拉 */ }
-Promise.all([loadToday(),loadTrace(),loadAI(),loadDaily(),loadAccuracy(),loadClv(),loadRecommend(),loadSources()]).finally(setLiveFullSync);
+  apiFailCount=0;apiOkCount=0;
+  const rs=await Promise.allSettled([loadToday(),loadTrace(),loadAI(),loadDaily(),loadAccuracy(),loadClv(),loadRecommend(),loadSources()]);
+  const rejected=rs.filter(x=>x.status==="rejected").length;
+  const failed=apiFailCount+rejected;
+  const lt=$("#liveText");
+  if(failed){
+    // ⚠️ **不许**再写「最近同步」——有数据没取到时，那会是一个假的时间戳。
+    if(lt)lt.textContent="⚠️ "+failed+" 项未取到 · "+bjtClock(new Date(),false)+" BJT（各面板内有提示与重试）";
+  }else{
+    setLiveFullSync();
+  }
 }
 _probeAuthAndBoot();
 /* ⚠️ 2026-10-23：推荐单是**手动生成**的（生产上没有任何 cron 跑它）⇒ 用户上午采集完，
@@ -805,12 +845,15 @@ function closeHint(p, dir){
 // 未列出的代码（如回测里的 jqc）一律原样显示，绝不猜测。
 const JC_PLAY_CN={had:"胜平负",hhad:"让球胜平负",crs:"比分",ttg:"总进球",haf:"半全场"};
 const LOTTERY_ORDER=["85","35","350133","04"];
-async function jcApi(path){
-  const r=await fetch(JCAPI+path,{credentials:"same-origin",headers:{Accept:"application/json"}});
+async function jcApi(path,timeoutMs){
+  let r;
+  try{r=await fetchTo(JCAPI+path,{credentials:"same-origin",headers:{Accept:"application/json"}},timeoutMs)}
+  catch(e){apiFailCount++;throw e}
   let b=null;try{b=await r.json()}catch(_){}
   // R47 恢复独立登录页（同 api()：登录入口已恢复，401/403 跳回 LOGIN）。
   if(r.status===401||r.status===403){location.href=LOGIN;throw Error("未登录")}
-  if(!r.ok){const m=b&&(typeof b.detail==="string"?b.detail:(typeof b.message==="string"?b.message:null));throw Error(m||`HTTP ${r.status}`)}
+  if(!r.ok){const m=b&&(typeof b.detail==="string"?b.detail:(typeof b.message==="string"?b.message:null));apiFailCount++;throw Error(m||`HTTP ${r.status}`)}
+  apiOkCount++;
   return b
 }
 function jcVal(v){if(v===null||v===undefined||v==="")return "—";if(typeof v==="object")return esc(JSON.stringify(v));return esc(v)}

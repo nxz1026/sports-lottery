@@ -2568,6 +2568,36 @@ def main() -> int:
           "ast.Call" in _uvc_src and "_pricing_note" in _uvc_src)
     check("UVC 必须有判定④「Markdown 标记泄漏」（不许被悄悄摘掉）", True,
           "find_markdown_markers" in _uvc_src and "MARKDOWN_MARKER" in _uvc_src)
+
+    # ── P2-K（2026-10-23）：首屏不许永远停在「连接中…」（5 条）──────────────
+    # 事故（**生产浏览器验收时当场撞上**）：整块页面停在「连接中…」，所有面板停在
+    #   「正在加载…」，顶部时间戳不变，用户**看不到任何错误提示、也没有重试入口**。
+    # nginx 侧证据：那一轮 8 个 API **全部 200 且响应体完整发出**，随后客户端自己
+    #   断开（499）⇒ 服务端没拖住；但页面代码**确实有真缺口**：
+    #   `Promise.all([...])` 里**任一** loader 的 fetch **永不 settle**
+    #   ⇒ Promise.all **永不 resolve** ⇒ `.finally` 不执行 ⇒ 首屏永远「连接中…」。
+    _dash_html = read(ROOT / "static" / "dashboard.html")
+    _m = re.search(r"(?s)<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>", _dash_html)
+    _dash_js = re.sub(r"/\*.*?\*/", "", _m.group(1), flags=re.S) if _m else ""
+    _dash_js = re.sub(r"(?m)^[ \t]*//[^\n]*$", "", _dash_js)
+    check("看板请求必须带超时（api()/jcApi() 走 fetchTo + AbortController）", True,
+          "function fetchTo(" in _dash_js and "AbortController" in _dash_js
+          and "API_TIMEOUT_MS" in _dash_js
+          and "fetchTo(API+path" in _dash_js and "fetchTo(JCAPI+path" in _dash_js)
+    _boot_i = _dash_js.find("async function _probeAuthAndBoot(")
+    _boot_js = _dash_js[_boot_i:_boot_i + 2000] if _boot_i >= 0 else ""
+    check("首屏批量加载必须用 Promise.allSettled（一个面板挂掉不许拖死其它）", True,
+          "Promise.allSettled" in _boot_js and "Promise.all([loadToday()" not in _boot_js)
+    check("首屏有数据没取到时，顶部必须如实写「N 项未取到」（不许假装最近同步）", True,
+          "未取到" in _boot_js)
+    _smoke_src = read(ROOT / "tools" / "dashboard_smoke.js")
+    check("看板冒烟必须有 P2-J/P2-K 的运行时断言（页面级 bug 必须有可自动跑的验证）", True,
+          all(k in _smoke_src for k in ("p2j_normal_panels_no_markdown_marker",
+                                        "p2j_degraded_panels_no_markdown_marker",
+                                        "p2k_hanging_request_times_out",
+                                        "p2k_live_not_claimed_synced_when_partial_failure")))
+    check("看板冒烟必须能断言「请求永远挂着 ⇒ 超时失败」（不许 promise 永不 settle）", True,
+          "REJECTED:请求超时" in _smoke_src and "HUNG" in _smoke_src)
     for _p in (ROOT / "web" / "services" / "recommend.py", ROOT / "web" / "services" / "clv.py",
                ROOT / "scripts" / "decision" / "recommend.py"):
         _tz2 = [s for s in code_strings(_p) if "AT TIME ZONE" in s]
