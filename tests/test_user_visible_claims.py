@@ -208,3 +208,86 @@ def test_uvc_tool_runs_and_passes():
     rc = subprocess.run([sys.executable, str(TOOL)], cwd=ROOT,
                         capture_output=True, text=True, timeout=600)
     assert rc.returncode == 0, (rc.stdout + rc.stderr)[-3000:]
+
+
+# ═══════════════ P2-J（2026-10-23）：Markdown 标记不许漏到页面 ═══════════════
+#
+# ⚠️ **事故（生产浏览器验收时当场抓到）**：
+#
+# 荐单面板实际印着：
+#     「…竞彩 had 三侧含水（**生产实测 2026-10-23：… − 1 = 12.9%**；…）
+#       ⇒ **本单 EV 已把水算进去了** …」
+#     「推荐单是**手动生成**的（scripts/decision/recommend.py）：…」
+#
+# ⇒ 用户看到的是**一串星号**。根因：前端**不解析 Markdown**（全仓没有
+#   marked / showdown / markdown-it），但文案作者按「写了 Markdown」的直觉写。
+# ⇒ 守门 UVC 原来也看不见它：`_pricing_note()` 是**函数返回**的文案，
+#   而 UVC 的后端枚举只认「dict 里直接写的字面量」⇒ **盲区**。
+#
+# ⇒ 本批修法：① 文案里不许有 Markdown 标记（纯文本用「」，HTML 用 <b>）；
+#   ② UVC 后端枚举补上**函数返回**；③ UVC 新增判定④「Markdown 标记泄漏」。
+
+def test_frontend_has_no_markdown_renderer():
+    """前提：前端**不解析 Markdown** ⇒ 文案里的 ``**`` 必然原样显示。
+
+    这条测试锁住「为什么用户会看到星号」这个前提 —— 万一哪天前端引入了
+    Markdown 渲染器，判定④ 的口径就要跟着调整（而不是默默失效）。
+
+    ⚠️ 必须按**库的实际用法**（调用 / script src）来判，不能用裸子串 ——
+    否则列名 ``n_marked``（"已标记"）会把它误判成 marked 库（实测踩过）。
+    """
+    md_lib = re.compile(
+        r"new\s+marked\b|marked\s*\.\s*(?:parse|setOptions)\b"
+        r"|showdown\s*\.\s*\w+|markdownit\s*\(|remarkable\s*\(|micromarkdown\s*\("
+        r"|<script[^>]+src=[\"'][^\"']*(?:marked|showdown|markdown-it|remarkable|micromarkdown)",
+        re.I,
+    )
+    for rel in uvc.FRONTEND_FILES:
+        p = ROOT / rel
+        if not p.is_file():
+            continue
+        html = p.read_text(encoding="utf-8")
+        m = md_lib.search(html)
+        assert m is None, f"{rel} 出现了 Markdown 渲染器（{m.group(0) if m else ''}）⇒ 判定④口径需重审"
+
+
+def test_no_user_visible_text_contains_markdown_markers():
+    """用户可见文本（源码 + 渲染结果）都不许含 Markdown 标记。"""
+    backend = [(rel, s) for rel, _ln, s in uvc.backend_user_visible_strings()]
+    frontend = uvc.frontend_user_visible_strings()
+    rendered = [("rendered", uvc.render_pricing_note())]
+    bad = uvc.find_markdown_markers(backend + frontend + rendered)
+    assert not bad, "\n".join(bad[:10])
+
+
+def test_rendered_pricing_note_has_no_markdown_marker():
+    """荐单面板那段文案（行为级）不许有 ``**``。"""
+    note = uvc.render_pricing_note()
+    assert "**" not in note, note
+    assert not uvc.find_markdown_markers([("rendered", note)])
+
+
+def test_uvc_enumeration_covers_function_returned_note():
+    """UVC 的后端枚举必须覆盖**函数返回**的用户可见文案（P2-J 补的盲区）。
+
+    没有这条 ⇒ 静态枚举等于没看见 ``_pricing_note()``（页面最要命的那段）。
+    """
+    joined = "".join(s for _rel, _ln, s in uvc.backend_user_visible_strings())
+    assert "已把水算进去了" in joined, \
+        "函数返回的用户可见文案（_pricing_note）不在枚举里 ⇒ 盲区没补上"
+
+
+def test_detector_catches_markdown_markers():
+    """判定④不是空断言：喂进 ``**`` / 反引号必须被抓出来。"""
+    assert uvc.find_markdown_markers([("x.html", "这是**粗体**")])
+    assert uvc.find_markdown_markers([("x.html", "文件在 `scripts/run.py`")])
+    assert not uvc.find_markdown_markers([("x.html", "今天还没有荐单")])
+
+
+def test_uvc_tool_fails_when_rendered_note_has_markdown(monkeypatch):
+    """端到端：渲染文案里出现 Markdown ⇒ UVC 工具必须失败（退出码 1）。"""
+    monkeypatch.setattr(
+        uvc, "render_pricing_note",
+        lambda: "推荐端阈值 **EV ≥ 5%**（政策值，不是水位）",
+    )
+    assert uvc.main() == 1, "渲染文案里有 Markdown 标记，UVC 却判通过 ⇒ 判定④是空断言"

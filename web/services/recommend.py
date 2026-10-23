@@ -218,16 +218,19 @@ def _pricing_note() -> str:
         WATER_RETURN_TEXT,
     )
 
+    # ⚠️ **P2-J（2026-10-23）**：这段是**纯文本**（前端用 `esc()` 渲染 ⇒ 不解析 Markdown）
+    # ⇒ **不许**再写 `**粗体**`：星号会**原样漏给用户**（生产浏览器验收时当场抓到）。
+    # ⇒ 强调一律用中文「」。
     return ("定价 = 竞彩官方 SP（决策时刻那一版）；结算 = 竞彩官方结算 SP。"
             "⚠️ 本模型概率为「市场锚定」，EV 含 ESPN↔竞彩 跨市场定价差，"
             "不等于模型有同等真实优势。"
-            f"⚠️ 竞彩 had 三侧含水（**生产实测 2026-10-23：当日三项隐含概率和 − 1 = "
-            f"{WATER_LEVEL_TEXT}**；等额三侧投注每元回报 ≈ {WATER_RETURN_TEXT} 元 "
+            f"⚠️ 竞彩 had 三侧含水（生产实测 2026-10-23：当日三项隐含概率和 − 1 = "
+            f"{WATER_LEVEL_TEXT}；等额三侧投注每元回报 ≈ {WATER_RETURN_TEXT} 元 "
             f"⇒ 水位 ≈ {WATER_RANGE_TEXT}），"
-            "单边投注要先扛掉这笔水 ⇒ **本单 EV 已把水算进去了**："
+            "单边投注要先扛掉这笔水 ⇒「本单 EV 已把水算进去了」："
             "EV = p×SP − 1 > 0 即表示你的概率高于「含水后的盈亏平衡概率」"
-            f"（p/q > {WATER_FACTOR_TEXT}），**不需要再拿水位当门槛**；"
-            f"推荐端阈值 {EV_THRESHOLD_TEXT}（**政策值，不是水位**；"
+            f"（p/q > {WATER_FACTOR_TEXT}），「不需要再拿水位当门槛」；"
+            f"推荐端阈值 {EV_THRESHOLD_TEXT}（「政策值，不是水位」；"
             "生产实测达标荐单最低 EV 0.06）。")
 
 
@@ -248,7 +251,7 @@ def snapshot() -> dict[str, Any]:
         "record": rec,
         "offer_freshness": offer_freshness(),
         "pricing_note": _pricing_note(),
-        "calendar_note": ("推荐单是**手动生成**的（scripts/decision/recommend.py）："
+        "calendar_note": ("推荐单是「手动生成」的（scripts/decision/recommend.py）："
                           "生产上没有任何 cron / systemd 跑它。"
                           "采集端 2026-10-22 起也改成手动（国内机 scripts\\refresh_now.bat 一键跑完"
                           "「采集 → 推送 → 远端装载 → 出荐单」）。"

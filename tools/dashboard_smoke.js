@@ -449,6 +449,9 @@ const P2A_CHECKS = [
   // A9：临时赛事表硬编码 #ffe082
   ['p2a_temp_leagues_no_hardcoded_color', '临时赛事表不许再出现硬编码色值（#ffe082/#f5e0a1）'],
   ['p2a_jc_api_base_from_url', 'static/jc.html 的 API 基址必须按当前 URL 推导（不许写死根路径）'],
+  // P2-J：用户可见面板里不许漏出 Markdown 标记（前端不渲染 ⇒ 只会原样显示）
+  ['p2j_normal_panels_no_markdown_marker', '正常态面板渲染结果里不许出现 Markdown 标记（**）'],
+  ['p2j_degraded_panels_no_markdown_marker', '降级态面板渲染结果里不许出现 Markdown 标记（**）'],
 ];
 
 async function main() {
@@ -475,6 +478,13 @@ async function main() {
         a[id] = e ? String(e.innerHTML || '') : '';
         return a;
       }, {});
+      // ── P2-J（2026-10-23）：用户可见面板里不许出现 Markdown 标记 ────────
+      // 事故（生产浏览器验收时当场抓到）：前端**不解析 Markdown**（全仓没有
+      // marked/showdown）⇒ 面板里写星号粗体只会把星号原样印给用户。
+      // ⇒ 正常态渲染出来的面板里不许有星号对（两个星号连写）。
+      out.p2j_normal_panels_no_markdown_marker = Object.keys(out.__html).every((id) => {
+        return out.__html[id].indexOf('**') < 0;
+      });
       // ── P0 口径断言（运行时调用真实函数）──────────────────────────────
       out.p0_modelProbs_noMlFallback = modelProbs({ ml_proba: [0.9778, 0.0081, 0.0141] }) === null;
       out.p0_modelProbs_trueSource = (() => {
@@ -618,6 +628,11 @@ async function main() {
         && dh.recordPanel.indexOf('<label>已结算</label>') < 0;
       out.p1_odds_move_degraded = dh.jcMoveBody.indexOf('读取失败') >= 0
         && dh.jcMoveBody.indexOf('无异动事件') < 0;
+      // ── P2-J：降级态文案也不许有 Markdown 标记 ────────────────────────
+      //    「⚠️ 读取失败（**不是「没有数据」**）」这种写法**曾经真的在页面上**。
+      out.p2j_degraded_panels_no_markdown_marker = Object.keys(dh).every((id) => {
+        return dh[id].indexOf('**') < 0;
+      });
       // ── P1-G：未登录首屏（假 loading ⇒ 跳登录页）────────────────────
       // 把桩切到「未登录」：/me 返回 401 ⇒ 页面必须跳登录页，
       // 且首屏那批占位符必须从「正在加载…」变成「未登录」。

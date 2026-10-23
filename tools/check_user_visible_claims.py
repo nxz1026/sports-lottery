@@ -12,17 +12,21 @@
 而**静态审计 / 单测 / 守门全都没抓到** —— 因为守门只查了
 「文案里有没有 12.9%」「有没有 25~33%」，**没查「12.9% 是不是那个阈值」**。
 
-⇒ 本工具把「用户可见文案」当成**一等公民**来查三件事：
+⇒ 本工具把「用户可见文案」当成**一等公民**来查四件事：
 
 1. **不许泄漏**：用户可见文本不得含服务器绝对路径 / 内部接口路径 / 凭证；
 2. **不许手写口径数字**：EV 阈值 / 水位这类数字必须**从唯一真源**
    （``scripts/core/betting_policy.py``）**派生** —— 手写就漂移；
 3. **派生后必须对**：把文案**真的渲染出来**（行为级），核对里面的
-   EV 阈值 / 水位数字 == 真源常量。
+   EV 阈值 / 水位数字 == 真源常量；
+4. **不许有 Markdown 标记**（P2-J，2026-10-23）：前端**不解析 Markdown**
+   （全仓没有 marked/showdown）⇒ 文案里写 ``**粗体**`` 只会**原样**漏给用户。
 
 判定口径说明（为什么这样才不是「空断言」）：
 - 文案集合 = 后端「会渲染给用户的字段」的字符串常量与 f-string 字面量
-  + 前端含中文 / 百分比 / 比较符 / 内部接口路径的字符串字面量 + HTML 文本节点；
+  + **函数返回的文案**（P2-J 补的盲区）
+  + 前端含中文 / 百分比 / 比较符 / 内部接口路径的字符串字面量 + HTML 文本节点
+  + **真的渲染出来的**荐单面板文案（行为级）；
 - **纯代码 token**（如 ``/api/v1``、``match_num``）**不算**用户可见文本
   （否则每条断言都要维护白名单，迟早假绿）；
 - 第 3 条是**行为级**：真的 import 目标模块并调用渲染函数，
@@ -75,6 +79,12 @@ def backend_user_visible_strings(root: Path = ROOT) -> list[tuple[str, int, str]
     """后端「用户可见字段」里的字符串常量 + f-string 的**字面量部分**。
 
     返回 ``(相对路径, 行号, 文本)``。
+
+    ⚠️ **P2-J（2026-10-23）补盲区**：原来只认「dict 里直接写字面量」，
+    **函数返回的文案抓不到** —— 而最要命的那段（``_pricing_note()``，
+    荐单面板定价说明）恰恰是**函数返回** ⇒ 静态枚举等于没看见它
+    ⇒ 页面上漏出 ``**粗体**`` 的 Markdown 星号时，守门是绿的。
+    ⇒ 现在：遇到 ``ast.Call`` 就**解析同模块函数的 return 文本**。
     """
     out: list[tuple[str, int, str]] = []
     for base in BACKEND_GLOBS:
@@ -84,6 +94,8 @@ def backend_user_visible_strings(root: Path = ROOT) -> list[tuple[str, int, str]
                 tree = ast.parse(p.read_text(encoding="utf-8"))
             except (SyntaxError, OSError):
                 continue
+            funcs = {n.name: n for n in ast.walk(tree)
+                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Dict):
                     continue
@@ -92,13 +104,16 @@ def backend_user_visible_strings(root: Path = ROOT) -> list[tuple[str, int, str]
                         continue
                     if k.value not in USER_VISIBLE_KEYS:
                         continue
-                    for piece in _string_pieces(v):
+                    for piece in _string_pieces(v, funcs, depth=0):
                         out.append((rel, node.lineno, piece))
     return out
 
 
-def _string_pieces(value: ast.AST) -> list[str]:
-    """取出表达式里的**字面量文本片段**（常量 / f-string 的常量段 / 拼接段）。"""
+def _string_pieces(value: ast.AST, funcs: dict | None = None, depth: int = 0) -> list[str]:
+    """取出表达式里的**字面量文本片段**（常量 / f-string 的常量段 / 拼接段）。
+
+    ``depth`` 限制函数调用链的展开层数（防自递归爆掉）。
+    """
     pieces: list[str] = []
     if isinstance(value, ast.Constant) and isinstance(value.value, str):
         pieces.append(value.value)
@@ -107,8 +122,16 @@ def _string_pieces(value: ast.AST) -> list[str]:
             if isinstance(part, ast.Constant) and isinstance(part.value, str):
                 pieces.append(part.value)
     elif isinstance(value, ast.BinOp):
-        pieces.extend(_string_pieces(value.left))
-        pieces.extend(_string_pieces(value.right))
+        pieces.extend(_string_pieces(value.left, funcs, depth))
+        pieces.extend(_string_pieces(value.right, funcs, depth))
+    elif isinstance(value, ast.Call) and funcs and depth < 3:
+        # ⚠️ P2-J：函数返回的文案**也是**用户可见文案（`_pricing_note()` 就是）。
+        name = value.func.id if isinstance(value.func, ast.Name) else None
+        fn = funcs.get(name) if name else None
+        if fn is not None:
+            for ret in ast.walk(fn):
+                if isinstance(ret, ast.Return) and ret.value is not None:
+                    pieces.extend(_string_pieces(ret.value, funcs, depth + 1))
     return pieces
 
 
@@ -212,6 +235,22 @@ def find_handwritten_policy_numbers(strings: list[tuple[str, str]]) -> list[str]
     return bad
 
 
+# ── 判定 4：Markdown 标记泄漏（P2-J）──────────────────────────────────────
+# 前端**不解析 Markdown**（全仓没有 marked / showdown / markdown-it）⇒
+# 用户可见文本里写 ``**粗体**`` 只会**原样**显示给用户（生产浏览器验收时当场抓到：
+# 荐单面板印着「（**生产实测 … 12.9%**）」「推荐单是**手动生成**的」）。
+MARKDOWN_MARKER = re.compile(r"\*\*|`")
+
+
+def find_markdown_markers(strings: list[tuple[str, str]]) -> list[str]:
+    """用户可见文案里不许出现 Markdown 标记（不会渲染 ⇒ 只会原样显示）。"""
+    bad: list[str] = []
+    for where, s in strings:
+        if MARKDOWN_MARKER.search(s):
+            bad.append(f"{where}: Markdown 标记（前端不渲染，只会原样显示）:: {s[:90]}")
+    return bad
+
+
 # ── 判定 3：渲染后的数字必须与真源一致（行为级）──────────────────────────
 def policy_constants() -> dict[str, float]:
     """从唯一真源读常量（AST，不执行代码）。"""
@@ -263,21 +302,39 @@ def check_rendered_numbers() -> list[str]:
 def main() -> int:
     backend = [(rel, s) for rel, _ln, s in backend_user_visible_strings()]
     frontend = frontend_user_visible_strings()
-    all_uv = backend + frontend
+    # ⚠️ P2-J：荐单面板那段文案是**函数返回**的 ⇒ 静态枚举看不见它
+    # ⇒ 这里**真的渲染一次**并纳入文案集合（行为级，也顺带补上 ④ 的盲区）。
+    try:
+        rendered_note = render_pricing_note()
+    except Exception as exc:  # noqa: BLE001 - 渲染失败必须显式失败，不许静默跳过
+        print("=" * 78)
+        print("用户可见文案一致性守门（UVC）")
+        print("=" * 78)
+        print(f"[FAIL] 渲染荐单面板文案失败（不许跳过）：{exc}")
+        return 1
+    rendered_pieces = [("web/services/recommend.py::_pricing_note()", rendered_note)]
+    all_uv = backend + frontend + rendered_pieces
+    # ⚠️ 判定②查的是「**源码里手写**的口径数字」⇒ 只看源码集合。
+    #    渲染结果里的数字是**从真源派生**的（如「水位 ≈ 11~13%」来自常量）
+    #    ⇒ 拿它去判「手写」是**假阳性**。
+    source_uv = backend + frontend
 
     leaks = find_leaks(all_uv)
-    handwritten = find_handwritten_policy_numbers(all_uv)
+    handwritten = find_handwritten_policy_numbers(source_uv)
+    markdown = find_markdown_markers(all_uv)
     rendered = check_rendered_numbers()
 
     print("=" * 78)
     print("用户可见文案一致性守门（UVC）")
     print("=" * 78)
-    print(f"用户可见文本：后端 {len(backend)} 段 + 前端 {len(frontend)} 段 = {len(all_uv)} 段")
+    print(f"用户可见文本：后端 {len(backend)} 段 + 前端 {len(frontend)} 段 "
+          f"+ 渲染 {len(rendered_pieces)} 段 = {len(all_uv)} 段")
 
     failures = 0
     for title, items in (("① 泄漏（绝对路径 / 内部接口 / 凭证）", leaks),
                          ("② 手写的口径数字（必须从真源派生）", handwritten),
-                         ("③ 渲染后的数字与真源不一致", rendered)):
+                         ("③ 渲染后的数字与真源不一致", rendered),
+                         ("④ Markdown 标记泄漏（前端不渲染，只会原样显示）", markdown)):
         print(f"\n--- {title} ---")
         if not items:
             print("  （无）")

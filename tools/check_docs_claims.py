@@ -2519,8 +2519,55 @@ def main() -> int:
     if _uvc.is_file():
         _uvc_rc = subprocess.run([sys.executable, str(_uvc)], cwd=ROOT,
                                  capture_output=True, text=True, timeout=600)
-        check("用户可见文案守门必须全绿（泄漏 / 手写口径数字 / 渲染数字与真源不一致）",
+        check("用户可见文案守门必须全绿（泄漏 / 手写口径数字 / 渲染数字与真源不一致 / Markdown 标记泄漏）",
               0, _uvc_rc.returncode)
+
+    # ── P2-J（2026-10-23）：Markdown 标记不许漏到页面（4 条）──────────────
+    # 事故（**生产浏览器验收时当场抓到**）：荐单面板实际印着
+    #   「…竞彩 had 三侧含水（**生产实测 … − 1 = 12.9%**；…）… ⇒ **本单 EV 已把水算进去了**…」
+    #   「推荐单是**手动生成**的（scripts/decision/recommend.py）：…」
+    # ⇒ 用户看到的是**一串星号**。根因：前端**不解析 Markdown**（全仓无 marked/showdown）。
+    # ⇒ 守门 UVC 原来也看不见它：`_pricing_note()` 是**函数返回**的文案，
+    #    而 UVC 的后端枚举只认「dict 里直接写的字面量」⇒ **盲区**。
+    check("前端不许有 Markdown 渲染器（否则「**」会被解析、判定④口径要重审）", True,
+          not any(re.search(r"new\s+marked\b|marked\s*\.\s*parse|showdown\s*\.|markdownit\s*\(",
+                            read(ROOT / "static" / rel), re.I)
+                  for rel in ("dashboard.html", "jc.html")))
+    # 判定口径：AST 级（`fn_code_strings` 排除 docstring，注释天然不在 AST 里）
+    #   ⇒ 注释/订正记录里的星号不会假绿，但**会真正渲染给用户**的字符串常量
+    #   一旦写回 Markdown 标记 ⇒ 立刻 FAIL。
+    # ⚠️ 只能圈**真正会渲染给用户**的那几段：全文件扫 `code_strings` 会误伤
+    #   argparse 的 help 文案（那是终端输出，不是页面文案）。
+    _md_bad: list[str] = []
+    for _s in fn_code_strings(ROOT / "web" / "services" / "recommend.py", "_pricing_note"):
+        if "**" in _s or "`" in _s:
+            _md_bad.append(f"recommend.py::_pricing_note: {_s[:60]}")
+    _cal = [s for s in code_strings(ROOT / "web" / "services" / "recommend.py")
+            if "手动生成" in s]
+    if not _cal:
+        _md_bad.append("recommend.py: 找不到 calendar_note 文案（锚点「手动生成」不见了）")
+    for _s in _cal:
+        if "**" in _s or "`" in _s:
+            _md_bad.append(f"recommend.py::calendar_note: {_s[:60]}")
+    check("荐单面板的用户可见文案里不许出现 Markdown 标记（** / 反引号）", True, not _md_bad)
+    # 前端：用 UVC 自己的枚举（它会剥掉 JS 注释 ⇒ 注释里的星号不算）
+    _uvc_src = read(_uvc)
+    _uvc_mod = None
+    if _uvc.is_file():
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("uvc_mod", _uvc)
+        if _spec and _spec.loader:
+            _uvc_mod = _ilu.module_from_spec(_spec)
+            sys.modules["uvc_mod"] = _uvc_mod
+            _spec.loader.exec_module(_uvc_mod)
+    if _uvc_mod is not None:
+        _fe_md = [s for _w, s in _uvc_mod.frontend_user_visible_strings()
+                  if "**" in s or "`" in s]
+        check("前端用户可见文案里不许出现 Markdown 标记（** / 反引号）", True, not _fe_md)
+    check("UVC 必须覆盖「函数返回」的用户可见文案（P2-J 补的盲区）", True,
+          "ast.Call" in _uvc_src and "_pricing_note" in _uvc_src)
+    check("UVC 必须有判定④「Markdown 标记泄漏」（不许被悄悄摘掉）", True,
+          "find_markdown_markers" in _uvc_src and "MARKDOWN_MARKER" in _uvc_src)
     for _p in (ROOT / "web" / "services" / "recommend.py", ROOT / "web" / "services" / "clv.py",
                ROOT / "scripts" / "decision" / "recommend.py"):
         _tz2 = [s for s in code_strings(_p) if "AT TIME ZONE" in s]

@@ -124,7 +124,7 @@ def ops(hours: int = 24) -> dict[str, Any]:
             "push_configured": push_configured(),
             "degraded": False,
             "note": ("异动口径 = 相邻 ~10 分钟快照的跳变（首末差 ≥5% 会命中 77%，是噪音 ⇒ 不用）。"
-                     "pushed=false 就是**没推**（未配 webhook）—— 如实显示，不美化。"
+                     "pushed=false 就是「没推」（未配 webhook）—— 如实显示，不美化。"
                      "⚠️ 盘口异动是「信息」，不是下注理由。"),
         }
     except Exception as exc:  # noqa: BLE001

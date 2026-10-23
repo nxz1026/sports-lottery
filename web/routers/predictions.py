@@ -330,7 +330,7 @@ def _aggregate_accuracy(leagues: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "leagues": headline["leagues"] if headline else [],
         "windows": per_window,
         "note": ("口径：全部联赛按已结算样本数 n 加权平均；窗口 = 最近 N 个自然日"
-                 "（**不是**最近 N 场）。7d 无样本时改用 30d 并标 fallback=true（不静默回落）。"),
+                 "（「不是」最近 N 场）。7d 无样本时改用 30d 并标 fallback=true（不静默回落）。"),
     }
     for metric in _ACC_METRICS:
         out[metric] = headline[metric] if headline else None
@@ -481,7 +481,7 @@ def clv_daily(request: Request,
         "degraded": st["degraded"],
         "sql_note": ("CLV = ln(p_model / p_close)；p_close = 竞彩官方 had 赔率在开球前最后一版"
                      "（fact.jc_odds_history 的 max(seq_no)）的比例去水；"
-                     "p_model = 模型自己的 probs.h/d/a（**不是**顶层 *_true_prob —— "
+                     "p_model = 模型自己的 probs.h/d/a（「不是」顶层 *_true_prob —— "
                      "那是市场先验，拿它算 CLV 是循环论证）"),
     }
 
