@@ -200,6 +200,37 @@ def offer_freshness(threshold_hours: float | None = None) -> dict[str, Any]:
     return out
 
 
+def _pricing_note() -> str:
+    """荐单面板的**用户可见**定价说明。
+
+    ⚠️ **P2-I（2026-10-23）**：这里的每个数字都**从唯一真源派生**
+    （``core.betting_policy``），**不许手写** "12.9%" / "5%"：
+    P2-H4 事故就是文案手打「阈值已对齐为 EV ≥ 12.9%」而代码是 5% ⇒
+    **用户被告知一个不存在的策略**，而静态审计 / 单测 / 守门全都没抓到。
+    ⇒ 派生 ⇒ 数值**不可能漂移**；再加通用守门（用户可见文本里的 EV 阈值 / 水位
+    数字必须与常量一致）。
+    """
+    from core.betting_policy import (
+        EV_THRESHOLD_TEXT,
+        WATER_FACTOR_TEXT,
+        WATER_LEVEL_TEXT,
+        WATER_RANGE_TEXT,
+        WATER_RETURN_TEXT,
+    )
+
+    return ("定价 = 竞彩官方 SP（决策时刻那一版）；结算 = 竞彩官方结算 SP。"
+            "⚠️ 本模型概率为「市场锚定」，EV 含 ESPN↔竞彩 跨市场定价差，"
+            "不等于模型有同等真实优势。"
+            f"⚠️ 竞彩 had 三侧含水（**生产实测 2026-10-23：当日三项隐含概率和 − 1 = "
+            f"{WATER_LEVEL_TEXT}**；等额三侧投注每元回报 ≈ {WATER_RETURN_TEXT} 元 "
+            f"⇒ 水位 ≈ {WATER_RANGE_TEXT}），"
+            "单边投注要先扛掉这笔水 ⇒ **本单 EV 已把水算进去了**："
+            "EV = p×SP − 1 > 0 即表示你的概率高于「含水后的盈亏平衡概率」"
+            f"（p/q > {WATER_FACTOR_TEXT}），**不需要再拿水位当门槛**；"
+            f"推荐端阈值 {EV_THRESHOLD_TEXT}（**政策值，不是水位**；"
+            "生产实测达标荐单最低 EV 0.06）。")
+
+
 def snapshot() -> dict[str, Any]:
     """看板一次拿全：今日推荐单 + 战绩 + 定价赔率新鲜度。
 
@@ -216,16 +247,7 @@ def snapshot() -> dict[str, Any]:
         "picks_degraded": st["degraded"],
         "record": rec,
         "offer_freshness": offer_freshness(),
-        "pricing_note": ("定价 = 竞彩官方 SP（决策时刻那一版）；结算 = 竞彩官方结算 SP。"
-                         "⚠️ 本模型概率为「市场锚定」，EV 含 ESPN↔竞彩 跨市场定价差，"
-                         "不等于模型有同等真实优势。"
-                         "⚠️ 竞彩 had 三侧含水（**生产实测 2026-10-23：当日三项隐含概率和 − 1 = 12.9%**；"
-                         "等额三侧投注每元回报 ≈ 0.89 元 ⇒ 水位 ≈ 11~13%），"
-                         "单边投注要先扛掉这笔水 ⇒ **本单 EV 已把水算进去了**："
-                         "EV = p×SP − 1 > 0 即表示你的概率高于「含水后的盈亏平衡概率」"
-                         "（p/q > 1.129），**不需要再拿水位当门槛**；"
-                         "推荐端阈值 EV ≥ 5%（**政策值，不是水位**；"
-                         "生产实测达标荐单最低 EV 0.06）。"),
+        "pricing_note": _pricing_note(),
         "calendar_note": ("推荐单是**手动生成**的（scripts/decision/recommend.py）："
                           "生产上没有任何 cron / systemd 跑它。"
                           "采集端 2026-10-22 起也改成手动（国内机 scripts\\refresh_now.bat 一键跑完"

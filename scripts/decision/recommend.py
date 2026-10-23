@@ -41,13 +41,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core.bjt import now_bjt
-from core.log import logger
-from market.kelly import DEFAULT_FRACTION, ev_per_unit, kelly_fraction, suggested_stake
-from psycopg import Connection
-from psycopg.types.json import Jsonb
-from store import pg
-
 # ── 阈值（保守档；路线图 §6.6.3 第 1 条：模型概率是市场锚定的，EV 含跨市场定价差）────
 #
 # ⚠️ **P2（2026-10-23）：水位口径订正 —— 「EV 必须不低于水位」这句对**单边**是错的。**
@@ -75,8 +68,21 @@ from store import pg
 #     属**产品阈值政策**变更（路线图 §6.6.5.1 明确「阈值暂不动，等 n ≥ 100 再校准」）
 #     ⇒ **本轮不改阈值**，只把**用户可见文案**订正成实测值（见 web/services/recommend.py）。
 #     需要更保守/更激进时用 CLI `--min-ev` 覆盖（note 里会记下当时生效的门槛）。
-MIN_EV = 0.05          # 单位 EV ≥ 5%（= 在「正 EV 之外再加一道安全垫」；口径见上面的推导）
-MIN_P = 0.10           # 模型概率 ≥ 10%（不要长尾彩票）——**方向级**排除，见 pick_recommendation
+#
+# ⚠️ **P2-I（2026-10-23）**：阈值数字搬去 **`core/betting_policy.py`**（唯一真源）——
+#   因为「用户可见文案里的数字」必须**从常量派生**（P2-H4 事故：文案手打
+#   「阈值已对齐为 EV ≥ 12.9%」而代码是 5% ⇒ 漂移成**假话** ⇒ 静态审计/单测/守门
+#   全都没抓到）。本模块的 `MIN_EV` / `MIN_P` 现在是**导入名**（值不变）。
+from core.betting_policy import MIN_EV, MIN_P, WATER_LEVEL_TEXT, threshold_text
+from core.bjt import now_bjt
+from core.log import logger
+from market.kelly import DEFAULT_FRACTION, ev_per_unit, kelly_fraction, suggested_stake
+from psycopg import Connection
+from psycopg.types.json import Jsonb
+from store import pg
+
+# MIN_EV = 0.05   → 单位 EV ≥ 5%（= 在「正 EV 之外再加一道安全垫」；口径见上面的推导）
+# MIN_P = 0.10    → 模型概率 ≥ 10%（不要长尾彩票）——**方向级**排除，见 pick_recommendation
 KELLY_FRACTION = DEFAULT_FRACTION   # 1/4 Kelly
 BANKROLL = 100.0       # 建议注额的口径基数（与展示的「本钱 100」一致）
 
@@ -453,7 +459,8 @@ _NOTE_TMPL = ("推荐 {side}：竞彩官方 SP {sp} · 模型概率 {p} · 单�
                "定价=竞彩官方 SP（决策时刻 {ts}）；"
                "入选门槛：单位 EV ≥ {min_ev}、模型概率 ≥ {min_p}"
                "（低于此即长尾彩票，该方向不进推荐；"
-               "水位 12.9% 是 2026-10-23 生产实测的**市场水位**，对单边投注等价于 EV>0）；"
+               "水位 {water_level} 是 2026-10-23 生产实测的**市场水位**，"
+               "对单边投注等价于 EV>0）；"
                "⚠️ 本模型概率为「市场锚定」，EV 含 ESPN↔竞彩 跨市场定价差，"
                "不等于模型有同等真实优势；{extra}")
 
@@ -487,7 +494,11 @@ def write_reports(conn: Connection, picks: list[dict[str, Any]]) -> list[int]:
             side=side_cn, sp=p["sp"], p=round(p["p"], 4), ev=round(p["ev"], 4),
             kelly=round(p["kelly"], 4), stake=p["stake"],
             ts=p.get("sp_snapshot_ts") or "-", extra="；".join(extra) or "无",
-            min_ev=p.get("min_ev", MIN_EV), min_p=p.get("min_p", MIN_P),
+            # ⚠️ P2-I：门槛用**双表示**（比例 + 百分比）—— 比例给复算，百分比给人看；
+            #   水位从**唯一真源**派生（不许手写 "12.9%"）。
+            min_ev=threshold_text(p.get("min_ev", MIN_EV)),
+            min_p=threshold_text(p.get("min_p", MIN_P)),
+            water_level=WATER_LEVEL_TEXT,
         )
         legs = [{
             "jc_match_id": p["match_id"], "play_type": "had", "option": p["option_code"],

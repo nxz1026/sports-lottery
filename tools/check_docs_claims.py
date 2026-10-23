@@ -2466,11 +2466,11 @@ def main() -> int:
     check("荐单 made_at = 生成时刻（不许再取归档 run_at 的 decided_at）", True,
           'made_at = p.get("made_at") or now_bjt()' in _rec_src)
     check("荐单 EV 阈值必须是**显式政策值**且不许偷换成实测水位 0.129", True,
-          "MIN_EV = 0.05" in _rec_src and "MIN_EV = 0.129" not in _rec_src
-          and "EV > 0" in _rec_src)
+          "betting_policy" in _rec_src and "EV > 0" in _rec_src)
     _note_src = read(ROOT / "web" / "services" / "recommend.py")
-    check("用户可见水位文案 = 实测 12.9%（旧「25~33%」已废）", True,
-          "25~33%" not in _note_src and "12.9%" in _note_src)
+    # ⚠️ P2-I（2026-10-23）：文案里的数字改成**从真源派生** ⇒ 这里不再查字面量，
+    #    改查「有没有手写数字」+「有没有从真源导入」；数字对不对由 UVC 工具**渲染后**判。
+    check("用户可见水位文案不许再出现旧错值「25~33%」", True, "25~33%" not in _note_src)
     # ── P2-H4（2026-10-23）：用户可见文案不许宣称「阈值 = 水位」或「EV 必须 ≥ 水位」──
     # 事故：**生产浏览器验收时当场抓到**。`pricing_note` 的最后一句写的是
     #   「单边投注要先扛掉这笔水 ⇒ EV 必须**不低于水位**才谈得上盈利
@@ -2486,9 +2486,41 @@ def main() -> int:
                  if any(f in s for f in _forbidden_note)]
     check("用户可见荐单文案不许宣称「EV 必须 ≥ 水位」或「阈值已对齐为 12.9%」", True,
           not _bad_note)
-    check("用户可见荐单文案必须写清正确口径（EV 已含水位 + 阈值是政策值 5%）", True,
-          any("EV ≥ 5%" in s and "政策值" in s for s in _note_codes)
-          and any("已把水算进去了" in s for s in _note_codes))
+    check("用户可见荐单文案必须写清正确口径（EV 已含水位 + 阈值是政策值）", True,
+          any("已把水算进去了" in s for s in _note_codes)
+          and any("政策值" in s for s in _note_codes))
+    # ── P2-I（2026-10-23）：口径数字的**唯一真源** + 用户可见文案守门工具 ──────
+    # 事故（P2-H4）：文案里的数字是**手打**的 ⇒ 与代码各写各的 ⇒ 漂移成假话。
+    # ⇒ 修法：① 口径数字搬进唯一真源 `scripts/core/betting_policy.py`；
+    #   ② 用户可见文案**从真源派生**（不许手写）；
+    #   ③ 新增 `tools/check_user_visible_claims.py`（UVC）：
+    #      枚举「会渲染给用户的文本」⇒ 查泄漏 / 查手写口径数字 / **渲染后**核对数字。
+    _bp_path = SCRIPTS / "core" / "betting_policy.py"
+    check("口径数字必须有唯一真源（scripts/core/betting_policy.py 在库）", True,
+          _bp_path.is_file())
+    _bp_consts: dict[str, float] = {}
+    if _bp_path.is_file():
+        for _n in ast.parse(read(_bp_path)).body:
+            if isinstance(_n, ast.Assign):
+                for _t in _n.targets:
+                    if isinstance(_t, ast.Name) and isinstance(_n.value, ast.Constant) \
+                            and isinstance(_n.value.value, (int, float)) \
+                            and not isinstance(_n.value.value, bool):
+                        _bp_consts[_t.id] = float(_n.value.value)
+    check("口径真源的 MIN_EV 必须是政策值 0.05（不许偷换成水位 0.129）", True,
+          _bp_consts.get("MIN_EV") == 0.05 and _bp_consts.get("MIN_EV") != 0.129)
+    check("口径真源的水位必须是实测 0.129（生产实测 2026-10-23）", True,
+          abs(_bp_consts.get("WATER_LEVEL_MEASURED", -1) - 0.129) < 1e-9)
+    check("荐单面板与荐单 note 都必须从口径真源派生（不许自己写数字）", True,
+          "betting_policy" in _note_src and "betting_policy" in _rec_src)
+    _uvc = ROOT / "tools" / "check_user_visible_claims.py"
+    check("用户可见文案守门工具必须在库（tools/check_user_visible_claims.py）", True,
+          _uvc.is_file())
+    if _uvc.is_file():
+        _uvc_rc = subprocess.run([sys.executable, str(_uvc)], cwd=ROOT,
+                                 capture_output=True, text=True, timeout=600)
+        check("用户可见文案守门必须全绿（泄漏 / 手写口径数字 / 渲染数字与真源不一致）",
+              0, _uvc_rc.returncode)
     for _p in (ROOT / "web" / "services" / "recommend.py", ROOT / "web" / "services" / "clv.py",
                ROOT / "scripts" / "decision" / "recommend.py"):
         _tz2 = [s for s in code_strings(_p) if "AT TIME ZONE" in s]
