@@ -67,7 +67,10 @@ log "== 开始 dir=$DIR 保留 $KEEP_DAYS 天 apply=$APPLY =="
 if [ ! -d "$DIR" ]; then log "✗ 落港目录不存在：$DIR"; exit 7; fi
 # 落港目录归 league 所有 ⇒ 文件操作**必须**用 league 身份做（root 移文件会改属主）
 if ! id league >/dev/null 2>&1; then log "✗ 没有 league 用户"; exit 7; fi
-sudo -n -u league mkdir -p "$QUAR/$STAMP" || { log "✗ 建隔离目录失败：$QUAR/$STAMP"; exit 7; }
+# ⚠️ **只有真跑才建隔离目录**：否则每次 dry-run 都会留下一个空目录 ⇒ 无上限堆积空目录
+if [ "$APPLY" = "1" ]; then
+  sudo -n -u league mkdir -p "$QUAR/$STAMP" || { log "✗ 建隔离目录失败：$QUAR/$STAMP"; exit 7; }
+fi
 
 # ── 1) 坏文件：隔离（保留证据，不直接删） ────────────────────────────
 log "-- 扫描坏文件（逐行 json.loads）--"
@@ -75,7 +78,8 @@ sudo -n -u league python3 - "$DIR" "$QUAR/$STAMP" "$APPLY" <<'PY'
 import json, shutil, sys
 from pathlib import Path
 root = Path(sys.argv[1]); qdir = Path(sys.argv[2]); apply_ = sys.argv[3] == "1"
-qdir.mkdir(parents=True, exist_ok=True)
+if apply_:
+    qdir.mkdir(parents=True, exist_ok=True)   # ⚠️ dry-run 不建（否则每次留一个空目录）
 bad = []
 for t in sorted(p.name for p in root.iterdir() if p.is_dir()):
     for f in sorted((root / t).glob("*.jsonl")):

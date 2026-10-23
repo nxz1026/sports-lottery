@@ -189,9 +189,15 @@ def test_concurrent_trigger_only_one_producer(client, monkeypatch):
 def test_job_poll_to_terminal(client, monkeypatch):
     """POST 202 → GET 轮询到 done（假 Popen 立即成功）。
 
-    轮询窗口：5s → 10s。worker 持 JOBS_LOCK_FILE + state.lock 2 段锁 + Windows fs
-    偶发延迟，P3-17 fix 的 _drain_jobs 已扩到 10s；本测试 polling 与之对齐，
-    避免冷启动对锁时跳过终态判定。
+    轮询窗口：5s → 10s → **30s**。worker 持 JOBS_LOCK_FILE + state.lock 2 段锁 +
+    Windows fs 偶发延迟，P3-17 fix 的 _drain_jobs 已扩到 10s；本测试 polling 必须
+    **≥ 生产 drain 窗口**（避免冷启动对锁时跳过终态判定）。
+
+    ⚠️ **2026-10-23：10s 在全量跑时偶发不够**（实测 2744 条全量跑时红过一次，
+    单独跑该文件 20 passed ⇒ 纯 flaky）⇒ 根因是后台 worker 线程要**等调度**
+    （前面若干用例留下的线程 + Windows 文件锁延迟），10s 内没被调度上。
+    ⇒ 窗口放宽到 **30s**：**只放宽等待，不放宽断言** —— 仍必须到达终态；
+    真卡死的话 30s 后照样红，不会被掩盖。
     """
     import web.services.jobs as jobs_mod
     monkeypatch.setattr(jobs_mod, "subprocess", _fake_sp(_OkProc))
@@ -201,7 +207,7 @@ def test_job_poll_to_terminal(client, monkeypatch):
     jid = r.json()["job"]["id"]
     status = None
     body = None
-    for _ in range(200):  # 200 × 50ms = 10s
+    for _ in range(600):  # 600 × 50ms = 30s
         body = client.get(f"/api/v1/jobs/{jid}").json()["job"]
         status = body["status"]
         if status in ("done", "failed", "timeout"):

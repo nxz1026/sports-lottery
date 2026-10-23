@@ -1328,10 +1328,15 @@ UTC 18:00 / 18:30 = 北京 02:00 / 02:30 夜间低峰）。**坏文件隔离而�
 业务表行数与修复前**逐字一致**（`jc_match=471` / `jc_offer=182600` / `jc_result=474` / `jc_issue=184` /
 `jc_issue_prize=191` / `lottery_draw=214`）。
 
-**新增 33 项守门断言**（`tools/check_docs_claims.py`，**349 项**）—— 重点：gaps 口径三处**走 AST 判定**
+**新增 36 项守门断言**（`tools/check_docs_claims.py`，**352 项**）—— 重点：gaps 口径三处**走 AST 判定**
 （`_from_manifest` 的 state 字面量集合 == `{"absent"}` / `load_topic` 的 `state=="absent"` 早退分支且不写 `ops.*`、不抛异常 /
 `load_batch` 空候选兜底 == `absent`）、坏文件不掀翻整批四连、`read_lines` 只许 catch `PermissionError`、
-保留策略九项、**台账窗口 > 落港窗口**（机器判定）、cron 安装器两条任务 + 幂等标记块、文档同步三项。
+保留策略九项、**台账窗口 > 落港窗口**（机器判定）、cron 安装器两条任务 + 幂等标记块、文档同步三项、
+**`load_topic` 三条返回路径的键集合必须一致**（既有契约 `{topic,lines,ups,gap}` —— 本轮**自己踩过**：
+absent 分支多返一个 `"absent"` 键 ⇒ Oracle 上那条真包用例 failed ⇒ 连带 **830 个 order-dependent error**）、
+**真包测试不许硬编码落港目录里的具体文件名**（保留策略 30 天窗口合法删掉了 `2026-09-16T10-13Z__001.jsonl`
+⇒ 那条真包用例直接 failed ⇒ 改成**动态挑「盘上最老的可解析文件」**；断言走 **AST** 并排除 docstring，
+因为测试说明里逐字引用了旧文件名，字符串匹配会命中自己的说明）。
 新增 `tests/test_jc_load_resilience.py`（**4 条**）。
 
 ### v4.6 (2026-10-22) 三项全做收尾：队名漏配（静默）+ `jc_id` 279 纠正 + 采集多日窗口
@@ -1518,11 +1523,11 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**守门断言累计 349 项**（`tools/check_docs_claims.py`，349 项；建议 6 再加 21 项、顺手修再加 7 项、
+**守门断言累计 352 项**（`tools/check_docs_claims.py`，352 项；建议 6 再加 21 项、顺手修再加 7 项、
 复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项、**§6.12 事故修复再加 15 项**、
 **§6.12.5/6.12.6 赔率口径修正再加 5 项**、**六联赛重训对拍再加 4 项**、**§6.13 本轮再加 30 项**、
 **§6.13.5 采集端改手动 + 新鲜度守门 + 原子性再加 33 项**、
-**§6.13.6 保留策略 + gaps 口径 + 坏文件不掀翻整批再加 33 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+**§6.13.6 保留策略 + gaps 口径 + 坏文件不掀翻整批再加 36 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
 回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
 物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字、
 **「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）、

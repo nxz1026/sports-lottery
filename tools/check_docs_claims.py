@@ -1663,6 +1663,37 @@ def main() -> int:
           not re.search(r"delete\s+from\s+ops\.", _stg_code, re.I))
     check("落港清理不许碰业务表", True,
           not re.search(r"delete\s+from\s+(fact|analysis)\.", _stg_code, re.I))
+    # dry-run 不许留下空隔离目录（每次 dry-run 建一个 ⇒ 空目录无上限堆积）
+    _stg_lines = _stg_code.splitlines()
+    _mk = [i for i, l in enumerate(_stg_lines) if 'mkdir -p "$QUAR/$STAMP"' in l]
+    _gd = [i for i, l in enumerate(_stg_lines) if 'if [ "$APPLY" = "1" ]; then' in l]
+    check("落港清理的隔离目录只在真跑时创建（dry-run 不留空目录 ⇒ 不无上限堆积）", True,
+          bool(_mk) and bool(_gd) and any(g < m for g in _gd for m in _mk))
+    # ⚠️ **真包测试不许硬编码落港目录里的具体文件名**：保留策略（30 天窗口）
+    #    会合法删掉它 ⇒ 2026-10-23 在 Oracle 上实测：09-16 那批被删 ⇒ 真包用例 failed
+    #    ⇒ 现在动态挑「盘上最老的可解析文件」。
+    # ⚠️ 断言必须走 **AST**（并排除 docstring）：测试的说明文字里**逐字引用了旧文件名**
+    #    （订正记录，教学价值）⇒ 朴素字符串匹配会命中自己的说明 ⇒ 假失败。
+    _jct = read(ROOT / "tests" / "test_jc_topic_issue.py")
+    _jct_tree = ast.parse(_jct)
+    _jct_doc_ids: set[int] = set()
+    for _n in ast.walk(_jct_tree):
+        if isinstance(_n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            _body = getattr(_n, "body", [])
+            if _body and isinstance(_body[0], ast.Expr) \
+                    and isinstance(_body[0].value, ast.Constant) \
+                    and isinstance(_body[0].value.value, str):
+                _jct_doc_ids.add(id(_body[0].value))
+    _jct_hard: list[str] = []
+    for _n in ast.walk(_jct_tree):
+        if (isinstance(_n, ast.Constant) and isinstance(_n.value, str)
+                and id(_n) not in _jct_doc_ids
+                and re.search(r"\d{4}-\d{2}-\d{2}T[\d\-]*Z", _n.value)):
+            _jct_hard.append(_n.value)
+    check("真包测试不许硬编码落港目录里的具体文件名（AST 判定，免疫 docstring 里的订正记录）",
+          [], _jct_hard)
+    check("真包测试改成动态挑「盘上最老的可解析文件」（保留策略删掉旧的也不会失效）",
+          True, "_pick_real" in _jct)
 
     # ⚠️⚠️ **硬不变量**：台账窗口必须 > 落港窗口。
     #    否则台账比文件先消失 ⇒ 装载器把老文件判成「孤儿(未装载)」⇒ 每轮全部重装

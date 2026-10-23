@@ -18,17 +18,45 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from ingest import jc_issue_write, jc_topic  # noqa: E402
+from ingest.jc_read import read_lines  # noqa: E402
 from store import pg  # noqa: E402
 
 BASE = Path("/srv/league-staging/incoming/cn-collector")
-FILES = {t: BASE / t / "2026-09-16T10-13Z__001.jsonl" for t in ("jc_issue", "jc_issue_result", "lottery_draw")}
 TABLE = {"jc_issue": "fact.jc_issue", "jc_issue_result": "fact.jc_issue_draw", "lottery_draw": "fact.lottery_draw"}
+
+
+def _pick_real(topic: str) -> Path | None:
+    """挑一个**当前还在盘上**的真包文件（最老 + 能解析 + 非空）。
+
+    ⚠️ **2026-10-23 修一个真脆弱点**：原来这里写死
+    ``2026-09-16T10-13Z__001.jsonl`` ⇒ 落港保留策略（30 天窗口）把那批文件**合法删掉**
+    之后，这条真包用例在 Oracle 上直接 failed（且连带 830 个 order-dependent error）。
+    ⇒ **测试不许依赖会被保留策略删掉的文件**。
+    现在动态挑「盘上**最老**的一个能解析且非空的文件」：
+      · 保留策略每删掉一个，下一个自动顶上 ⇒ 永远可用；
+      · 最老的文件一定是完整批次（不是半传中的）；
+      · 坏文件直接跳过（保留策略已把它们隔离，这里只是兜底）。
+    """
+    d = BASE / topic
+    if not d.is_dir():
+        return None
+    for f in sorted(d.glob("*.jsonl")):
+        try:
+            if read_lines(f):
+                return f
+        except Exception:
+            continue
+    return None
+
+
+FILES = {t: _pick_real(t) for t in ("jc_issue", "jc_issue_result", "lottery_draw")}
 
 # 守门：真包测试需要真库 DSN；无真库环境自动 skip（与 conn fixture 同模式）
 pytestmark = pytest.mark.skipif(
     not all(os.environ.get(k) for k in ("DSN_ING", "DSN_RO"))
-    or not BASE.is_dir(),
-    reason="真包测试需 DSN_ING/DSN_RO + /srv/league-staging 真包目录",
+    or not BASE.is_dir()
+    or any(f is None for f in FILES.values()),
+    reason="真包测试需 DSN_ING/DSN_RO + /srv/league-staging 真包目录 + 三个 topic 各有一个可解析的非空真包文件",
 )
 
 
