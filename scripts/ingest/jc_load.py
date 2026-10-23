@@ -77,7 +77,11 @@ def load_batch(conn, root: Path, marker: Path) -> dict:
     try:
         with conn.cursor() as cur:
             for topic, cands in files_for_batch(root, marker, TOPICS + OPTIONAL).items():
-                for path, state in cands or ([] if topic in OPTIONAL else [(None, "missing")]):
+                # ⚠️ **2026-10-23 订正（gaps 口径）**：原来空列表兜底成
+                # ``(None, "missing")`` ⇒ 凭空造一条 ``<marker>/<topic>#MISSING``
+                # ⇒ **gaps +1**（残缺批次的假缺档）。现在兜底成 ``"absent"``
+                # （该批设计里不含这个 topic ⇒ 不是缺档、不落任何痕迹）。
+                for path, state in cands or [(None, "absent")]:
                     r, err = _load_file(cur, root, marker, topic, path, state)
                     if r is None:
                         errors.append(f"{marker.name}:{topic}:{err}")

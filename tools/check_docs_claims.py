@@ -1501,6 +1501,180 @@ def main() -> int:
     check("README 记了手动模式主路径（refresh_now.bat）", True,
           "refresh_now.bat" in readme and "手动" in readme)
 
+    # ---- 23. 2026-10-23：ops/落港保留策略 + gaps 口径 + 坏文件不掀翻整批 ----
+    # 触发：用户「ops.ingest_log 每天 1 万行」→ 查出根因是「坏文件 ⇒ marker 永久
+    #       失败 ⇒ 每 10 分钟重装同一批老文件」；用户拍板「要改，保留合理时间范围内
+    #       的就行」+ gaps 口径「ok」。
+    # ⚠️ 本段断言**必须走 AST / 精确解析**：这些代码的注释与 docstring 里逐字引用了
+    #    旧写法（教学价值），朴素字符串匹配会命中自己的说明 ⇒ 假失败。
+
+    # ── A. gaps 口径：「清单里没有该 topic」≠ 缺档 ──────────────────────
+    _jr = read(ROOT / "scripts" / "ingest" / "jc_read.py")
+    _jr_tree = ast.parse(_jr)
+    _fm = next((n for n in ast.walk(_jr_tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "_from_manifest"), None)
+    # 「state 字面量」= _from_manifest 里所有 `xxx = [(None, "...")]` 形态的赋值
+    _fm_states: set[str] = set()
+    if _fm is not None:
+        for _n in ast.walk(_fm):
+            if isinstance(_n, ast.Assign) and isinstance(_n.value, ast.List):
+                for _e in _n.value.elts:
+                    if isinstance(_e, ast.Tuple):
+                        for _x in _e.elts:
+                            if isinstance(_x, ast.Constant) and isinstance(_x.value, str):
+                                _fm_states.add(_x.value)
+    check("jc_read：清单没列该 topic 的口径 = absent（AST 判定，不许再是 missing）",
+          {"absent"}, _fm_states)
+
+    _jt = read(ROOT / "scripts" / "ingest" / "jc_topic.py")
+    _jt_tree = ast.parse(_jt)
+    _lt = next((n for n in ast.walk(_jt_tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "load_topic"), None)
+    _absent_branch = None
+    for _n in (ast.walk(_lt) if _lt is not None else []):
+        if not isinstance(_n, ast.If):
+            continue
+        _t = _n.test
+        if (isinstance(_t, ast.Compare) and isinstance(_t.left, ast.Name)
+                and _t.left.id == "state" and len(_t.comparators) == 1
+                and isinstance(_t.comparators[0], ast.Constant)
+                and _t.comparators[0].value == "absent"):
+            _absent_branch = _n
+    check("jc_topic.load_topic 有 state=='absent' 的早退分支（残缺批不落任何痕迹）",
+          True, _absent_branch is not None)
+    if _absent_branch is not None:
+        _absent_sql = [s.value for s in ast.walk(_absent_branch)
+                       if isinstance(s, ast.Constant) and isinstance(s.value, str)
+                       and "ops." in s.value]
+        check("absent 分支不写 ops.* 台账（否则又造出假缺档行，gaps 虚高）",
+              [], _absent_sql)
+        check("absent 分支不抛异常（残缺批不该掀翻整批）", True,
+              not any(isinstance(s, ast.Raise) for s in ast.walk(_absent_branch)))
+
+    _jl = read(ROOT / "scripts" / "ingest" / "jc_load.py")
+    _jl_tree = ast.parse(_jl)
+    _lb = next((n for n in ast.walk(_jl_tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "load_batch"), None)
+    _fb_states: set[str] = set()
+    for _n in (ast.walk(_lb) if _lb is not None else []):
+        if isinstance(_n, ast.BoolOp) and isinstance(_n.op, ast.Or):
+            for _v in _n.values:
+                if isinstance(_v, ast.List):
+                    for _e in _v.elts:
+                        if isinstance(_e, ast.Tuple):
+                            for _x in _e.elts:
+                                if isinstance(_x, ast.Constant) and isinstance(_x.value, str):
+                                    _fb_states.add(_x.value)
+    check("jc_load.load_batch 空候选兜底 = absent（不许 missing，AST 判定）",
+          {"absent"}, _fb_states)
+
+    # ── B. 坏文件不掀翻整批（第三个真缺陷） ────────────────────────────
+    _missing_branch = None
+    for _n in (ast.walk(_lt) if _lt is not None else []):
+        if not isinstance(_n, ast.If):
+            continue
+        if any(isinstance(_c, ast.Call) and isinstance(_c.func, ast.Attribute)
+               and _c.func.attr == "exists" for _c in ast.walk(_n.test)):
+            _missing_branch = _n
+    check("jc_topic.load_topic 有「清单列了但文件不存在」的独立分支（不再走 read_lines 抛）",
+          True, _missing_branch is not None)
+    if _missing_branch is not None:
+        _mb_sql = [s.value for s in ast.walk(_missing_branch)
+                   if isinstance(s, ast.Constant) and isinstance(s.value, str)]
+        check("文件不存在分支会留痕 ops.ingest_log（排障能查到哪个文件读不出来）",
+              True, any("ops.ingest_log" in s for s in _mb_sql))
+        check("文件不存在分支会写 ops.file_arrival（真缺档 ⇒ gaps +1，不是假缺档）",
+              True, any("ops.file_arrival" in s for s in _mb_sql))
+        check("文件不存在分支不抛异常（一个文件丢了不该让整批永久重跑）",
+              True, not any(isinstance(x, ast.Raise) for x in ast.walk(_missing_branch)))
+        _gap_true = False
+        for _r in ast.walk(_missing_branch):
+            if isinstance(_r, ast.Return) and isinstance(_r.value, ast.Dict):
+                for _k, _v in zip(_r.value.keys, _r.value.values):
+                    if (isinstance(_k, ast.Constant) and _k.value == "gap"
+                            and isinstance(_v, ast.Constant) and _v.value is True):
+                        _gap_true = True
+        check("文件不存在 ⇒ 记为真缺档（gap=True，AST 判定）", True, _gap_true)
+    # read_lines 的「坏行直接抛」是 ticket P0-COLLECT2f/2g 定的契约：
+    # 不许为了掩盖坏文件把它改成「跳过坏行」（那会静默丢数据）。
+    _rl = next((n for n in ast.walk(_jr_tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "read_lines"), None)
+    _rl_caught: set[str] = set()
+    for _h in (ast.walk(_rl) if _rl is not None else []):
+        if isinstance(_h, ast.ExceptHandler) and isinstance(_h.type, ast.Name):
+            _rl_caught.add(_h.type.id)
+    check("read_lines 保持「坏行直接抛」契约（只许 catch PermissionError，不许吞解析错误）",
+          {"PermissionError"}, _rl_caught)
+
+    # ── C. 保留策略（ops 台账 + 落港目录） ──────────────────────────────
+    _ops_p = ROOT / "docs" / "db" / "ops_retention.sql"
+    check("ops 保留策略 SQL 在库（docs/db/ops_retention.sql）", True, _ops_p.is_file())
+    _ops_txt = read(_ops_p) if _ops_p.is_file() else ""
+    # 注释剥离（SQL 的注释行一律以 -- 开头）⇒ 断言不会被注释里的旧写法污染
+    _ops_code = "\n".join(l for l in _ops_txt.splitlines() if not l.strip().startswith("--"))
+    _m_keep = re.search(r"\\set keep_days (\d+)", _ops_code)
+    _m_ledger = re.search(r"\\set ledger_keep_days (\d+)", _ops_code)
+    check("ops.ingest_log 默认窗口 = 7 天（治本后每天 ~550 行 ⇒ 一周排障够用）",
+          7, int(_m_keep.group(1)) if _m_keep else "MISSING")
+    check("ops 台账（file_arrival/ingest_marker）默认窗口 = 37 天（> 落港 30 天）",
+          37, int(_m_ledger.group(1)) if _m_ledger else "MISSING")
+    check("ops 保留策略只删 ok=true 的 marker（ok=false 是要重试的批次，删了=静默丢数据）",
+          True, "WHERE ok AND processed_at" in _ops_code)
+    check("ops 保留策略删完必须 VACUUM（DELETE 不回收磁盘）", True, "VACUUM" in _ops_code)
+    check("VACUUM FULL 只作可选（它拿 ACCESS EXCLUSIVE 锁会阻塞每 10 分钟的装载）",
+          True, "\\if :vacuum_full" in _ops_code and "VACUUM (FULL, ANALYZE)" in _ops_code)
+    check("ops 保留策略绝不碰业务表（fact.* / analysis.* 一律不动）", True,
+          not re.search(r"delete\s+from\s+(fact|analysis)\.", _ops_code, re.I))
+
+    _stg_p = ROOT / "docs" / "infra" / "jc-staging-retention.sh"
+    check("落港清理脚本在库（docs/infra/jc-staging-retention.sh）", True, _stg_p.is_file())
+    _stg_txt = read(_stg_p) if _stg_p.is_file() else ""
+    # bash 的注释同样是整行以 # 开头 ⇒ 剥离后做字符串判定等价于 AST 判定
+    _stg_code = "\n".join(l for l in _stg_txt.splitlines() if not l.strip().startswith("#"))
+    _m_stg = re.search(r"JC_STAGING_KEEP_DAYS:-(\d+)", _stg_code)
+    _stg_days = int(_m_stg.group(1)) if _m_stg else None
+    check("落港目录默认保留 30 天（职责=传输中转+排障取证，业务数据已落库）",
+          30, _stg_days if _stg_days is not None else "MISSING")
+    check("落港清理的坏文件走隔离不直接删（shutil.move ⇒ 保留证据、可回滚）", True,
+          "shutil.move" in _stg_code)
+    check("落港清理的文件操作必须用 league 身份（root 移文件会改属主）", True,
+          "sudo -n -u league" in _stg_code)
+    check("落港清理不许删 ops 台账（台账留着才防将来重复装载）", True,
+          not re.search(r"delete\s+from\s+ops\.", _stg_code, re.I))
+    check("落港清理不许碰业务表", True,
+          not re.search(r"delete\s+from\s+(fact|analysis)\.", _stg_code, re.I))
+
+    # ⚠️⚠️ **硬不变量**：台账窗口必须 > 落港窗口。
+    #    否则台账比文件先消失 ⇒ 装载器把老文件判成「孤儿(未装载)」⇒ 每轮全部重装
+    #    ⇒ 又开始写重复 ingest_log（2026-10-23 实测：keep_days=7 时下一轮 cron
+    #    重装了 4295 个文件）。这条断言**解析两个文件的实际默认值**来判定，
+    #    不是靠注释里写一句「必须大于」就算数。
+    check("⚠️ 台账窗口 > 落港窗口（否则老文件被判孤儿 ⇒ 每轮重装，2026-10-23 实测 4295 个）",
+          True,
+          _m_ledger is not None and _stg_days is not None
+          and int(_m_ledger.group(1)) > _stg_days)
+
+    _inst_p = ROOT / "docs" / "infra" / "install-jc-retention-cron.sh"
+    check("保留策略 cron 安装器在库（部署物进仓库，别靠手敲 crontab）", True, _inst_p.is_file())
+    _inst_txt = read(_inst_p) if _inst_p.is_file() else ""
+    _inst_code = "\n".join(l for l in _inst_txt.splitlines() if not l.strip().startswith("#"))
+    check("cron 安装器装了两条每日任务（落港清理 + ops 保留）", True,
+          "jc-staging-retention.sh" in _inst_code and "jc-ops-retention.sh" in _inst_code
+          and _inst_code.count("* * *") >= 2)
+    check("cron 安装器是幂等的（标记块替换式，重复装不叠加条目）", True,
+          "MARK_BEGIN" in _inst_code and "MARK_END" in _inst_code
+          and "crontab -" in _inst_code)
+    check("ops 保留的运行入口在库（docs/infra/jc-ops-retention.sh）", True,
+          (ROOT / "docs" / "infra" / "jc-ops-retention.sh").is_file())
+
+    # ── D. 文档同步 ───────────────────────────────────────────────────
+    check("README 记了保留窗口（落港 30 天 / 日志 7 天 / 台账 37 天）", True,
+          "30 天" in readme and "7 天" in readme and "37 天" in readme)
+    check("路线图有 §6.13.6（保留策略 + gaps 口径 + 坏文件隔离）", True,
+          "#### 6.13.6" in _roadmap)
+    check("路线图 §6.13.6 记了根因（每 10 分钟重装 ⇒ 每天 1 万行）与实测数字", True,
+          "1208" in _roadmap or "1 万行" in _roadmap)
+
     # ---- 21. 守门项数自检（防「README 说的项数」与实际漂移）----
     # README 会写「守门 N 项」；N 变了却没人改 README ⇒ 那个数字就在漂。
     # 这里把 README 声明的 N 与**实际登记的项数**对齐（含本条自身 ⇒ 固定点）。

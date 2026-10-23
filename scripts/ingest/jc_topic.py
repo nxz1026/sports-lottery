@@ -74,7 +74,42 @@ def _load_saved(cur, topic: str, rel: str, lines: list, rej: list, writer) -> in
 
 
 def load_topic(cur, root: Path, marker: Path, topic: str, path: Path | None, state: str) -> dict:
+    # ⚠️ **2026-10-23 订正（gaps 口径）**：新增 state="absent" ——
+    #   「**该批次的设计里本就不含这个 topic**」（回补批 / 单 topic 推送 / 手动验证批）。
+    #   它**不是缺档**，所以：**不写 ops.file_arrival**（否则台账被假行灌满）、
+    #   **不记 gap**（否则 gaps 虚高）、**也不写 ops.ingest_log**（没有装载发生过）。
+    #   ⇒ 直接返回，不落任何痕迹。
+    if state == "absent":
+        return {"topic": topic, "lines": 0, "ups": 0, "gap": False, "absent": True}
+
     rel = f"{topic}/{path.name}" if path else f"{marker.stem}/{topic}#MISSING"
+
+    # ⚠️ **2026-10-23 修一个真缺陷（第三个）**：``state == "rejected"``
+    #   （清单**列了**这个文件、但**行数与声明对不上**）原来会走到
+    #   ``read_lines(path)`` ⇒ 读到的是**好行**（行数对不上≠读不出来），
+    #   于是**照常装载**（旧行为，其实是对的：ticket 2q3b 明写 rejected → done=true）。
+    #   但**文件真的不存在**（manifest-file-missing，被隔离/被清理/半传丢文件）时，
+    #   ``read_lines`` 会抛 **FileNotFoundError 掀翻整批** ⇒ 该批 marker 永久 ok=false
+    #   ⇒ 水位失效 ⇒ **每 10 分钟重装整批** ⇒ 实测每天凭空写 1 万行重复
+    #   ``ops.ingest_log``（且无信息增量）。
+    # ⇒ 现在：**文件不存在 ⇒ 记 gap（真缺档）+ 留痕（ingest_log ok=false），
+    #   但不掀翻整批** —— 一个文件丢了不该让同批其它文件永远重跑。
+    #   ⚠️ 与 ticket 2q3b 的差别只在「文件不存在」这一支：
+    #   rejected（行数不符、文件在）仍照常装载 ⇒ done=true，行为不变。
+    if path is not None and not path.exists():
+        logger.warning("清单列了但文件不存在 topic=%s 文件=%s ⇒ 记缺档、不掀翻整批",
+                       topic, rel)
+        cur.execute(
+            "insert into ops.ingest_log (topic,src_file,rows_in,rows_ups,rejected,ok) "
+            "values (%s,%s,%s,%s,%s,%s)",
+            (topic, rel, 0, 0, Json([{"reason": "manifest-file-missing"}]), False))
+        # 真缺档：写 file_arrival（带 #MISSING 后缀）⇒ gaps 计数 +1（**这是真缺档**）
+        cur.execute(
+            "insert into ops.file_arrival (topic,src_file,bytes,rows,done_marker) "
+            "values (%s,%s,%s,%s,%s) on conflict (topic,src_file) do nothing",
+            (topic, f"{marker.stem}/{topic}#MISSING", 0, 0, False))
+        return {"topic": topic, "lines": 0, "ups": 0, "gap": True, "missing_file": True}
+
     lines = read_lines(path) if path and state in ("jsonl", "orphan") else []
     n, ups, rej = len(lines), 0, []
     if topic in WRITE:

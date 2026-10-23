@@ -74,4 +74,26 @@ def test_files_for_batch_hash_disambiguation(tmp_path):
     out = files_for_batch(tmp_path, tmp_path / "cn-collector-2026-09-16T04-00-00Z.done",
                           ("jczq_offer", "jczq_result"))
     assert out["jczq_offer"] == [(fa, "jsonl")]
-    assert out["jczq_result"] == [(None, "missing")]
+    # ⚠️ **2026-10-23 订正（gaps 口径）**：清单里**压根没有** jczq_result
+    #   ⇒ 该批的设计里就不含它 ⇒ state="absent"（**不是缺档**）。
+    #   旧口径是 "missing" ⇒ 凭空造一条 `<marker>/jczq_result#MISSING`
+    #   ⇒ **gaps 虚高**（实测 49 条 gaps 全是这类假缺档）。
+    assert out["jczq_result"] == [(None, "absent")]
+
+
+def test_manifest_listed_but_file_missing_is_rejected_not_absent(tmp_path):
+    """⚠️ **2026-10-23**：真缺档与「本就不含」必须能区分。
+
+    - 清单**列了**某文件、但文件读不出来 ⇒ state="rejected" ⇒ **真缺档**
+      （文件真的丢了/坏了 ⇒ 批次标 not_ok ⇒ 下轮重试）。
+    - 清单**没列**某 topic ⇒ state="absent" ⇒ **不是缺档**（该批设计上不含它）。
+    ⇒ 这条锁住两者不被混为一谈：混了 ⇒ gaps 虚高（假缺档淹没真缺档）。
+    """
+    topic_dir = tmp_path / "jczq_offer"
+    topic_dir.mkdir()
+    missing_file = topic_dir / "gone.jsonl"       # 清单列了，但盘上没有
+    (tmp_path / "b.done").write_text(
+        "jczq_offer/gone.jsonl\t7\t" + "0" * 64 + "\n", encoding="utf-8")
+    out = files_for_batch(tmp_path, tmp_path / "b.done", ("jczq_offer", "jczq_result"))
+    assert out["jczq_offer"] == [(missing_file, "rejected")], "清单列了却缺失 ⇒ 真缺档(rejected)"
+    assert out["jczq_result"] == [(None, "absent")], "清单没列 ⇒ 不是缺档(absent)"

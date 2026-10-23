@@ -32,8 +32,22 @@ def _from_manifest(root: Path, man: dict[str, list[tuple[str, int, str]]],
             resolved.setdefault(hit[0], []).append((f"{hit[0]}/{rel}", decl, dhash))
     for topic in topics:
         entries = man.get(topic, []) + resolved.get(topic, [])
-        out[topic] = [] if not entries and topic in OPTIONAL else ([(None, "missing")]
-            if not entries else [_check_entry(topic, root / rel, decl) for rel, decl, _h in entries])
+        if not entries:
+            # ⚠️ **2026-10-23 订正（原口径错 ⇒ gaps 虚高）**：
+            # 原来「清单里没有该 topic」一律造一个 ``(None, "missing")`` ⇒
+            # 该 topic 被记一条 ``<marker>#MISSING`` 的 file_arrival ⇒ **gaps +1**。
+            # 但「**故意少推的残缺批次**」（回补批 / 单 topic 推送 / 手动验证批）
+            # 的清单**本来就没有**其它 topic ⇒ 于是**每次都凭空造缺档**。
+            # 实测：gaps 43 → 49（+6 全来自本轮单 topic 推送的残缺批）。
+            # ⇒ 现在区分两种「没有」：
+            #   ① **清单里压根没这个 topic** ⇒ state="absent" ⇒ **不是缺档**
+            #      （这批设计上就不含它）；OPTIONAL topic 同样按 absent 处理；
+            #   ② **清单里列了、但文件读不出来/行数对不上** ⇒ 由 ``_check_entry``
+            #      返回 state="rejected" ⇒ 这才是**真缺档**（`_load_file` 会失败，
+            #      批次标 not_ok ⇒ 下轮重试）。
+            out[topic] = [(None, "absent")]
+            continue
+        out[topic] = [_check_entry(topic, root / rel, decl) for rel, decl, _h in entries]
     return out
 
 
@@ -58,6 +72,19 @@ def files_for_batch(root: Path, marker: Path,
 
 
 def read_lines(path: Path) -> list[dict]:
+    """读一个 JSONL 文件。
+
+    ⚠️ **契约（ticket P0-COLLECT2f/2g 明确要求，2026-10-23 复核后维持不变）**：
+    「整文件 `json.loads` 逐行；**空行跳过**；**任何一行解析失败 ⇒ 直接抛**
+    （不吞、不跳坏行）」。
+
+    ⇒ **不要**在这里改成「坏行跳过、好行照装」—— 那会**掩盖数据损坏**
+    （文件里少装了多少行没人知道），且违背队长定的契约。
+    ⇒ 坏文件的正确处置是**在装载之前把它从落港目录隔离出去**
+    （见 ``docs/infra/jc-staging-retention.sh`` 的「坏文件隔离」步骤）：
+    隔离后它不再被装载 ⇒ 也不会再拖死同批其它文件；
+    同时 ``ops.ingest_log`` 会留一行 ok=false 记录「这个文件读不出来」⇒ 排障可见。
+    """
     try:
         with open(path, encoding="utf-8") as f:
             return [json.loads(s) for s in f if s.strip()]
