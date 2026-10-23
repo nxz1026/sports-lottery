@@ -463,6 +463,9 @@ const P2A_CHECKS = [
   // P2-K：请求不许永远挂着；首屏取不到数据时顶部不许假装「最近同步」
   ['p2k_hanging_request_times_out', '请求永远挂着时必须超时失败（不许 promise 永不 settle）'],
   ['p2k_live_not_claimed_synced_when_partial_failure', '首屏有数据没取到时，顶部不许写「最近同步」'],
+  // P2-M：响应体卡住也必须超时；未知视图名不许把主区清空
+  ['p2m_body_never_completes_times_out', '响应体永远不来时必须超时失败（不许只有头没有体就卡死）'],
+  ['p2m_switchview_unknown_name_keeps_current_view', '未知视图名不许把当前视图隐藏（点了「每日一图」不许主区全空）'],
 ];
 
 async function main() {
@@ -571,6 +574,44 @@ async function main() {
           await _probeAuthAndBoot();
         }
         return ok;
+      })();
+      // ── P2-M（2026-10-23）：响应体卡住 + 未知视图名（两个真缺口）────────────
+      // ① **响应头到了、响应体永远不来** ⇒ api() 必须超时失败。
+      //    ⚠️ P2-K 的兜底只保护到 fetch() **返回响应头**为止（finally 里
+      //    就把定时器清了）⇒ 旧实现里 await r.json() **永不 settle**
+      //    ⇒ 首屏仍会**永久**停在「连接中…」（P2-K 没覆盖到这一段）。
+      //    ⚠️ 桩必须**响应 abort**（真实 fetch 就是这样），否则测不到超时路径。
+      out.p2m_body_never_completes_times_out = await (async () => {
+        const _f = fetch;
+        try {
+          fetch = (u, init) => Promise.resolve({
+            status: 200, ok: true,
+            json: () => Promise.resolve({}),
+            // 体永远不来（但响应 abort）
+            text: () => new Promise((_res, rej) => {
+              if (init && init.signal) {
+                init.signal.addEventListener('abort', () => rej(new Error('aborted')));
+              }
+            }),
+          });
+          const verdict = await Promise.race([
+            api('/body-hang', 60).then(() => 'RESOLVED', (e) => 'REJECTED:' + String((e && e.message) || e)),
+            new Promise((r) => setTimeout(() => r('HUNG'), 2000)),
+          ]);
+          return verdict.indexOf('REJECTED:请求超时') >= 0;
+        } finally { fetch = _f; }
+      })();
+      // ② **未知视图名**（点「每日一图」「分享」时 b.dataset.view 就是 undefined）
+      //    ⇒ **不许**把当前视图的 active 去掉（旧实现 ⇒ 主区整块空白：
+      //    用户在「今日推荐」页点一下「每日一图」就把整个看板点没了）。
+      out.p2m_switchview_unknown_name_keeps_current_view = (() => {
+        const v = document.getElementById('view-today');
+        v.classList.add('view'); v.classList.add('active');
+        const t = document.getElementById('pageTitle');
+        t.textContent = '今日推荐';
+        try { switchView(undefined); } catch (_) {}
+        return v.classList.contains('active')
+          && String(t.textContent || '').indexOf('数据仪表盘') < 0;
       })();
       // ── P2-A 口径断言（运行时调用真实函数 / 真渲染面板）───────────────
       // A1：pct() —— Number(null)===0 ⇒ 旧实现把「没有值」印成「0.0%」

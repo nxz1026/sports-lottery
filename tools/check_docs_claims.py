@@ -2655,6 +2655,26 @@ def main() -> int:
                                         "p2k_live_not_claimed_synced_when_partial_failure")))
     check("看板冒烟必须能断言「请求永远挂着 ⇒ 超时失败」（不许 promise 永不 settle）", True,
           "REJECTED:请求超时" in _smoke_src and "HUNG" in _smoke_src)
+    # ── P2-M（2026-10-23）：首屏健壮性补漏（两个真缺口）────────────────────
+    # ① P2-K 的兜底**只保护到响应头**：`fetch()` 一返回响应头就把超时定时器清了
+    #    ⇒ 响应体卡住时 `await r.json()` 永不 settle ⇒ 首屏仍会永久停在「连接中…」。
+    # ⇒ 现在响应体在**同一个 AbortController 保护下**读完（text），超时一样会 abort。
+    check("看板请求的超时必须覆盖响应体读取（不许只保护到响应头）", True,
+          "const text=await r.text();" in _dash_js
+          and "json:()=>{try{return JSON.parse(text)" in _dash_js)
+    # ② 点「每日一图」「分享」（只有 data-action、没有 data-view）⇒ 旧实现调
+    #    switchView(undefined) ⇒ 所有 view 的 active 被去掉 ⇒ **主区整块空白**。
+    check("导航栏只给带 data-view 的按钮挂视图切换（点「每日一图」不许清空主区）", True,
+          '.nav button[data-view]' in _dash_js
+          # ⚠️ 只查**监听那一处**：`switchView` 内部还有一句
+          # `document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",…))`
+          # —— 那是**高亮当前导航项**，合法；不许拿它当「监听挂太宽」的证据。
+          and '.nav button").forEach(b=>b.addEventListener("click",()=>switchView(' not in _dash_js)
+    check("switchView 对未知视图名必须原样保留当前视图（不许把主区清空）", True,
+          'if(!name||!document.getElementById("view-"+name))return;' in _dash_js)
+    check("看板冒烟必须有 P2-M 的运行时断言（响应体卡住 / 未知视图名）", True,
+          all(k in _smoke_src for k in ("p2m_body_never_completes_times_out",
+                                        "p2m_switchview_unknown_name_keeps_current_view")))
     for _p in (ROOT / "web" / "services" / "recommend.py", ROOT / "web" / "services" / "clv.py",
                ROOT / "scripts" / "decision" / "recommend.py"):
         _tz2 = [s for s in code_strings(_p) if "AT TIME ZONE" in s]
