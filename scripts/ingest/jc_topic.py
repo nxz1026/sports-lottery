@@ -79,8 +79,12 @@ def load_topic(cur, root: Path, marker: Path, topic: str, path: Path | None, sta
     #   它**不是缺档**，所以：**不写 ops.file_arrival**（否则台账被假行灌满）、
     #   **不记 gap**（否则 gaps 虚高）、**也不写 ops.ingest_log**（没有装载发生过）。
     #   ⇒ 直接返回，不落任何痕迹。
+    # ⚠️ **返回值的键集合必须与其它路径完全一致**（``{"topic","lines","ups","gap"}``）——
+    #   既有契约由 ``tests/test_jc_topic_issue.py`` 断言（``set(ret) == {...}``）⇒
+    #   这里**不许**加 "absent" / "missing_file" 之类的额外键（那会掀翻既有断言，
+    #   2026-10-23 在 Oracle 上实测踩到）。
     if state == "absent":
-        return {"topic": topic, "lines": 0, "ups": 0, "gap": False, "absent": True}
+        return {"topic": topic, "lines": 0, "ups": 0, "gap": False}
 
     rel = f"{topic}/{path.name}" if path else f"{marker.stem}/{topic}#MISSING"
 
@@ -108,7 +112,7 @@ def load_topic(cur, root: Path, marker: Path, topic: str, path: Path | None, sta
             "insert into ops.file_arrival (topic,src_file,bytes,rows,done_marker) "
             "values (%s,%s,%s,%s,%s) on conflict (topic,src_file) do nothing",
             (topic, f"{marker.stem}/{topic}#MISSING", 0, 0, False))
-        return {"topic": topic, "lines": 0, "ups": 0, "gap": True, "missing_file": True}
+        return {"topic": topic, "lines": 0, "ups": 0, "gap": True}
 
     lines = read_lines(path) if path and state in ("jsonl", "orphan") else []
     n, ups, rej = len(lines), 0, []

@@ -96,7 +96,10 @@ def test_absent_topic_leaves_no_trace(tmp_path):
     out = jc_topic.load_topic(cur, tmp_path, marker, "jczq_offer", None, "absent")
 
     assert out["gap"] is False
-    assert out.get("absent") is True
+    # ⚠️ 返回值的键集合必须与其它路径**完全一致**（既有契约：
+    #    tests/test_jc_topic_issue.py 断言 set(ret) == {"topic","lines","ups","gap"}）
+    #    ⇒ 这里不许塞 "absent" 之类的额外键（2026-10-23 在 Oracle 上实测踩过）。
+    assert set(out) == {"topic", "lines", "ups", "gap"}
     sql = _sqls(cur)
     assert "ops.ingest_log" not in sql, "absent 不该写 ingest_log（没发生过装载）"
     assert "ops.file_arrival" not in sql, "absent 不该写 file_arrival（否则假缺档）"

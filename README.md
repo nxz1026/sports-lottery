@@ -1319,11 +1319,16 @@ UTC 18:00 / 18:30 = 北京 02:00 / 02:30 夜间低峰）。**坏文件隔离而�
 坏文件的正确处置是**装载前隔离**，不是改契约掩盖损坏。
 
 **生产验收**：`ingest_marker` 2655 **全部 ok=true** ⇒ 重复重装停止；日志增速降 **77%**；
-gaps 49 → **59**（+10 = 隔离坏文件后暴露的**真实缺失**，正确计入）；
+**gaps 口径终态 = 10**（修复前的 49 条**全是假缺档**；修复后新口径只认「清单列了、
+文件被隔离」的真缺档 10 条，**修复前残留的 17 条假货按 marker 清单逐条判定后清掉**，
+实测 FAKE=17 / REAL=10 / UNKNOWN=0）；
+`bash ~/bin/jc-ops-retention.sh` ⇒ **rc=0**，`file_arrival` **will_delete=0**（台账窗口 37 天生效）、
+`ingest_log` 磁盘 **419 MB**（治本前 1740 MB）；**cron 已装**（UTC 18:00 / 18:30 = 北京 02:00 / 02:30，
+幂等复检不叠加）；
 业务表行数与修复前**逐字一致**（`jc_match=471` / `jc_offer=182600` / `jc_result=474` / `jc_issue=184` /
 `jc_issue_prize=191` / `lottery_draw=214`）。
 
-**新增 32 项守门断言**（`tools/check_docs_claims.py`，**348 项**）—— 重点：gaps 口径三处**走 AST 判定**
+**新增 33 项守门断言**（`tools/check_docs_claims.py`，**349 项**）—— 重点：gaps 口径三处**走 AST 判定**
 （`_from_manifest` 的 state 字面量集合 == `{"absent"}` / `load_topic` 的 `state=="absent"` 早退分支且不写 `ops.*`、不抛异常 /
 `load_batch` 空候选兜底 == `absent`）、坏文件不掀翻整批四连、`read_lines` 只许 catch `PermissionError`、
 保留策略九项、**台账窗口 > 落港窗口**（机器判定）、cron 安装器两条任务 + 幂等标记块、文档同步三项。
@@ -1513,11 +1518,11 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**守门断言累计 348 项**（`tools/check_docs_claims.py`，348 项；建议 6 再加 21 项、顺手修再加 7 项、
+**守门断言累计 349 项**（`tools/check_docs_claims.py`，349 项；建议 6 再加 21 项、顺手修再加 7 项、
 复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项、**§6.12 事故修复再加 15 项**、
 **§6.12.5/6.12.6 赔率口径修正再加 5 项**、**六联赛重训对拍再加 4 项**、**§6.13 本轮再加 30 项**、
 **§6.13.5 采集端改手动 + 新鲜度守门 + 原子性再加 33 项**、
-**§6.13.6 保留策略 + gaps 口径 + 坏文件不掀翻整批再加 32 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+**§6.13.6 保留策略 + gaps 口径 + 坏文件不掀翻整批再加 33 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
 回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
 物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字、
 **「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）、

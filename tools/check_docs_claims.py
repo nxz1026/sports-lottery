@@ -1595,6 +1595,26 @@ def main() -> int:
                             and isinstance(_v, ast.Constant) and _v.value is True):
                         _gap_true = True
         check("文件不存在 ⇒ 记为真缺档（gap=True，AST 判定）", True, _gap_true)
+    # ⚠️ **返回值的键集合是既有契约**：``tests/test_jc_topic_issue.py`` 断言
+    #    ``set(ret) == {"topic","lines","ups","gap"}`` ⇒ 三条返回路径（正常 / absent /
+    #    文件不存在）必须**完全一致**，不许塞额外键。
+    #    （2026-10-23 在 Oracle 上实测踩到：absent 分支多返回了 "absent" 键 ⇒
+    #      那条真包用例 failed ⇒ 连带 830 个 order-dependent error。）
+    _ret_keys: dict[str, set[str]] = {}
+    for _branch_name, _branch in (("absent", _absent_branch),
+                                  ("file-missing", _missing_branch)):
+        if _branch is None:
+            continue
+        for _r in ast.walk(_branch):
+            if isinstance(_r, ast.Return) and isinstance(_r.value, ast.Dict):
+                _ks = {k.value for k in _r.value.keys
+                       if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+                if _ks:
+                    _ret_keys.setdefault(_branch_name, set()).update(_ks)
+    check("load_topic 三条返回路径的键集合一致（既有契约 {topic,lines,ups,gap}，不许加额外键）",
+          {"topic", "lines", "ups", "gap"},
+          _ret_keys.get("absent", set()) | _ret_keys.get("file-missing", set()))
+
     # read_lines 的「坏行直接抛」是 ticket P0-COLLECT2f/2g 定的契约：
     # 不许为了掩盖坏文件把它改成「跳过坏行」（那会静默丢数据）。
     _rl = next((n for n in ast.walk(_jr_tree)
