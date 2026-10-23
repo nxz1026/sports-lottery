@@ -264,12 +264,26 @@ def test_b5_min_ev_threshold_stays_a_deliberate_policy_not_the_water_level():
 
 
 def test_b5_pricing_note_states_measured_water_level(monkeypatch):
-    """用户可见文案：写实测值 12.9%，**不许**再写「25~33%」。"""
+    """用户可见文案：写实测值 12.9%，**不许**再写「25~33%」。
+
+    ⚠️ 2026-10-23 **生产浏览器验收时当场抓到**：这段文案的最后一句写的是
+    「单边投注要先扛掉这笔水 ⇒ EV 必须**不低于水位**才谈得上盈利
+    （推荐端阈值已对齐为 EV ≥ 12.9%）」⇒ ① 与本轮决定（阈值维持 0.05）**矛盾**；
+    ② 代数上也错（EV > 0 ⟺ p/q > m ⇒ 扛水 = EV > 0，不是 EV ≥ 12.9%）。
+    ⇒ 这条测试把**正确口径**也锁住：不许出现「不低于水位」「阈值已对齐」，
+      且必须写明「EV 已把水算进去了」+「阈值 EV ≥ 5% 是政策值，不是水位」。
+    """
     monkeypatch.setattr("store.pg.read_conn", lambda *a, **k: (_ for _ in ()).throw(
         RuntimeError("db down")))
     note = wsr.snapshot()["pricing_note"]
     assert "12.9%" in note
     assert "25~33%" not in note
+    # 假话不许回来
+    assert "不低于水位" not in note
+    assert "阈值已对齐" not in note
+    # 正确口径必须在
+    assert "已把水算进去了" in note
+    assert "EV ≥ 5%" in note and "政策值" in note
 
 
 def test_b5_write_reports_note_records_effective_thresholds():

@@ -2471,6 +2471,24 @@ def main() -> int:
     _note_src = read(ROOT / "web" / "services" / "recommend.py")
     check("用户可见水位文案 = 实测 12.9%（旧「25~33%」已废）", True,
           "25~33%" not in _note_src and "12.9%" in _note_src)
+    # ── P2-H4（2026-10-23）：用户可见文案不许宣称「阈值 = 水位」或「EV 必须 ≥ 水位」──
+    # 事故：**生产浏览器验收时当场抓到**。`pricing_note` 的最后一句写的是
+    #   「单边投注要先扛掉这笔水 ⇒ EV 必须**不低于水位**才谈得上盈利
+    #     （推荐端阈值已对齐为 EV ≥ 12.9%）」——
+    #   而本轮已经**否决**了抬阈值的改动（阈值维持 0.05）⇒ 这句话是**假话**；
+    #   且它本身代数上也不对（EV > 0 ⟺ p/q > m，「扛水」= EV > 0，不是 EV ≥ 12.9%）。
+    # ⇒ 用户能直接看到荐单面板上 ⇒ **必须**守死。
+    # 判定口径：`code_strings`（**AST 级、排除 docstring**）⇒ 注释里的订正记录不会假绿，
+    #   但**会真正渲染给用户**的字符串常量一旦写回假话 ⇒ 立刻 FAIL。
+    _note_codes = code_strings(ROOT / "web" / "services" / "recommend.py")
+    _forbidden_note = ("不低于水位", "阈值已对齐")
+    _bad_note = [s[:80] for s in _note_codes
+                 if any(f in s for f in _forbidden_note)]
+    check("用户可见荐单文案不许宣称「EV 必须 ≥ 水位」或「阈值已对齐为 12.9%」", True,
+          not _bad_note)
+    check("用户可见荐单文案必须写清正确口径（EV 已含水位 + 阈值是政策值 5%）", True,
+          any("EV ≥ 5%" in s and "政策值" in s for s in _note_codes)
+          and any("已把水算进去了" in s for s in _note_codes))
     for _p in (ROOT / "web" / "services" / "recommend.py", ROOT / "web" / "services" / "clv.py",
                ROOT / "scripts" / "decision" / "recommend.py"):
         _tz2 = [s for s in code_strings(_p) if "AT TIME ZONE" in s]
