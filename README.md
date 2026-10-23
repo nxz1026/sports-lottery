@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2744 passed / 75 skipped / 0 failed**（2819 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 手动模式+新鲜度守门+采集端原子性 +32** + **§6.13.6 保留策略+gaps 口径+坏文件不掀翻整批 +5**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2750 passed / 75 skipped / 0 failed**（2825 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 手动模式+新鲜度守门+采集端原子性 +32** + **§6.13.6 保留策略+gaps 口径+坏文件不掀翻整批 +5** + **§6.13.7 看板假的无数据（部署后服务没重启）+6**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -528,8 +528,16 @@ sudo tail -F /var/log/nginx/error.log
 
 **部署链路（本机）**：
 1. `/home/ubuntu/DSH/sports-lottery/.env`（gitignore）存凭据：`AUTH_USERNAME/PASSWORD`、`API_FOOTBALL_KEY`、`FOOTBALL_DATA_API_KEY`、`ODDS_API_KEY`/`NBA_API_KEY`、`LEAGUE_*`、`LLM_*` 等。systemd 通过 `EnvironmentFile=` 注入；不要提交该文件。
-2. 代码 push 到 `origin/main`，本机直接 `git pull` 即拿到最新代码；systemd `Restart=on-failure` 会自动重启加载新代码（仅 Python/前端；`.env` 改动需手动 restart 加载）。
-3. 核验：`curl -kI https://140.83.62.161/dashboard/jc/` 返回 200（该路径 `auth_basic off`，无需 Basic 凭据），`/dashboard/jc/api/v1/me` 过应用层账号（`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）登录后 200。
+2. 代码 push 到 `origin/main`，本机 `git pull`（或 `git reset --hard origin/main`）拿到最新代码后，**必须显式重启服务**：`sudo systemctl restart league-web`。
+   ⚠️ **订正（2026-10-23）**：本条原来写的是「systemd `Restart=on-failure` 会自动重启加载新代码」——**那是错的**：
+   `Restart=on-failure` **只在进程崩溃时**才触发，而「代码更新」**不会**让进程崩溃
+   ⇒ 服务会一直跑着**内存里的旧代码**；而 `static/dashboard.html` 是**每次请求现读磁盘**的
+   ⇒ 页面变成**「静态页是新的、API 还是旧的」混合态** ⇒ 用户看到「⚠️ 暂无定价赔率快照（未采集）/ 暂无推荐单」，
+   而库里明明有新鲜快照和当日荐单（2026-10-23 实测：服务从 10-21 15:21 一直跑到 10-23 09:11 才重启，
+   中间隔着 §6.13.5 的部署 ⇒ 页面整整一天半在骗人）。
+   ⇒ **部署后必须重启**，并用 `python tools/check_service_freshness.py` 自检（比对 `/health` 的 `code_sha` 与仓库 HEAD，
+   不一致 ⇒ 退出码 1 + 打印修复命令）。`.env` 改动同样必须手动 restart。
+3. 核验：`curl -kI https://140.83.62.161/dashboard/jc/` 返回 200（该路径 `auth_basic off`，无需 Basic 凭据），`/dashboard/jc/api/v1/me` 过应用层账号（`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）登录后 200；**再跑 `python tools/check_service_freshness.py`**（必须退出码 0）。
 
 **运行时预测/富化**（在 Web 界面触发，或 API）：
 - `POST /api/v1/jobs/predict`（选联赛/数据源/蒙特卡洛）跑 `scripts/predict.py`。**不传参数时只跑英超**（`--league` 默认值 `epl`）；要跑全部 5 个足球联赛须显式传 `{"all": true}`，或传 `{"league": "laliga"}` 等指定单个联赛。
@@ -1272,6 +1280,43 @@ orphan 阶段坏文件隔离 + 失败被报告、文件级回滚到保存点、�
    （竞彩官方 team id），面板展示名来自 `fact.jc_match.home_cn/away_cn`，`web/` 零处读 `ref.team`
    ⇒ **回改 `name_cn` 不提升映射率、也不改用户可见内容**。想解锁映射只能**新建行 + 填 `sporttery` 键**。
 
+### v4.8 (2026-10-23) 「今日推荐单」页显示**假的无数据**：部署了但服务没重启
+
+用户报：早上跑完采集器，看板仍是「⚠️ 暂无定价赔率快照（未采集） / 暂无推荐单」。
+
+**实测结论：数据完全正常，是页面在说谎。**
+
+| 实测项 | 值 |
+|---|---|
+| `fact.jc_offer` 的 `had` 快照 | 36520 行，最新 `snap_ts` = **2026-10-23 00:22:48 UTC（北京 08:22）** |
+| 守门的 `_FRESH_SQL` 返回 | **非空** ⇒ `age_hours` 不该是 None ⇒ 页面不该说「未采集」 |
+| 今日（BJT）荐单 | **3 条**（斯图加特vs门兴 / 阿拉维斯vs马拉加 / 都灵vs蒙扎），`made_at` = **09:30 北京**（= 用户跑 `refresh_now.bat` 那一次） |
+| `web.services.recommend.snapshot()` | `n_picks=3`、`offer_freshness.age_hours=1.63`、`stale=false` |
+| 真实会话打 `GET /api/v1/recommend` | 同样 `n_picks=3` + 完整 `offer_freshness` ⇒ **服务端是对的** |
+
+**根因链（逐环实测）**：
+
+1. `static/dashboard.html` 是**每次请求现读磁盘**的 ⇒ 10-22 15:44 部署 §6.13.5 后页面**立刻**变新；
+2. 而 `league-web` 服务（`uvicorn`，无 `--reload`）**内存里还是旧代码** ⇒ `/api/v1/recommend` 的响应里**还没有** `offer_freshness` 字段；
+3. 看板 JS `const fr=d.offer_freshness||{}` ⇒ `fr={}` ⇒ `fr.age_hours==null` ⇒ 印「**⚠️ 暂无定价赔率快照（未采集）**」；
+4. 面板 `loadRecommend()` **只在页面加载时拉一次**（`Promise.all([...])`，无定时器）⇒ 用户不按 F5 就一直看旧渲染；
+5. **为什么服务没重启**：README 部署链路原来写「systemd `Restart=on-failure` 会自动重启加载新代码」——**这条是错的**：
+   `on-failure` 只在**进程崩溃**时触发，**代码更新不会让进程崩溃** ⇒ 服务一直跑旧代码。
+   实测：`journalctl -u league-web` 显示最后一次正常重启是 **10-21 15:21**，直到 **10-23 09:11** 才重启 ⇒ 中间隔着 §6.13.5 的部署，
+   **页面整整一天半在骗人**。
+
+**修法（三层）**：
+
+- **① 看板自愈**：推荐单面板印「**数据截至 HH:MM:SS · 本面板每 60 秒自动刷新**」+ 加 **60 秒定时器**自动重拉该面板
+  ⇒ 不刷新也不会停在旧状态；页面在后台（`document.hidden`）时不刷。
+- **② 服务版本可见**：`/health` 暴露 `code_sha`（运行中代码的 git 短 sha）⇒ 「服务落后于仓库」一眼可辨。
+- **③ 部署后自检**：新增 `tools/check_service_freshness.py` —— 比对 `/health` 的 `code_sha` 与仓库 `HEAD`，
+  不一致 ⇒ **退出码 1** + 打印 `sudo systemctl restart league-web`；并把 README 部署链路里那条**错的**「自动重启」说法订正为「**必须显式 restart**」。
+
+**新增 6 项守门断言**（`tools/check_docs_claims.py`，**359 项**）：`/health` 必须暴露 `code_sha`、
+自检脚本必须在库且会比对 `code_sha` 与 HEAD、看板必须印「数据截至」、看板必须自动刷新、
+看板冒烟必须断言「数据截至」（`tools/dashboard_smoke.js` 的 `must2`）——否则这条行为没了也照样绿。
+
 ### v4.7 (2026-10-23) 保留策略（ops 台账 + 落港目录）+ gaps 口径订正 + 「文件不存在」不再掀翻整批
 
 路线图 **§6.13.6** 有完整排查过程与验收数据。本节只记**结论与必须记住的口径**。
@@ -1337,7 +1382,7 @@ UTC 18:00 / 18:30 = 北京 02:00 / 02:30 夜间低峰）。**坏文件隔离而�
 ⇒ **去掉 `commit()`**（断言同事务内读，事务由 fixture 回滚收尾 ⇒ 库里一行不留），
 已按 `src_file='f.jsonl'` 精确清掉这批垃圾行，并加守门（AST 判定真库用例不许 `commit()`）。
 
-**新增 37 项守门断言**（`tools/check_docs_claims.py`，**353 项**）—— 重点：gaps 口径三处**走 AST 判定**
+**新增 43 项守门断言**（`tools/check_docs_claims.py`，**359 项**）—— 重点：gaps 口径三处**走 AST 判定**
 （`_from_manifest` 的 state 字面量集合 == `{"absent"}` / `load_topic` 的 `state=="absent"` 早退分支且不写 `ops.*`、不抛异常 /
 `load_batch` 空候选兜底 == `absent`）、坏文件不掀翻整批四连、`read_lines` 只许 catch `PermissionError`、
 保留策略九项、**台账窗口 > 落港窗口**（机器判定）、cron 安装器两条任务 + 幂等标记块、文档同步三项、
@@ -1532,11 +1577,11 @@ python scripts/store/materialize.py                 # 预演（默认，不写�
 python scripts/store/materialize.py --execute       # 真物化
 ```
 
-**守门断言累计 353 项**（`tools/check_docs_claims.py`，353 项；建议 6 再加 21 项、顺手修再加 7 项、
+**守门断言累计 359 项**（`tools/check_docs_claims.py`，359 项；建议 6 再加 21 项、顺手修再加 7 项、
 复算脚本再加 16 项、两条遗留再加 21 项、收尾订正 +2 项、**§6.12 事故修复再加 15 项**、
 **§6.12.5/6.12.6 赔率口径修正再加 5 项**、**六联赛重训对拍再加 4 项**、**§6.13 本轮再加 30 项**、
 **§6.13.5 采集端改手动 + 新鲜度守门 + 原子性再加 33 项**、
-**§6.13.6 保留策略 + gaps 口径 + 坏文件不掀翻整批再加 37 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
+**§6.13.6 保留策略 + gaps 口径 + 坏文件不掀翻整批再加 43 项**）—— 重点：映射表主键防撞、DDL 不许改 `ref.team`、
 回填只补 NULL、映射表优先于 aliases、`set_team_sporttery` 不覆盖既有映射、缺表必须出声、
 物化 CLI 默认只读 + 有 `__main__` 入口 + before/after 对账、§6.10 记录实测数字、
 **「回填后仍要显式跑一次物化」这条警告不许消失**（且**不许**再写「生产没有 CLI 入口」这句过期话）、

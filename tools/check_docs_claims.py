@@ -1711,6 +1711,28 @@ def main() -> int:
     check("真库端到端用例不许 commit()（fixture 的 rollback 会失效 ⇒ 污染生产库）",
           [], _commit_leaks)
 
+    # ── 2026-10-23：「部署了但服务没重启 ⇒ 页面出现假的无数据」必须能被看见 ──
+    # 事故：部署后忘了 systemctl restart league-web ⇒ 服务内存里是旧代码，
+    #       而 static/dashboard.html 每次请求现读磁盘 ⇒ **静态页新、API 旧**的混合态
+    #       ⇒ 页面印「⚠️ 暂无定价赔率快照（未采集）/ 暂无推荐单」，
+    #       而库里明明有 1.6 小时前的新鲜快照 + 3 条当日荐单（实测真实数据没问题）。
+    _health_src = read(ROOT / "web" / "services" / "health.py")
+    check("/health 必须暴露运行中代码版本 code_sha（漏重启时一眼可辨）", True,
+          "code_sha" in _health_src and "_code_sha" in _health_src)
+    check("部署后自检脚本在库（tools/check_service_freshness.py）", True,
+          (ROOT / "tools" / "check_service_freshness.py").is_file())
+    _sf = read(ROOT / "tools" / "check_service_freshness.py")
+    check("部署后自检脚本会比对 /health 的 code_sha 与仓库 HEAD（不一致 ⇒ 退出码 1）", True,
+          "code_sha" in _sf and "rev-parse" in _sf and "systemctl restart league-web" in _sf)
+    _dash = read(ROOT / "static" / "dashboard.html")
+    check("看板推荐单面板必须印「数据截至」（页面停在旧状态时用户能看出来）", True,
+          "数据截至" in _dash)
+    check("看板推荐单面板必须自动刷新（手动生成 ⇒ 不刷新就一直停在旧状态）", True,
+          "setInterval" in _dash and "loadRecommend()" in _dash)
+    _smoke = read(ROOT / "tools" / "dashboard_smoke.js")
+    check("看板冒烟必须断言「数据截至」（否则这条行为没了也照样绿）", True,
+          "数据截至" in _smoke and "must2" in _smoke)
+
     # ⚠️⚠️ **硬不变量**：台账窗口必须 > 落港窗口。
     #    否则台账比文件先消失 ⇒ 装载器把老文件判成「孤儿(未装载)」⇒ 每轮全部重装
     #    ⇒ 又开始写重复 ingest_log（2026-10-23 实测：keep_days=7 时下一轮 cron

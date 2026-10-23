@@ -120,5 +120,14 @@ def test_check_d72_4_time_utc_epoch_is_recent(health_mod, monkeypatch):
     assert isinstance(out["time_utc_epoch"], float)
     assert before <= out["time_utc_epoch"] <= after
     # 整 response 顶层结构: ok + time_utc_epoch + checks
-    assert set(out.keys()) == {"ok", "time_utc_epoch", "checks"}
+    # ⚠️ 2026-10-23：**加了一个** ``code_sha``（运行中代码的 git 短 sha）。
+    #    为什么放**顶层**而不塞进 ``checks``：``checks`` 里每一项都是探活结果
+    #    （都有 "ok" 键），监控常写 ``for name, c in checks.items(): c["ok"]``
+    #    ⇒ 塞进去会让那种遍历炸掉 ⇒ 顶层新增字段是**向后兼容的加法**
+    #    （JSON 消费者忽略未知字段），这才安全。
+    assert set(out.keys()) == {"ok", "time_utc_epoch", "checks", "code_sha"}
     assert set(out["checks"].keys()) == {"sessions_db", "predictions_fresh"}
+    # code_sha：字符串（短 sha）或 None（读不到 git 时不许编数）
+    assert out["code_sha"] is None or isinstance(out["code_sha"], str)
+    if out["code_sha"] is not None:
+        assert len(out["code_sha"]) >= 7, "应是 git 短 sha（至少 7 位）"

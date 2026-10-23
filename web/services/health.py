@@ -71,6 +71,34 @@ def _probe_predictions_fresh(
         return {"ok": False, "error": str(exc)}
 
 
+def _code_sha() -> str | None:
+    """**运行中代码**对应的 git commit（短 sha）。读不到就返回 None（不编数）。
+
+    ⚠️ 为什么需要（2026-10-23 生产实测踩到）：
+    部署后**忘了 ``systemctl restart league-web``** ⇒ 服务内存里仍是旧代码，
+    而 ``static/dashboard.html`` 是**每次请求现读磁盘**的 ⇒ 页面变成
+    **「静态页是新的、API 是旧的」混合态**：
+    页面渲染出「⚠️ 暂无定价赔率快照（未采集）/ 暂无推荐单」，
+    而库里明明有 1.6 小时前的新鲜快照 + 3 条当日荐单（实测真实数据没问题）。
+    ⇒ 把代码版本暴露出来，任何巡检都能一眼看出「服务落后于仓库」；
+    配套自检脚本 ``tools/check_service_freshness.py``（比对 /health 的 code_sha
+    与仓库 HEAD，不一致 ⇒ 退出码 1 + 打印修复命令）。
+    """
+    try:
+        import subprocess
+
+        repo = Path(__file__).resolve().parents[2]
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(repo), capture_output=True, text=True, timeout=5,
+        )
+        sha = (out.stdout or "").strip()
+        return sha or None
+    except Exception as exc:  # noqa: BLE001 - 版本探不出来不影响探活本体
+        logger.warning("health: code_sha probe failed: %s", exc)
+        return None
+
+
 def check() -> dict:
     """汇总所有探活项；任何一项 ok=False → 顶层 ok=False（路由层据此 503）。"""
     from web import config
@@ -83,6 +111,8 @@ def check() -> dict:
     return {
         "ok": overall_ok,
         "time_utc_epoch": time.time(),
+        # 运行中的代码版本（部署后忘了重启 ⇒ 这里会落后于仓库 HEAD）
+        "code_sha": _code_sha(),
         "checks": {
             "sessions_db": sessions_check,
             "predictions_fresh": predictions_check,

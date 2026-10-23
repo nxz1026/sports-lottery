@@ -575,14 +575,18 @@ async function loadClv(){const el=$("#clvPanel");if(!el)return;try{const d=await
 /* 建议 4：今日推荐单 + 推荐单战绩。n 不足不给 ROI（宁可空白不误导）。 */
 async function loadRecommend(){const el=$("#recommendPanel"),rc=$("#recordPanel");
 const fmtPct=v=>v===null||v===undefined?"—":((Number(v)>=0?"+":"")+(Number(v)*100).toFixed(1)+"%");
-try{const d=await api("/recommend"),picks=Array.isArray(d.picks)?d.picks:[],rec=d.record||{};
+try{const fetchedAt=new Date();const d=await api("/recommend"),picks=Array.isArray(d.picks)?d.picks:[],rec=d.record||{};
 const fr=d.offer_freshness||{};
 const frWhen=fr.latest_snap?String(fr.latest_snap).replace("T"," ").replace("+00:00"," UTC").replace("+00"," UTC"):"";
 const frTxt=fr.degraded?"⚠️ 定价赔率快照时间读取失败（未知新鲜度）":(fr.age_hours==null?"⚠️ 暂无定价赔率快照（未采集）":("定价赔率快照 "+frWhen+"（"+fr.age_hours+" 小时前"+(fr.stale?"，已超阈值 "+fr.threshold_hours+" 小时":"")+"）"));
 const frLine='<p style="margin:0 0 10px;color:'+(fr.stale||fr.degraded?"var(--bad)":"var(--mut)")+';font-size:12px">'+esc(frTxt)+'</p>';
-if(el){if(!picks.length){el.innerHTML='<h2>今日推荐单</h2>'+frLine+'<div class="empty">暂无推荐单。推荐单是**手动生成**的（scripts/decision/recommend.py，生产上没有任何 cron/systemd 跑它），只覆盖「竞彩当前在售 + 模型有概率 + EV 超阈值」的场次；采集端 2026-10-22 起也改手动 —— 请先跑一次国内机 scripts\\refresh_now.bat（采集→推送→远端装载→出荐单），页面为空就是还没跑，不是故障。</div>'}
+/* ⚠️ 2026-10-23：加上「数据截至」——页面只在加载时拉一次 API，用户盯着旧面板
+   会以为「没采到」（实测：早上采集完了，页面还停在「暂无推荐单/暂无快照」）。
+   ⇒ 数据截至时刻显式印出来，且面板每 60 秒自动刷新（见文件末尾的定时器）。 */
+const stamp='<p style="margin:0 0 10px;color:var(--dim);font-size:11px">数据截至 '+fetchedAt.toLocaleTimeString("zh-CN",{hour12:false})+' · 本面板每 60 秒自动刷新</p>';
+if(el){if(!picks.length){el.innerHTML='<h2>今日推荐单</h2>'+frLine+stamp+'<div class="empty">暂无推荐单。推荐单是**手动生成**的（scripts/decision/recommend.py，生产上没有任何 cron/systemd 跑它），只覆盖「竞彩当前在售 + 模型有概率 + EV 超阈值」的场次；采集端 2026-10-22 起也改手动 —— 请先跑一次国内机 scripts\\refresh_now.bat（采集→推送→远端装载→出荐单）。看到空先看上面「数据截至」：若那一刻显示「暂无定价赔率快照」，是**服务没重启**（跑 tools/check_service_freshness.py 自查），不是没采集。</div>'}
 else{const rows=picks.map(p=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(p.home_cn||"?")} vs ${esc(p.away_cn||"?")}</b> <span class="hint">${esc(p.league_key||"—")} · 推荐 ${esc(p.option_code)} · ${esc(p.match_date||"—")}</span><br><span style="color:var(--mut)">竞彩 SP ${p.sp==null?"—":Number(p.sp).toFixed(2)} · 模型概率 ${p.p_model==null?"—":pct(p.p_model)} · 单位 EV ${p.ev==null?"—":((Number(p.ev)>=0?"+":"")+Number(p.ev).toFixed(4))} · 分数 Kelly ${p.kelly==null?"—":pct(p.kelly)}</span></div>`).join("");
-el.innerHTML='<h2>今日推荐单</h2>'+frLine+'<p style="color:var(--mut);margin:0 0 10px">'+esc(d.pricing_note||"")+'</p>'+rows+'<p style="color:var(--dim);font-size:11px">'+esc(d.calendar_note||"")+'</p>'}}
+el.innerHTML='<h2>今日推荐单</h2>'+frLine+stamp+'<p style="color:var(--mut);margin:0 0 10px">'+esc(d.pricing_note||"")+'</p>'+rows+'<p style="color:var(--dim);font-size:11px">'+esc(d.calendar_note||"")+'</p>'}}
 if(rc){const roiStr=rec.insufficient||rec.roi==null?"—（样本不足）":fmtPct(rec.roi);
 const dayRows=(rec.by_day||[]).map(x=>`<div style="padding:4px 0;border-bottom:1px solid var(--line)"><b>${esc(x.date)}</b> <span class="hint">${num(x.n)} 注 · 中 ${num(x.hits)} · ROI ${x.insufficient?"—（样本不足）":fmtPct(x.roi)}</span></div>`).join("");
 const detail=(rec.detail||[]).slice(0,20).map(x=>`<tr><td>${esc(x.match_date||"—")}</td><td>${esc(x.league_key||"—")}</td><td>${esc(x.option_code)}</td><td>${x.sp_decide==null?"—":Number(x.sp_decide).toFixed(2)}</td><td>${x.sp_settle==null?"—":Number(x.sp_settle).toFixed(2)}</td><td>${x.hit?"命中":"未中"}</td><td>${Number(x.pnl).toFixed(2)}</td></tr>`).join("");
@@ -626,6 +630,12 @@ async function _probeAuthAndBoot(){
   Promise.all([loadToday(),loadTrace(),loadAI(),loadDaily(),loadAccuracy(),loadClv(),loadRecommend(),loadSources()]).finally(()=>{$("#liveText").textContent="最近同步 · "+new Date().toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})});
 }
 _probeAuthAndBoot();
+/* ⚠️ 2026-10-23：推荐单是**手动生成**的（生产上没有任何 cron 跑它）⇒ 用户上午采集完，
+   页面若不刷新就一直是旧状态（实测过一次：库里明明有 1.6 小时前的新鲜快照 + 3 条荐单，
+   页面却显示「暂无定价赔率快照（未采集）/ 暂无推荐单」—— 根因是**部署后服务没重启**，
+   静态页是新的、API 还是旧的）。⇒ 这里每 60 秒自动刷新推荐单面板，并更新顶部同步时间。
+   页面在后台时（document.hidden）不刷，省得无谓打 API。 */
+setInterval(()=>{if(document.hidden)return;loadRecommend().then(()=>{const lt=$("#liveText");if(lt)lt.textContent="最近同步 · "+new Date().toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})}).catch(()=>{});},60000);
 /* ================= A. 运动维度筛选 + NBA 篮球渲染（today 视图内） ================= */
 function isBasketball(p){return String((p&&p.sport)||"").toLowerCase()==="basketball"||String((p&&p.league)||"").toLowerCase()==="nba"}
 // 兼容两种后端形状：篮球在 leagues.nba 里（flat 已收），或在顶层 nba 数组里（仅补差集，不动足球行）。

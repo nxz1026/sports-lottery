@@ -163,7 +163,10 @@ try {
 
 const PANELS = [
   { id: 'clvPanel', must: 'CLV' },
-  { id: 'recommendPanel', must: '今日推荐单' },
+  // ⚠️ 2026-10-23：推荐单面板必须印「数据截至」——页面只在加载时拉一次 API，
+  //    用户盯着旧面板会以为「没采到」（实测：库里明明有 1.6 小时前的新鲜快照，
+  //    页面却显示「暂无定价赔率快照（未采集）」⇒ 静态页新、API 旧的混合态）。
+  { id: 'recommendPanel', must: '今日推荐单', must2: '数据截至' },
   { id: 'recordPanel', must: '推荐单战绩' },
 ];
 
@@ -220,10 +223,20 @@ async function main() {
       failed = true;
       continue;
     }
-    console.log('OK  : #' + p.id + ' 渲染出 ' + htmlOut.length + ' 字符，含「' + p.must + '」');
+    if (p.must2 && htmlOut.indexOf(p.must2) < 0) {
+      console.error('FAIL: 面板 #' + p.id + ' 里没有「' + p.must2 + '」⇒ 面板没印出「数据截至」时刻');
+      console.error('      ' + htmlOut.slice(0, 300));
+      failed = true;
+      continue;
+    }
+    console.log('OK  : #' + p.id + ' 渲染出 ' + htmlOut.length + ' 字符，含「' + p.must + '」'
+      + (p.must2 ? (' + 「' + p.must2 + '」') : ''));
   }
   if (failed) process.exit(1);
   console.log('看板内联 JS 运行时冒烟：3 个面板全部渲染出真内容');
+  // ⚠️ 必须显式退出：看板现在有 setInterval（每 60 秒自动刷新推荐单面板），
+  //    node 里的定时器会**挂住事件循环**⇒ 不 exit 的话冒烟脚本永远不结束。
+  process.exit(0);
 }
 
 main().catch((e) => {
