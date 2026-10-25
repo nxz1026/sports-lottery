@@ -96,3 +96,12 @@ stress_runs/*.txt
 
 # 测试占位产物：tests/test_bball_*.py 把 ELO_FILE/DATA_DIR 重定向到 "unused" 这个相对路径
 unused
+
+# ── 运行期产物：不被 git 跟踪（2026-10-25）────────────────────────────
+# ① collector-cn 的运行期配置（采集器自己写）
+collector-cn/config.json
+# ② 球队名翻译 / 官方名：运行期由 i18n.py、ingest 写入（每天变 ⇒ 界面上永远"有未提交改动"）
+scripts/references/team_translations.json
+scripts/references/team_cn_official.json
+# ③ 历史预测产物（.gitignore 早有 predictions/*.json，这里补 scripts/ 那条）
+scripts/predictions/*.json
