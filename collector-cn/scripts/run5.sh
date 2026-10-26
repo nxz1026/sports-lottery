@@ -2,7 +2,7 @@
 # run5.sh — 采集机一键安装/自检脚本（在腾讯机上执行）
 #
 # 远端只跑这一条，不要拆分、不要改写：
-#   curl -sSk https://140.83.62.161/cpt/_pkg/run5.sh | bash
+#   curl -sSk https://140.83.62.161/ecpt/cpt/_pkg/run5.sh | bash
 #
 # 流程：取包 → 校验 sha256 → 解包 → 只读诊断(报告自动推回 oracle) → 重起调度 → 状态快照(推回)
 #
@@ -12,7 +12,7 @@ set -uo pipefail
 
 PKG="collector-cn-dd2b9b8-linux5.tgz"
 WANT="66e2bd84e308690fe6eac67bbc43274bd4d0ee0d762239ad3b36f1f659996c24"
-BASE="https://140.83.62.161/cpt/_pkg"
+BASE="https://140.83.62.161/ecpt/cpt/_pkg"
 WORK="/home/agentuser/Work"
 SRC="$WORK/src"
 CN="$SRC/collector-cn"
