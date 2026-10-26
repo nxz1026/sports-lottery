@@ -33,7 +33,7 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv("SESSION_DB_PATH", str(tmp_path / "sessions.db"))
     monkeypatch.setenv("AUTH_USERNAME", "unit-test-user")
     monkeypatch.setenv("AUTH_PASSWORD", "unit-test-pass")
-    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.com/dashboard/jc/")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.com/jc/")
 
     import web.config as config
     import web.session_store as session_store
@@ -304,7 +304,7 @@ def test_qr_default_uses_public_base_url(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert "qr_data_url" in body
-    assert body["url"] == "https://example.com/dashboard/jc/"
+    assert body["url"] == "https://example.com/jc/"
     # data:image/svg+xml;base64, 前缀
     assert body["qr_data_url"].startswith("data:image/svg+xml;base64,")
     # 解码验证是合法 base64
@@ -328,7 +328,7 @@ def test_qr_rejects_javascript_scheme(client):
     r = client.get("/api/jc/qr?url=javascript%3Aalert(1)", cookies=cookies)
     assert r.status_code == 200, r.text
     # 应回退到 PUBLIC_BASE_URL（不嵌入 js 链接）
-    assert r.json()["url"] == "https://example.com/dashboard/jc/"
+    assert r.json()["url"] == "https://example.com/jc/"
 
 
 def test_qr_accepts_https_with_query_string(client):

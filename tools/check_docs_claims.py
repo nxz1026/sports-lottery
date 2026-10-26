@@ -459,10 +459,10 @@ def main() -> int:
     # 2026-10-19 生产实测（Oracle nginx dsh-web + 8077 后端）：
     #   /health              → 200   （真实路径，**不在 /api/ 下**）
     #   /api/v1/health      → 404   （旧文档写法，从未存在）
-    #   /dashboard/jc/       → 200   （auth_basic off，免凭据）
-    #   /dashboard/jc/api/v1/me → 401（应用层 session 拒绝，**不是** Basic Auth）
+    #   /jc/       → 200   （auth_basic off，免凭据）
+    #   /jc/api/v1/me → 401（应用层 session 拒绝，**不是** Basic Auth）
     #   /dashboard/          → 401   （这才是 Nginx Basic Auth）
-    #   /dashboard/jc/login  → 404   （登录页 2026-10-18 下线，nginx 仍指向它）
+    #   /jc/login  → 404   （登录页 2026-10-18 下线，nginx 仍指向它）
     # 以下断言是"禁止出现已知错误写法"（负向、精确字符串），不依赖措辞风格。
     deploy = read(ROOT / "docs" / "web" / "DASHBOARD_DEPLOY.md")
     ops_readme = read(ROOT / "ops" / "README.md")
@@ -470,7 +470,7 @@ def main() -> int:
                         ("ops/README", ops_readme)):
         check(f"{label} 不含已废弃的 /api/v1/health 写法",
               [], stale_lines(text, ["/api/v1/health"]))
-    check("README 不再声称 /dashboard/jc/ 走 Nginx Basic Auth",
+    check("README 不再声称 /jc/ 走 Nginx Basic Auth",
           [], stale_lines(readme, ["走 Nginx Basic Auth"]))
     check("README 不再声称公网入口触发 Basic（401 / Basic 触发）",
           [], stale_lines(readme, ["401 / Basic 触发"]))
@@ -486,7 +486,7 @@ def main() -> int:
 
     # ---- 12. R47 新增：登录入口已恢复（缺陷修复的守门）----
     # 2026-10-18（093dafa）删掉独立登录页，前提「Nginx Basic Auth 把关」在生产不成立
-    # （nginx 对 /dashboard/jc/ 是 auth_basic off；require_auth 只认 lp_session cookie）。
+    # （nginx 对 /jc/ 是 auth_basic off；require_auth 只认 lp_session cookie）。
     # 用户已选定方案：恢复独立登录页。以下断言防"再被删一次"。
     check("独立登录页已恢复（static/dashboard-login.html 存在）", True,
           (ROOT / "static" / "dashboard-login.html").is_file())
@@ -498,7 +498,7 @@ def main() -> int:
           'RedirectResponse(url="/login"' in api_src)
     dash_html = read(ROOT / "static" / "dashboard.html")
     check("前端 401 跳回登录页（dashboard.html）", True,
-          'LOGIN="/dashboard/jc/login"' in dash_html and "location.href=LOGIN" in dash_html)
+          'LOGIN="/jc/login"' in dash_html and "location.href=LOGIN" in dash_html)
     check("前端 401 提示不再宣称由 Nginx Basic Auth 把关", 0,
           dash_html.count("Nginx Basic Auth 把关"))
     check("README 记录了登录入口缺陷与修复", True,

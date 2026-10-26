@@ -249,7 +249,7 @@ def me(request: Request) -> dict:
 def require_auth(request: Request) -> None:
     """FastAPI 依赖：未登录抛 401（统一 JSON 错误）。
 
-    体彩 /dashboard/jc/ 与 Nginx Basic Auth 隔离（nginx 对该路径 auth_basic off），
+    体彩 /jc/ 与 Nginx Basic Auth 隔离（nginx 对该路径 auth_basic off），
     本依赖是体彩项目的独立认证（session cookie）。Nginx 账号只保护其它业务。
     """
     _current_token(request)

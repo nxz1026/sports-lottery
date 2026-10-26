@@ -57,13 +57,13 @@
 <script>
 (function () {
   /* P2-A10：API 基址**不许写死根路径**。
-   * 旧实现 4 个 fetch 全写 "/api/jc/..." ⇒ 生产（本页实际挂在 /dashboard/jc/static/jc.html）
+   * 旧实现 4 个 fetch 全写 "/api/jc/..." ⇒ 生产（本页实际挂在 /jc/static/jc.html）
    *   请求打到**另一个服务**的根路径 /api/jc/*，拿到的是门户的 401（text/plain）
    *   ⇒ 页面**永远**显示「请先登录」，即使带着有效 lp_session 也一样（实测 2026-10-23）。
    * 修法：按**当前 URL** 推导前缀（范式照抄 static/dailyimage.html:69-71）：
-   *   生产 /dashboard/jc/static/jc.html ⇒ 前缀 /dashboard/jc ⇒ 基址 /dashboard/jc/api/jc/
+   *   生产 /jc/static/jc.html ⇒ 前缀 /jc ⇒ 基址 /jc/api/jc/
    *   本机 /static/jc.html（8077 根路径）  ⇒ 前缀 ""           ⇒ 基址 /api/jc/
-   * 登录入口同理（生产是 /dashboard/jc/login，见 dashboard.html 的 LOGIN）。 */
+   * 登录入口同理（生产是 /jc/login，见 dashboard.html 的 LOGIN）。 */
   var _path = window.location.pathname;
   var _idx = _path.indexOf("/static/");
   var _m = _path.match(/^(.*\/dashboard\/jc)(?:\/|$)/);

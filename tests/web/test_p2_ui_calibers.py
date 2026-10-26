@@ -272,7 +272,7 @@ def test_a9_temp_leagues_table_uses_css_variables(smoke_out, dash_code):
 
 
 def test_a10_jc_html_api_base_is_derived_from_url(smoke_out, jc_code):
-    """生产挂在 /dashboard/jc/static/jc.html ⇒ 根路径请求打不到后端 ⇒ 永远「请先登录」。"""
+    """生产挂在 /jc/static/jc.html ⇒ 根路径请求打不到后端 ⇒ 永远「请先登录」。"""
     _assert_keys_reported_ok(smoke_out, "A10")
     assert 'fetch("/api/jc/' not in jc_code, "jc.html 不许再写死根路径 API"
     assert "location.pathname" in jc_code, "jc.html 必须按当前 URL 推导 API 基址"

@@ -306,7 +306,7 @@ function buildSandbox(extra, domStub) {
     document: domStub.documentStub,
     localStorage: localStorageStub,
     navigator: { userAgent: 'node-smoke' },
-    location: { href: 'http://127.0.0.1/dashboard/jc/', pathname: '/dashboard/jc/', reload() {} },
+    location: { href: 'http://127.0.0.1/jc/', pathname: '/jc/', reload() {} },
     setTimeout, clearTimeout, setInterval, clearInterval,
     URLSearchParams,
     // ⚠️ P2-K：`api()` 的超时靠 AbortController ⇒ 沙箱必须提供它，
@@ -357,9 +357,9 @@ try {
 
 // ── P2-A10：static/jc.html 的 API 基址推导（运行时）───────────────────────
 // 事故：jc.html 把 API 写死成根路径 "/api/jc/..." ⇒ 生产（本页挂在
-//   /dashboard/jc/static/jc.html）请求打到**另一个服务**的根路径，拿到的是它的 401
+//   /jc/static/jc.html）请求打到**另一个服务**的根路径，拿到的是它的 401
 //   ⇒ 页面**永远**显示「请先登录」（实测 2026-10-23：根 /api/jc/fixtures → 401
-//   text/plain「unauthorized」来自门户；/dashboard/jc/api/jc/fixtures → 401 JSON 来自本应用）。
+//   text/plain「unauthorized」来自门户；/jc/api/jc/fixtures → 401 JSON 来自本应用）。
 // 这里真跑一遍 jc.html 的内联脚本，把它实际 fetch 的 URL 抓出来对。
 const jcHtmlPath = path.resolve(repoRoot, argValue('--jc-html', 'static/jc.html'));
 const jcHtml = fs.readFileSync(jcHtmlPath, 'utf8');
@@ -766,7 +766,7 @@ async function main() {
       __setStubMode('unlogged');
       await _probeAuthAndBoot();
       out.p1g_redirect_to_login = String((location && location.href) || '')
-        .indexOf('/dashboard/jc/login') >= 0;
+        .indexOf('/jc/login') >= 0;
       out.p1g_no_fake_loading = (() => {
         const e = document.getElementById('matchGridLoading');
         const t = String((e && e.textContent) || '');
@@ -784,13 +784,13 @@ async function main() {
   const res = JSON.parse(raw);
 
   // ── P2-A10：static/jc.html 的 API 基址必须按当前 URL 推导 ────────────────
-  // 生产路径 /dashboard/jc/static/jc.html ⇒ 必须打 /dashboard/jc/api/jc/...
+  // 生产路径 /jc/static/jc.html ⇒ 必须打 /jc/api/jc/...
   // 本机路径 /static/jc.html（8077 根路径）⇒ 必须打 /api/jc/...
-  const jcProd = runJcPage('/dashboard/jc/static/jc.html');
+  const jcProd = runJcPage('/jc/static/jc.html');
   const jcLocal = runJcPage('/static/jc.html');
   res.p2a_jc_api_base_from_url =
     jcProd.urls.length === 4
-    && jcProd.urls.every((u) => u.indexOf('/dashboard/jc/api/jc/') === 0)
+    && jcProd.urls.every((u) => u.indexOf('/jc/api/jc/') === 0)
     && jcProd.urls.every((u) => u.indexOf('"/api/jc/') < 0)
     && jcLocal.urls.length === 4
     && jcLocal.urls.every((u) => u.indexOf('/api/jc/') === 0);

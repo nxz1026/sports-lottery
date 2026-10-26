@@ -20,8 +20,8 @@ curl -s http://127.0.0.1:8077/health | jq .ok      # 应为 true
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8077/health  # 200
 
 # 4. 装到 Nginx（参考 docs/acceptance-2026-09-17.md）
-#   location /dashboard/jc/api/ { proxy_pass http://127.0.0.1:8077/api/; }
-#   注意：生产实测是 /dashboard/jc/api/ → /api/（去前缀），不是 /api/v1/；
+#   location /jc/api/ { proxy_pass http://127.0.0.1:8077/api/; }
+#   注意：生产实测是 /jc/api/ → /api/（去前缀），不是 /api/v1/；
 #   health 在 /health（不在 /api/ 下），公网没有对应入口，只能本机打。
 ```
 

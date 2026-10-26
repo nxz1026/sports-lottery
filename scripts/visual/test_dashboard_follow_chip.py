@@ -1,4 +1,4 @@
-"""Playwright 验证 B 改动。 通过 route() 把 /dashboard/jc/api/ 重写到 /api/。"""
+"""Playwright 验证 B 改动。 通过 route() 把 /jc/api/ 重写到 /api/。"""
 import http.cookiejar
 import json
 import urllib.request
@@ -21,11 +21,11 @@ with sync_playwright() as p:
     page = ctx.new_page()
     console_errors = []
 
-    # 把 /dashboard/jc/api/* 重写到 /api/*
+    # 把 /jc/api/* 重写到 /api/*
     def rewrite(route):
         url = route.request.url
-        if "/dashboard/jc/api/" in url:
-            new = url.replace("/dashboard/jc/api/", "/api/")
+        if "/jc/api/" in url:
+            new = url.replace("/jc/api/", "/api/")
             route.continue_(url=new)
         else:
             route.continue_()

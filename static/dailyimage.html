@@ -65,9 +65,9 @@ const PAL=(function(){
           link:g("--link"),ok:g("--ok"),warnBg:g("--warn-bg"),warnBorder:g("--warn-border")};
 })();
 /* ===== 数据获取（复用 lp_session cookie，同源）=====
- * 应用在公网 Nginx 挂 /dashboard/jc/ 前缀，本机 8077 是根路径：从前缀推导 API 基址。 */
+ * 应用在公网 Nginx 挂 /jc/ 前缀，本机 8077 是根路径：从前缀推导 API 基址。 */
 const _idx=location.pathname.indexOf("/static/");
-const _PREFIX=location.pathname.slice(0,_idx<0?0:_idx);   // "" 或 "/dashboard/jc"
+const _PREFIX=location.pathname.slice(0,_idx<0?0:_idx);   // "" 或 "/jc"
 const API_BASE=_PREFIX+"/api/jc/";
 async function api(path){
   const r=await fetch(API_BASE+path,{credentials:"same-origin"});
@@ -364,7 +364,7 @@ async function load(){
     const dashboardUrl=(_PREFIX||"")+"/";
     // qr 端点若 url 不是 http(s) 会用 PUBLIC_BASE_URL / 默认公网 IP 兜底——
     // 解析后回传 `q.url` 才是真正的二维码目标，画布 URL 文本必须用它，**不能**直接显示
-    // 客户端拼出的相对路径 `/dashboard/jc/`（扫码无效 + 视觉上看像「地址不完整」）。
+    // 客户端拼出的相对路径 `/jc/`（扫码无效 + 视觉上看像「地址不完整」）。
     const q=await api("qr?url="+encodeURIComponent(dashboardUrl)).catch(()=>({}));
     const resolvedUrl=q.url||dashboardUrl;
     const mainRows = SPORT==="basketball" ? (d.rows||[]) : ((d.main_rows!=null)?d.main_rows:(d.rows||[]));

@@ -75,7 +75,7 @@ TRUSTED_PROXY_IPS: tuple[str, ...] = tuple(
 
 # --- 公开入口（P2-1）----------------------------------------------------
 # QR 兜底地址 / dashboard 分享链接用的公网入口；客户端未传完整 URL 时回退到此值。
-PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "https://140.83.62.161/dashboard/jc/")
+PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "https://140.83.62.161/jc/")
 
 # --- 任务触发（M3：jobs.py / 配额守卫）----------------------------------
 # 引擎子进程超时（秒），到点必杀。

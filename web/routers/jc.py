@@ -544,7 +544,7 @@ def daily_qr(url: str = "", _: None = Depends(require_auth)) -> dict:
         # 客户端未传完整 URL 时，回退到 PUBLIC_BASE_URL env（部署可配）；
         # 默认值保留旧行为（Oracle 当前公网 IP）以兼容历史部署。
         from web import config as _config
-        url = _config.PUBLIC_BASE_URL or "https://140.83.62.161/dashboard/jc/"
+        url = _config.PUBLIC_BASE_URL or "https://140.83.62.161/jc/"
     else:
         url = _up.unquote(url)
 

@@ -106,11 +106,11 @@ def create_app() -> FastAPI:
         """未登录 → 302 /login；已登录 → 302 dashboard.html。
 
         R47 修复：2026-10-18（P5 / 093dafa）曾以「鉴权由 Nginx Basic Auth 在反代层把关」
-        为由删掉本路由的登录判定与 /login 路由。但生产 nginx 对 /dashboard/jc/ 是
+        为由删掉本路由的登录判定与 /login 路由。但生产 nginx 对 /jc/ 是
         ``auth_basic off``（免凭据 200），而 ``require_auth`` 只认 ``lp_session`` cookie、
         不接受 Basic 头 —— 公网体彩看板因此失去了唯一的登录入口（页面 200、API 全 401）。
-        实测口径（2026-10-19）：/dashboard/jc/ → 200、/dashboard/jc/api/v1/me → 401、
-        /dashboard/jc/login → 404（登录页缺失）。
+        实测口径（2026-10-19）：/jc/ → 200、/jc/api/v1/me → 401、
+        /jc/login → 404（登录页缺失）。
         """
         from web import session_store
         from web.auth import COOKIE_NAME
@@ -118,7 +118,7 @@ def create_app() -> FastAPI:
         token = request.cookies.get(COOKIE_NAME, "")
         if not token or not session_store.validate_token(token):
             return RedirectResponse(url="/login", status_code=302)
-        # 已登录进入新版 SPA（dashboard.html，API 路径带 /dashboard/jc/ 前缀）。
+        # 已登录进入新版 SPA（dashboard.html，API 路径带 /jc/ 前缀）。
         return RedirectResponse(url="/static/dashboard.html", status_code=302)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -128,8 +128,8 @@ def create_app() -> FastAPI:
         """独立登录页（R47 恢复）。
 
         页面：static/login.html —— 它会从当前 URL 推导 API 基址
-        （含 /dashboard/jc/ 前缀时用之，否则用 /），因此后端直连与经 nginx 两种
-        场景都能正确提交登录。公网 nginx ``location = /dashboard/jc/login`` 直接
+        （含 /jc/ 前缀时用之，否则用 /），因此后端直连与经 nginx 两种
+        场景都能正确提交登录。公网 nginx ``location = /jc/login`` 直接
         proxy 的是 static/dashboard-login.html（硬编码公网路径），两者等价。
         """
         return RedirectResponse(url="/static/login.html", status_code=302)

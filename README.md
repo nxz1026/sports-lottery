@@ -364,12 +364,12 @@ vec = extract_features(match, {"elo_ratings": elo})
 X, y = build_training_set(past_matches, {"elo_ratings": elo})
 ```
 
-## 体彩 Dashboard（`/dashboard/jc/`）
+## 体彩 Dashboard（`/jc/`）
 
 当前体彩 Dashboard 保留原门户 `/dashboard/`，独立挂载于：
 
 ```text
-https://140.83.62.161/dashboard/jc/
+https://140.83.62.161/jc/
 ```
 
 当前能力：
@@ -446,11 +446,11 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 
 ### 认证与隔离（2026-09-18）
 
-`/dashboard/jc/` 使用**独立应用认证**，与 Nginx 的 Basic Auth **完全隔离**，避免体彩用户用 Nginx 账号登录后进入其它业务：
+`/jc/` 使用**独立应用认证**，与 Nginx 的 Basic Auth **完全隔离**，避免体彩用户用 Nginx 账号登录后进入其它业务：
 
-- **Nginx 层**：`/dashboard/jc/` 三处 location（`= /dashboard/jc/`、`/dashboard/jc/api/`、`= /dashboard/jc/login`）均 `auth_basic off`，从全局 Basic Auth 剥离。Nginx Basic Auth 只保护其它业务 —— **R47 生产实测**（2026-10-19，公网不带任何凭据）：`/` 401、`/dashboard/` 401、`/cpt/` 401、`/emotion/` 401、`/trade/` 401；而 `/resume/` `/admin/` `/stock/` 已随 2026-10-19 的失效配置清理**一并移除**（现为 404），本节旧清单此前未同步。
-- **体彩应用层**：`web/auth.py::require_auth` 强制校验 `lp_session` cookie（单账号 session）。登录账号来自 `AUTH_USERNAME` / `AUTH_PASSWORD`（在 `.env`，已 gitignore 不入库），签发 `lp_session` cookie，前端遇 `401` 自动跳 `/dashboard/jc/login`。
-- **生产验证**（R47 实测，2026-10-19）：`/dashboard/jc/` **免凭据即 200**（`auth_basic off`）；其 API 未登录返回 401 —— 那是**应用层 session** 拒绝，**不是** Nginx Basic Auth。`/` `/dashboard/` 对未带 Basic 凭据的请求才返回 401（这才是 Nginx 层）。`/resume/` `/admin/` 现为 404。
+- **Nginx 层**：`/jc/` 三处 location（`= /jc/`、`/jc/api/`、`= /jc/login`）均 `auth_basic off`，从全局 Basic Auth 剥离。Nginx Basic Auth 只保护其它业务 —— **R47 生产实测**（2026-10-19，公网不带任何凭据）：`/` 401、`/dashboard/` 401、`/cpt/` 401、`/emotion/` 401、`/trade/` 401；而 `/resume/` `/admin/` `/stock/` 已随 2026-10-19 的失效配置清理**一并移除**（现为 404），本节旧清单此前未同步。
+- **体彩应用层**：`web/auth.py::require_auth` 强制校验 `lp_session` cookie（单账号 session）。登录账号来自 `AUTH_USERNAME` / `AUTH_PASSWORD`（在 `.env`，已 gitignore 不入库），签发 `lp_session` cookie，前端遇 `401` 自动跳 `/jc/login`。
+- **生产验证**（R47 实测，2026-10-19）：`/jc/` **免凭据即 200**（`auth_basic off`）；其 API 未登录返回 401 —— 那是**应用层 session** 拒绝，**不是** Nginx Basic Auth。`/` `/dashboard/` 对未带 Basic 凭据的请求才返回 401（这才是 Nginx 层）。`/resume/` `/admin/` 现为 404。
 
 > ⚠️ 体彩账号是单账号，生产 `.env` 里 `AUTH_USERNAME`/`AUTH_PASSWORD` 仍是弱口令（占位值，见 `.env.example`）。**正式对外前务必改为强口令**（改后重启 `league-web.service`）；若 8077 直连端口对外暴露，则绕过 Nginx 后只剩应用层单账号保护。具体口令不写入本文件——本仓是公开仓库。
 
@@ -481,35 +481,35 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 
 ## 运行与部署
 
-`league-api`（原"league-predict Web Dashboard"）即这套预测读取 API + 自看面板，跑在本机 NDORACLE（`140.83.62.161`）上：systemd `league-web.service`（127.0.0.1:8077）+ Nginx 代理公网 `/dashboard/jc/`，前端在 `static/`，后端在 `web/`。FastAPI Cloud Hobby 档已退役，无 fastapicloud.dev / 无容器 scale-to-zero，session 与预测 JSON 直接落本机盘 / DB。详细部署说明见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
+`league-api`（原"league-predict Web Dashboard"）即这套预测读取 API + 自看面板，跑在本机 NDORACLE（`140.83.62.161`）上：systemd `league-web.service`（127.0.0.1:8077）+ Nginx 代理公网 `/jc/`，前端在 `static/`，后端在 `web/`。FastAPI Cloud Hobby 档已退役，无 fastapicloud.dev / 无容器 scale-to-zero，session 与预测 JSON 直接落本机盘 / DB。详细部署说明见 [`docs/web/DASHBOARD_DEPLOY.md`](docs/web/DASHBOARD_DEPLOY.md)。
 
 > 单元名以 `ops/league-web.service` 为准（审计 R45 前本节误写 `league-dashboard.service`）。
 
 | 项 | 值 |
 |---|---|
-| 线上地址 | https://140.83.62.161/dashboard/jc/ |
+| 线上地址 | https://140.83.62.161/jc/ |
 | 进程 | `league-web.service`（systemd `127.0.0.1:8077`，`Restart=on-failure`） |
-| 公网入口 | 本机 Nginx（`/dashboard/jc/` → 静态入口 + `/dashboard/jc/api/` → `league-api /api/`；该路径 `auth_basic off`，鉴权由应用层 session 负责） |
+| 公网入口 | 本机 Nginx（`/jc/` → 静态入口 + `/jc/api/` → `league-api /api/`；该路径 `auth_basic off`，鉴权由应用层 session 负责） |
 
 **nginx location → 后端路径速查（P3-D1）**：
 
 | 公网路径 | nginx target | league-api 内部路径 |
 |---|---|---|
-| `/dashboard/jc/` | `proxy_pass http://127.0.0.1:8077/static/dashboard.html;` | —（静态） |
-| `/dashboard/jc/static/...` | `proxy_pass http://127.0.0.1:8077/static/...;` | —（静态文件 mount） |
-| `/dashboard/jc/login` | `proxy_pass http://127.0.0.1:8077/static/dashboard-login.html;` | —（静态） |
-| `/dashboard/jc/api/...` | `proxy_pass http://127.0.0.1:8077/api/...;` | `/api/v1/...` |
+| `/jc/` | `proxy_pass http://127.0.0.1:8077/static/dashboard.html;` | —（静态） |
+| `/jc/static/...` | `proxy_pass http://127.0.0.1:8077/static/...;` | —（静态文件 mount） |
+| `/jc/login` | `proxy_pass http://127.0.0.1:8077/static/dashboard-login.html;` | —（静态） |
+| `/jc/api/...` | `proxy_pass http://127.0.0.1:8077/api/...;` | `/api/v1/...` |
 | `/dashboard` | `http://127.0.0.1:8099/` | —（旧门户，Basic Auth 保护） |
 
-**前端 API 基址**（`static/dashboard.html:270`）：`const API="/dashboard/jc/api/v1"`。所有 fetch 均同源（credentials:"same-origin"），浏览器自动带 session cookie（该路径 `auth_basic off`，**不涉及** Basic Auth 头）。
+**前端 API 基址**（`static/dashboard.html:270`）：`const API="/jc/api/v1"`。所有 fetch 均同源（credentials:"same-origin"），浏览器自动带 session cookie（该路径 `auth_basic off`，**不涉及** Basic Auth 头）。
 
 **调试命令**：
 
 ```bash
-# 公网入口冒烟（/dashboard/jc/ 已 auth_basic off —— 免凭据 200，不涉及 Nginx Basic Auth）
-curl -kI https://140.83.62.161/dashboard/jc/          # 200
+# 公网入口冒烟（/jc/ 已 auth_basic off —— 免凭据 200，不涉及 Nginx Basic Auth）
+curl -kI https://140.83.62.161/jc/          # 200
 # 应用层鉴权（401 来自 session 层，不是 Nginx Basic Auth）
-curl -kI https://140.83.62.161/dashboard/jc/api/v1/me  # 401（未登录）
+curl -kI https://140.83.62.161/jc/api/v1/me  # 401（未登录）
 # 健康检查：真实路径是 /health，**不在 /api/ 下** → 公网无对应入口，只能本机打
 # （旧写法 http://127.0.0.1:8077/api/v1/health 实测 404）
 curl -sS http://127.0.0.1:8077/health                   # 200，必须本机
@@ -517,7 +517,7 @@ curl -sS http://127.0.0.1:8077/health                   # 200，必须本机
 sudo tail -F /var/log/nginx/error.log
 ```
 | App ID | ——（本机部署，无云端 App ID） |
-| 看板鉴权 | 页面单账号（league-api session，取自 `.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）；`/dashboard/jc/` 不走 Nginx Basic Auth |
+| 看板鉴权 | 页面单账号（league-api session，取自 `.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）；`/jc/` 不走 Nginx Basic Auth |
 
 **临时赛事白名单（亚运 / 欧冠 / 世界杯 / 奥运 等）**：
 - 通过 `.env` 的 `LEAGUE_TEMP_LEAGUES`（CSV）控制，五大联赛 + 临时白名单一并出现在每日一图 / dashboard 今日推荐。
@@ -537,7 +537,7 @@ sudo tail -F /var/log/nginx/error.log
    中间隔着 §6.13.5 的部署 ⇒ 页面整整一天半在骗人）。
    ⇒ **部署后必须重启**，并用 `python tools/check_service_freshness.py` 自检（比对 `/health` 的 `code_sha` 与仓库 HEAD，
    不一致 ⇒ 退出码 1 + 打印修复命令）。`.env` 改动同样必须手动 restart。
-3. 核验：`curl -kI https://140.83.62.161/dashboard/jc/` 返回 200（该路径 `auth_basic off`，无需 Basic 凭据），`/dashboard/jc/api/v1/me` 过应用层账号（`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）登录后 200；**再跑 `python tools/check_service_freshness.py`**（必须退出码 0）。
+3. 核验：`curl -kI https://140.83.62.161/jc/` 返回 200（该路径 `auth_basic off`，无需 Basic 凭据），`/jc/api/v1/me` 过应用层账号（`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）登录后 200；**再跑 `python tools/check_service_freshness.py`**（必须退出码 0）。
 
 **运行时预测/富化**（在 Web 界面触发，或 API）：
 - `POST /api/v1/jobs/predict`（选联赛/数据源/蒙特卡洛）跑 `scripts/predict.py`。**不传参数时只跑英超**（`--league` 默认值 `epl`）；要跑全部 5 个足球联赛须显式传 `{"all": true}`，或传 `{"league": "laliga"}` 等指定单个联赛。
@@ -551,7 +551,7 @@ sudo tail -F /var/log/nginx/error.log
 
 | 机制 | 载体 | 频率 | 干什么 |
 |---|---|---|---|
-| Dashboard 常驻服务 | `league-web.service`（systemd，`Restart=on-failure`） | 常驻 | 提供 `/dashboard/jc/` 全部 API |
+| Dashboard 常驻服务 | `league-web.service`（systemd，`Restart=on-failure`） | 常驻 | 提供 `/jc/` 全部 API |
 | 竞彩数据采集 | 用户 crontab `*/10 * * * *` | 每 10 分钟 | 跑 `jc-ingest-run.sh` 落库 `fact.jc_*` |
 | **每日全量预测** | `league-daily-predict.timer`（systemd） | 每日 **09:30 Asia/Shanghai** | 足球全联赛 + NBA + AI 富化 |
 
@@ -1027,11 +1027,11 @@ R46 只在**开发机**验证过。本轮按**生产流程**实测（Oracle 上�
 `static/login.html`、`static/dashboard-login.html`、`web/api.py` 的 `/login` 路由与
 「未登录跳登录页」判定。但该前提在生产**不成立**，实测三证：
 
-1. 生产 nginx（`/etc/nginx/sites-enabled/dsh-web`）对 `/dashboard/jc/` 三处 location
+1. 生产 nginx（`/etc/nginx/sites-enabled/dsh-web`）对 `/jc/` 三处 location
    是 **`auth_basic off`**（2026-09-18 起剥离）→ 公网免凭据 200，Basic 框**永不弹出**；
 2. `web/auth.py::require_auth` 只认 `lp_session` cookie，**不接受 Basic 头** →
    就算给该路径开 Basic Auth，API 仍是 401；
-3. nginx 的 `location = /dashboard/jc/login` 仍 proxy 到已被删的
+3. nginx 的 `location = /jc/login` 仍 proxy 到已被删的
    `static/dashboard-login.html` → 实测 **404**。
 
 结果：页面 200、数据 API 全 401、前端提示「浏览器会自动弹窗输入账号密码」——那个框
@@ -1044,7 +1044,7 @@ R46 只在**开发机**验证过。本轮按**生产流程**实测（Oracle 上�
 | 原文 | 实际 | 处置 |
 |---|---|---|
 | README 冒烟 `http://127.0.0.1:8077/api/v1/health` | **404** —— 真实路径是 `/health`（不在 `/api/` 下，公网无对应入口） | README + `ops/README.md` + `DASHBOARD_DEPLOY.md` 订正 |
-| README 冒烟 `curl -kI .../dashboard/jc/  # 401 / Basic 触发` | **200**（`auth_basic off`） | 订正 |
+| README 冒烟 `curl -kI .../jc/  # 401 / Basic 触发` | **200**（`auth_basic off`） | 订正 |
 | README 表「公网入口 …… 走 Nginx Basic Auth」 | 该路径 `auth_basic off`，鉴权是应用层 session | 订正（与同文档「认证与隔离」段自相矛盾） |
 | README「Basic Auth 只保护 `/` `/dashboard/` `/resume/` `/stock/` `/admin/`」 | 实测 `/resume/` `/admin/` `/stock/` 已 **404**（2026-10-19 清理失效配置时移除）；实际受保护的是 `/` `/dashboard/` `/cpt/` `/emotion/` `/trade/` | 订正 |
 | `DASHBOARD_DEPLOY.md`「systemd：`league-dashboard.service`」+「提供 HTTPS 和 Basic Auth」 | 单元名是 `league-web.service`（R45 漏改此处）；该路径无 Basic Auth | 订正 |
@@ -1053,7 +1053,7 @@ R46 只在**开发机**验证过。本轮按**生产流程**实测（Oracle 上�
 加**后记**说明「当时的形态」与现状差异，**不改写历史记录**。
 
 **校验器加严**：`tools/check_docs_claims.py` 增 11 项断言（17 → 28），把本轮全部
-已知错误写法固化为负向精确串（health 旧路径、`/dashboard/jc/` 的 Basic Auth 误述、
+已知错误写法固化为负向精确串（health 旧路径、`/jc/` 的 Basic Auth 误述、
 Basic 触发注释、退役单元名、前端「Basic Auth 把关」提示…），并断言登录入口已恢复。
 判定改为**行级**：命中错误写法的行若带订正/否定标记（订正/误写/此前/旧写法…）即放行，
 避免"订正记录本身"被误判为违规（R46 的触发时刻规则已踩过这个坑）。

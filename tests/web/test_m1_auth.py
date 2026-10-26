@@ -79,7 +79,7 @@ def test_root_redirects_to_login_when_anonymous(client):
     """R47：未登录 GET / → 302 /login（独立登录页已恢复）。
 
     P5 曾删掉这条跳转，前提是「Nginx Basic Auth 在反代层把关」；但生产 nginx 对
-    /dashboard/jc/ 是 auth_basic off，且 require_auth 只认 lp_session cookie
+    /jc/ 是 auth_basic off，且 require_auth 只认 lp_session cookie
     → 公网看板失去唯一登录入口。R47 恢复。
     """
     res = client.get("/", follow_redirects=False)
