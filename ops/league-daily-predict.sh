@@ -25,7 +25,9 @@ BASE="${LEAGUE_API_BASE:-http://127.0.0.1:8077/api/v1}"
 # 整条日管线静默不执行。现在直接读 AUTH_USERNAME/AUTH_PASSWORD，缺则显式失败。
 AUTH_USER="${LEAGUE_AUTH_USER:-${AUTH_USERNAME:-}}"
 AUTH_PASS="${LEAGUE_AUTH_PASS:-${AUTH_PASSWORD:-}}"
-JOB_TIMEOUT="${LEAGUE_JOB_TIMEOUT:-3600}"    # 单个作业等待上限（秒）
+# 单个作业等待上限（秒）。必须 ≥ 服务端作业超时，否则脚本先放弃、作业还在跑：
+# AI 富化在未实名账号（RPM≈1/分钟）下服务端已放宽到 5400s，这里同步抬到 5400。
+JOB_TIMEOUT="${LEAGUE_JOB_TIMEOUT:-5400}"
 POLL_INTERVAL="${LEAGUE_POLL_INTERVAL:-15}"  # 轮询间隔（秒）
 # 2026-10-01: venv 已迁到 ~/.venvs/league（仓库内 .venv 不再跟踪，994eef4），
 # 旧路径不存在会让 job_field 解析器静默失败 → 三个作业全判 "响应缺少 job.id"。

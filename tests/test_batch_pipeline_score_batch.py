@@ -182,3 +182,41 @@ def test_score_batch_d61_generate_returns_empty_dict_keeps_all_as_is(batch_mod, 
     # 必 print warning 提示运营 (captured stdout 含 LLM 漏答)
     captured = capfd.readouterr()
     assert "未评分" in captured.out or "未返回" in captured.out
+
+
+# ──────────────────────── D-107: 每批 checkpoint 回调 ────────────────────────
+
+def test_analyse_batch_calls_on_batch_per_batch(batch_mod, monkeypatch):
+    """D-107: on_batch 每批结束回调一次，带上该批已评分条目。
+
+    富化作业靠它按批落盘：作业被超时杀掉时不至于丢掉前面几十分钟的成果。
+    """
+    def fake_gen(prompt, model=None, rate_limit=None):
+        # 每批 2 条，回填 id 1..2（按 _batch_id 配对）
+        return {"analyses": [{"id": 1, "score": 80}, {"id": 2, "score": 60}]}
+
+    monkeypatch.setattr(batch_mod, "generate", fake_gen)
+
+    items = [{"name": f"m{i}"} for i in range(5)]  # batch_size=2 -> 3 批
+    calls = []
+    batch_mod.analyse_batch(
+        items,
+        config={"ai": {"batch_size": 2, "rate_limit_seconds": 0}},
+        on_batch=lambda no, total, scored: calls.append((no, total, len(scored))),
+    )
+
+    assert [c[0] for c in calls] == [1, 2, 3]
+    assert all(c[1] == 3 for c in calls)
+    assert [c[2] for c in calls] == [2, 2, 1]
+
+
+def test_analyse_batch_without_on_batch_still_works(batch_mod, monkeypatch):
+    """D-107: 不传 on_batch 时行为不变（其它调用方无需改动）。"""
+    def fake_gen(prompt, model=None, rate_limit=None):
+        return {"analyses": [{"id": 1, "score": 90}]}
+
+    monkeypatch.setattr(batch_mod, "generate", fake_gen)
+    out = batch_mod.analyse_batch(
+        [{"name": "x"}], config={"ai": {"batch_size": 5, "rate_limit_seconds": 0}},
+    )
+    assert out[0]["ai_score"] == 90

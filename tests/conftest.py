@@ -258,7 +258,17 @@ def isolate_production_writes(tmp_path, monkeypatch):
     except Exception:  # noqa: BLE001
         pass
 
-    # ④ 守门：前后快照
+    # ④ AI 富化 checkpoint → tmp（2026-10-28 起每批落盘；绝不能写进生产
+    #    predictions/.ai_enrich_checkpoint.json，否则测试进度会污染当天真实富化）。
+    try:
+        import web.enrich as enrich_mod
+        monkeypatch.setattr(
+            enrich_mod, "CHECKPOINT_FILE", tmp_path / ".ai_enrich_checkpoint.json"
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ⑤ 守门：前后快照
     before = _snapshot(_WATCH_FILES)
     root_before = _repo_root_files()
     yield

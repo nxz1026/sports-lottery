@@ -71,10 +71,11 @@ def llm_mod(monkeypatch):
 # ───────── helpers ─────────
 
 
-def _mock_resp(status_code, payload=None, raise_json=False):
+def _mock_resp(status_code, payload=None, raise_json=False, headers=None):
     """构造 MagicMock 模拟 requests.Response."""
     resp = MagicMock()
     resp.status_code = status_code
+    resp.headers = headers or {}
     if payload is not None:
         if raise_json:
             resp.json.side_effect = ValueError("bad json")
@@ -162,9 +163,11 @@ def test_d105_1_call_openai_returns_dict_on_200(llm_mod):
 
 
 def test_d105_2_call_openai_retries_429_three_times(llm_mod, monkeypatch):
-    """D-105-2: _call_openai 429 -> sleep + retry, 3 次全 429 后返 {}.
+    """D-105-2: _call_openai 429 -> 退避重试, MAX_ATTEMPTS 次全 429 后返 {}.
 
     关键: sleep 是内部实现 (time.sleep), 用 monkeypatch 让它立即返回避免测试慢.
+    次数从固定的 3 改为模块常量 MAX_ATTEMPTS（2026-10-28：未实名账号 RPM≈1/分钟，
+    3 次退避必然在配额窗口内空转完就放弃，富化整批丢分）。
     """
     resp_429 = _mock_resp(429)
     monkeypatch.setattr("time.sleep", lambda s: None)  # 跳过 sleep
@@ -173,7 +176,7 @@ def test_d105_2_call_openai_retries_429_three_times(llm_mod, monkeypatch):
         out = llm_mod._call_openai("p", "m", "https://api.example.com/v1", "k")
 
     assert out == {}
-    assert mock_post.call_count == 3  # 3 retries
+    assert mock_post.call_count == llm_mod.MAX_ATTEMPTS
 
 
 def test_d105_3_call_openai_returns_empty_on_500(llm_mod):
@@ -233,4 +236,51 @@ def test_d105_6_call_gemini_falls_back_on_429(llm_mod, monkeypatch):
         out = llm_mod._call_gemini("p", "gemini-2.0-flash", "k", 0.0)
 
     assert out == {"recovered": True}
+    assert mock_post.call_count == 2
+
+
+# --- D-106：429 退避（2026-10-28 事故）--------------------------------------
+# 未实名 agnes 账号实测 RPM≈1 次/分钟且无 Retry-After，旧的固定 10/20/30s
+# 三次重试在配额窗口内必然全部撞 429 后放弃 ⇒ 富化整批丢分。
+
+def test_d106_1_backoff_grows_exponentially(llm_mod, monkeypatch):
+    """D-106-1: 无 Retry-After 时按 base*2^attempt 递增并封顶 BACKOFF_MAX_SECONDS."""
+    monkeypatch.setattr(llm_mod, "BACKOFF_BASE_SECONDS", 20.0)
+    monkeypatch.setattr(llm_mod, "BACKOFF_MAX_SECONDS", 120.0)
+    monkeypatch.setattr(llm_mod.random, "uniform", lambda a, b: 0.0)
+
+    assert llm_mod._backoff_seconds(0) == 20.0
+    assert llm_mod._backoff_seconds(1) == 40.0
+    assert llm_mod._backoff_seconds(2) == 80.0
+    assert llm_mod._backoff_seconds(3) == 120.0  # 160 -> 封顶
+    assert llm_mod._backoff_seconds(9) == 120.0
+
+
+def test_d106_2_backoff_honours_retry_after(llm_mod, monkeypatch):
+    """D-106-2: 响应带 Retry-After 时优先采用（仍受上限约束）."""
+    monkeypatch.setattr(llm_mod, "BACKOFF_MAX_SECONDS", 120.0)
+
+    resp = _mock_resp(429, headers={"Retry-After": "30"})
+    assert llm_mod._backoff_seconds(0, resp) == 30.0
+
+    resp_huge = _mock_resp(429, headers={"Retry-After": "9999"})
+    assert llm_mod._backoff_seconds(0, resp_huge) == 120.0
+
+    resp_bad = _mock_resp(429, headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"})
+    monkeypatch.setattr(llm_mod.random, "uniform", lambda a, b: 0.0)
+    assert llm_mod._backoff_seconds(0, resp_bad) == llm_mod.BACKOFF_BASE_SECONDS
+
+
+def test_d106_3_call_openai_recovers_after_backoff(llm_mod, monkeypatch):
+    """D-106-3: 先 429 后 200 -> 退避一次即成功，不丢这一批."""
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    resp_429 = _mock_resp(429)
+    resp_ok = _mock_resp(200, payload={
+        "choices": [{"message": {"content": '{"analyses": [{"id": 1, "score": 80}]}'}}]
+    })
+
+    with patch("requests.post", side_effect=[resp_429, resp_ok]) as mock_post:
+        out = llm_mod._call_openai("p", "m", "https://api.example.com/v1", "k")
+
+    assert out == {"analyses": [{"id": 1, "score": 80}]}
     assert mock_post.call_count == 2

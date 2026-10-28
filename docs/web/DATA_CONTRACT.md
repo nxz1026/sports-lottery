@@ -285,9 +285,9 @@ def pick_latest_for_league(league):
   predict.py:303  load_ai_adjustments(league_key)   ← 读 ai_scores.json（上一轮富化结果）
   predict.py:160-161 adjust_prediction(pred, adj)   ← 按 match 名改写 confidence/stars
 
-链路 B（富化，独立脚本 scripts/ai_enrich_gha.py，GHA 邮件推送用）:
-  predict 输出 → /tmp/predict_output.txt → ai_enrich_gha.py:load_predictions()
-    → enrich_via_llm() → ai.batch_pipeline.analyse_batch() → ai.llm_client.generate()
+链路 B（富化，web 作业 ai_enrich → python -m web.enrich；GHA 版 ai_enrich_gha.py 已于 2026-09-11 退役）:
+  store.latest_by_league() → collect_items()（每联赛 top 40 场）
+    → ai.batch_pipeline.analyse_batch(on_batch=每批落盘) → ai.llm_client.generate()
     → save_ai_scores()（写 ai_scores.json，供链路 A 次日消费）
 
 链路 C（队名翻译，predict.py 主链内置）:
@@ -300,8 +300,9 @@ def pick_latest_for_league(league):
 
 | 模块 | 职责 | 证据 |
 |---|---|---|
-| `ai/llm_client.py` | OpenAI 兼容 + Gemini REST 双协议 LLM 客户端；`generate()` 返回解析后 JSON dict，任何失败返回 `{}`（**永不抛异常**） | llm_client.py:22-58,60-93 |
-| `ai/batch_pipeline.py` | `analyse_batch(items)`：按 batch_size=5 分批构造 prompt，调 LLM 打分，给每 item 附加 `ai_score`(0-100)/`ai_summary`/`ai_notes`；低于 `min_score` 过滤（默认 0 不过滤）；AI 未返回对应项时**原样保留 item**（不丢弃） | batch_pipeline.py:24-67,40 |
+| `ai/llm_client.py` | OpenAI 兼容 + Gemini REST 双协议 LLM 客户端；`generate()` 返回解析后 JSON dict，任何失败返回 `{}`（**永不抛异常**）。429 走**指数退避 + 抖动**（默认 20→120s 封顶、6 次，env `LLM_MAX_ATTEMPTS`/`LLM_BACKOFF_BASE_SECONDS`/`LLM_BACKOFF_MAX_SECONDS`），响应带 `Retry-After` 时优先采用 | llm_client.py:19-52,100-140 |
+| `ai/batch_pipeline.py` | `analyse_batch(items, ..., on_batch=None)`：按 batch_size=5 分批构造 prompt，调 LLM 打分，给每 item 附加 `ai_score`(0-100)/`ai_summary`/`ai_notes`；低于 `min_score` 过滤（默认 0 不过滤）；AI 未返回对应项时**原样保留 item**（不丢弃）。`on_batch(batch_no, batch_total, scored)` 每批结束回调，供调用方 checkpoint | batch_pipeline.py:24-60 |
+| `web/enrich.py` | 作业 `ai_enrich` 的入口（`python -m web.enrich`）：`collect_items` 取每联赛最新预测 top 40 → `analyse_batch` → 每批 `save_ai_scores` + 写 checkpoint，支持断点续跑 | web/enrich.py:95-195 |
 | `ai/feedback_loop.py` | 桥接层：`save_ai_scores`（写 ai_scores.json）、`load_ai_adjustments`（按联赛过滤读取）、`adjust_prediction`（改写预测）、`reconcile_results`（AI 维度命中统计） | feedback_loop.py:23-116,119-223 |
 | `ai/feedback_memory.py` | 用户反馈（positive/negative）→ prompt 偏好段落；**未被任何引擎代码 import**（孤立模块，grep 无调用方） | feedback_memory.py:1-44；grep 无结果 |
 | `scripts/ai_enrich_gha.py` | GHA 邮件富化：读 `/tmp/predict_output.txt`，LLM 分析后追加到 `/tmp/email_body.txt` | ai_enrich_gha.py:14-25,117-149 |
@@ -340,8 +341,10 @@ def pick_latest_for_league(league):
 ### 5.6 LLM 消耗与限速
 
 - 每次 predict 运行触发一次 `warm_translations`（仅对未翻译过的新队名，core/data/parse.py:233-249 + i18n.py:84-100）→ 1 次 LLM 调用（rate_limit=0，i18n.py:66，**无节流**）。
-- `analyse_batch`：每 5 场 1 次调用，rate_limit 默认 7 秒（batch_pipeline.py:38-43）——**8 场预测约 2 次调用**。注意实际唯一调用方 `ai_enrich_gha.py:64-70` 显式覆盖 `rate_limit_seconds: 3`、`batch_size: 5`、`min_score: 0`——即富化链路实测限速是 3 秒/调用（非默认 7s），且只取每联赛 top 5 场（ai_enrich_gha.py:37 `preds[:5]`）。
-- 429 重试：`_call_openai` 3 次、退避 10/20 秒（llm_client.py:70-93）；Gemini 走模型 fallback 链（llm_client.py:14-19,96-119）。
+- `analyse_batch`：每 5 场 1 次调用，rate_limit 库内默认 7 秒（batch_pipeline.py:43）。**实际调用方是 `web/enrich.py`**（作业 `ai_enrich`），显式覆盖 `batch_size: 5`、`min_score: 0`、`rate_limit_seconds: env LP_AI_MIN_INTERVAL_SECONDS`（默认 **60 秒**）。2026-10-28 实测该账号 RPM≈1 次/分钟（未实名），压得更快只会换回更多 429。
+- 429 重试：`_call_openai` 指数退避 20/40/80/120s 封顶 + 抖动、默认 6 次（llm_client.py:19-52,100-140）；Gemini 走模型 fallback 链（llm_client.py:14-19,142-170）。
+- **富化作业的运行期约束**（2026-10-28 事故后定）：146 条约 30 批，仅定速就 30 分钟 ⇒ 作业超时从 `PREDICT_TIMEOUT_SECONDS`(1800) 拆出独立 `AI_ENRICH_TIMEOUT_SECONDS`（默认 **5400**，web/config.py:86）；`ops/league-daily-predict.sh` 的 `LEAGUE_JOB_TIMEOUT` 同步 3600→**5400**（脚本等待必须 ≥ 服务端超时）。
+- **断点续跑**：每批结束立刻 `save_ai_scores` 并写 `predictions/.ai_enrich_checkpoint.json`（`{"date": "...", "done": ["league|home_en|away_en", ...]}`，原子替换）。下次触发只处理未完成条目；跨天自动失效；当日已全部完成时直接返回 0（不再白烧一轮）。旧实现只在全部跑完后落盘 ⇒ 10-28 那次 1800s 超时被杀后 0 条写回。
 - 环境变量：`LLM_API_KEY`（或 `GEMINI_API_KEY`）、`LLM_API_BASE`（默认 `https://api.agnes-ai.cn/v1`）、`LLM_MODEL`（默认 `agnes-2.5-flash`）（llm_client.py:38-40）。只写变量名，值不落文档。
 
 ## 6. 数据源与配额

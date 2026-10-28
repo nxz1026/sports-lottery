@@ -395,6 +395,8 @@ def create_job(args: list[str], trigger: str = "manual", script: str = "predict"
     job["trigger"] = trigger
     job["script"] = script
     job["args"] = args
+    if script == "ai_enrich":
+        job["timeout"] = config.AI_ENRICH_TIMEOUT_SECONDS
     _write_job(jid, job)
     return job
 
@@ -509,6 +511,8 @@ def run_job(jid: str) -> None:
     log_path = _log_file(jid)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     started = _now_epoch()
+    timeout_s = config.AI_ENRICH_TIMEOUT_SECONDS if script == "ai_enrich" \
+        else config.PREDICT_TIMEOUT_SECONDS
     try:
         with open(log_path, "wb") as log_fh:
             proc = subprocess.Popen(
@@ -532,7 +536,7 @@ def run_job(jid: str) -> None:
                 pass
         return
     try:
-        code = proc.wait(timeout=config.PREDICT_TIMEOUT_SECONDS)
+        code = proc.wait(timeout=timeout_s)
     except subprocess.TimeoutExpired:
         proc.kill()
         try:

@@ -5,6 +5,7 @@ No hardcoded provider — configure via env vars or params.
 import json
 import logging
 import os
+import random
 import threading
 import time
 
@@ -13,6 +14,37 @@ import requests
 logger = logging.getLogger(__name__)
 _last_call = 0.0
 _rate_lock = threading.Lock()
+
+# 429 退避参数。未实名 agnes 账号 RPM 极低（2026-10-28 实测：约 1 次/分钟，
+# 响应里没有 Retry-After），旧实现固定 10/20/30s 三次重试 ⇒ 在配额窗口内必然
+# 连续撞 429 后放弃，表现为富化整批丢分、作业空转到超时被杀。
+# 现在改为指数退避 + 抖动，次数与步长都可按环境调。
+MAX_ATTEMPTS = int(os.environ.get("LLM_MAX_ATTEMPTS", "6"))
+BACKOFF_BASE_SECONDS = float(os.environ.get("LLM_BACKOFF_BASE_SECONDS", "20"))
+BACKOFF_MAX_SECONDS = float(os.environ.get("LLM_BACKOFF_MAX_SECONDS", "120"))
+
+
+def _retry_after(resp) -> float | None:
+    """读 Retry-After（秒）；缺失/非法/HTTP-date 一律返回 None 走指数退避。"""
+    try:
+        value = resp.headers.get("Retry-After")
+    except Exception:  # noqa: BLE001 — 测试替身可能没有 headers
+        return None
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _backoff_seconds(attempt: int, resp=None) -> float:
+    """第 attempt 次（0 基）失败后的等待秒数：Retry-After 优先，否则指数+抖动。"""
+    hinted = _retry_after(resp) if resp is not None else None
+    if hinted is not None:
+        return min(hinted, BACKOFF_MAX_SECONDS)
+    wait = min(BACKOFF_BASE_SECONDS * (2 ** attempt), BACKOFF_MAX_SECONDS)
+    return wait + random.uniform(0, min(3.0, wait * 0.1))
 
 # Gemini fallback chain — only used when provider is "gemini"
 GEMINI_FALLBACK = [
@@ -75,7 +107,7 @@ def _call_openai(prompt: str, model: str, api_base: str, api_key: str) -> dict:
         "max_tokens": 2048,
         "response_format": {"type": "json_object"},
     }
-    for attempt in range(3):
+    for attempt in range(MAX_ATTEMPTS):
         try:
             resp = requests.post(
                 url,
@@ -84,8 +116,14 @@ def _call_openai(prompt: str, model: str, api_base: str, api_key: str) -> dict:
                 timeout=30,
             )
             if resp.status_code == 429:
-                logger.warning("[LLM] 429 rate limited, retry %d/3", attempt + 1)
-                time.sleep(10 * (attempt + 1))
+                if attempt + 1 >= MAX_ATTEMPTS:
+                    break
+                wait = _backoff_seconds(attempt, resp)
+                logger.warning(
+                    "[LLM] 429 rate limited, retry %d/%d after %.0fs",
+                    attempt + 1, MAX_ATTEMPTS - 1, wait,
+                )
+                time.sleep(wait)
                 continue
             if resp.status_code != 200:
                 logger.error("[LLM] API error %s: %s", resp.status_code, resp.text[:200])
@@ -97,7 +135,7 @@ def _call_openai(prompt: str, model: str, api_base: str, api_key: str) -> dict:
         except requests.RequestException:
             logger.error("[LLM] Request failed", exc_info=True)
             return {}
-    logger.error("[LLM] Gave up after 3 retries on 429")
+    logger.error("[LLM] Gave up after %d attempts on 429", MAX_ATTEMPTS)
     return {}
 
 

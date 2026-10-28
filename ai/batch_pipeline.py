@@ -26,11 +26,16 @@ def analyse_batch(
     context: str = "",
     preference_prompt: str = "",
     config: dict = None,
+    on_batch=None,
 ) -> list[dict]:
     """Analyse items in batches. Returns items enriched with AI fields.
 
     Each item gets: ai_score (0-100), ai_summary, ai_notes.
     Items below min_score are filtered out.
+
+    ``on_batch(batch_no, batch_total, scored_items)`` 在**每批结束后**回调，
+    供调用方做 checkpoint：RPM 受限账号下一轮富化要跑几十分钟，作业被超时
+    杀掉时若只在最后落盘，前面全部白跑（2026-10-28 事故）。
     """
     config = config or {}
     ai_cfg = config.get("ai", {})
@@ -46,9 +51,12 @@ def analyse_batch(
     enriched = []
     for i, batch in enumerate(batches):
         print(f"  [AI] Batch {i + 1}/{len(batches)}...")
-        enriched.extend(_score_batch(
+        scored = _score_batch(
             batch, context, preference_prompt, config, model, rate_limit,
-            min_score, max_retries, i + 1, len(batches)))
+            min_score, max_retries, i + 1, len(batches))
+        enriched.extend(scored)
+        if on_batch is not None:
+            on_batch(i + 1, len(batches), scored)
     return enriched
 
 

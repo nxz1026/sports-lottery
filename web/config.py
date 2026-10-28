@@ -80,6 +80,10 @@ PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "https://140.83.62.161/jc/")
 # --- 任务触发（M3：jobs.py / 配额守卫）----------------------------------
 # 引擎子进程超时（秒），到点必杀。
 PREDICT_TIMEOUT_SECONDS: int = _env_int("PREDICT_TIMEOUT_SECONDS", 600)
+# AI 富化单独的超时：上游是未实名 agnes 账号（RPM 约 1 次/分钟，2026-10-28 实测），
+# 146 条 ÷ 5 条/批 = 30 批 ⇒ 仅定速就 30 分钟，加上漏答重试/429 退避，1800s 必被砍。
+# 富化已按批 checkpoint，超时不再丢进度，但仍应给足一轮的完整时间。
+AI_ENRICH_TIMEOUT_SECONDS: int = _env_int("AI_ENRICH_TIMEOUT_SECONDS", 5400)
 # 每日预测触发上限（BJT 日口径；默认 80，给手动操作留余量）。
 DAILY_TRIGGER_LIMIT: int = _env_int("PREDICT_DAILY_LIMIT", 80)
 # 同一天惰性自动刷新至多一次（predictions/today 缺数据时兜底）。
