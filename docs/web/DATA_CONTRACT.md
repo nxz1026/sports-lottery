@@ -300,7 +300,7 @@ def pick_latest_for_league(league):
 
 | 模块 | 职责 | 证据 |
 |---|---|---|
-| `ai/llm_client.py` | OpenAI 兼容 + Gemini REST 双协议 LLM 客户端；`generate()` 返回解析后 JSON dict，任何失败返回 `{}`（**永不抛异常**）。429 走**指数退避 + 抖动**（默认 20→120s 封顶、6 次，env `LLM_MAX_ATTEMPTS`/`LLM_BACKOFF_BASE_SECONDS`/`LLM_BACKOFF_MAX_SECONDS`），响应带 `Retry-After` 时优先采用 | llm_client.py:19-52,100-140 |
+| `ai/llm_client.py` | OpenAI 兼容 + Gemini REST 双协议 LLM 客户端；`generate()` 返回解析后 JSON dict，任何失败返回 `{}`（**永不抛异常**）。429 走**指数退避 + 抖动**（默认 20→120s 封顶、6 次，env `LLM_MAX_ATTEMPTS`/`LLM_BACKOFF_BASE_SECONDS`/`LLM_BACKOFF_MAX_SECONDS`），响应带 `Retry-After` 时优先采用 | llm_client.py:19-52,106-160 |
 | `ai/batch_pipeline.py` | `analyse_batch(items, ..., on_batch=None)`：按 batch_size=5 分批构造 prompt，调 LLM 打分，给每 item 附加 `ai_score`(0-100)/`ai_summary`/`ai_notes`；低于 `min_score` 过滤（默认 0 不过滤）；AI 未返回对应项时**原样保留 item**（不丢弃）。`on_batch(batch_no, batch_total, scored)` 每批结束回调，供调用方 checkpoint | batch_pipeline.py:24-60 |
 | `web/enrich.py` | 作业 `ai_enrich` 的入口（`python -m web.enrich`）：`collect_items` 取每联赛最新预测 top 40 → `analyse_batch` → 每批 `save_ai_scores` + 写 checkpoint，支持断点续跑 | web/enrich.py:95-195 |
 | `ai/feedback_loop.py` | 桥接层：`save_ai_scores`（写 ai_scores.json）、`load_ai_adjustments`（按联赛过滤读取）、`adjust_prediction`（改写预测）、`reconcile_results`（AI 维度命中统计） | feedback_loop.py:23-116,119-223 |
@@ -340,11 +340,12 @@ def pick_latest_for_league(league):
 ### 5.6 LLM 消耗与限速
 
 - 每次 predict 运行触发一次 `warm_translations`（仅对未翻译过的新队名，core/data/parse.py:233-249 + i18n.py:84-100）→ 1 次 LLM 调用（rate_limit=0，i18n.py:66，**无节流**）。
-- `analyse_batch`：每 5 场 1 次调用，rate_limit 库内默认 7 秒（batch_pipeline.py:43）。**实际调用方是 `web/enrich.py`**（作业 `ai_enrich`），显式覆盖 `batch_size: 5`、`min_score: 0`、`rate_limit_seconds: env LP_AI_MIN_INTERVAL_SECONDS`（默认 **60 秒**）。2026-10-28 实测该账号 RPM≈1 次/分钟（未实名），压得更快只会换回更多 429。
-- 429 重试：`_call_openai` 指数退避 20/40/80/120s 封顶 + 抖动、默认 6 次（llm_client.py:19-52,100-140）；Gemini 走模型 fallback 链（llm_client.py:14-19,142-170）。
-- **富化作业的运行期约束**（2026-10-28 事故后定）：146 条约 30 批，仅定速就 30 分钟 ⇒ 作业超时从 `PREDICT_TIMEOUT_SECONDS`(1800) 拆出独立 `AI_ENRICH_TIMEOUT_SECONDS`（默认 **5400**，web/config.py:86）；`ops/league-daily-predict.sh` 的 `LEAGUE_JOB_TIMEOUT` 同步 3600→**5400**（脚本等待必须 ≥ 服务端超时）。
+- `analyse_batch`：每 5 场 1 次调用，rate_limit 库内默认 7 秒（batch_pipeline.py:43）。**实际调用方是 `web/enrich.py`**（作业 `ai_enrich`），显式覆盖 `batch_size: 5`、`min_score: 0`、`rate_limit_seconds: env LP_AI_MIN_INTERVAL_SECONDS`（默认 **3 秒**，对齐实名 apihub 实测 0.5~0.9s/次）。**若切回未实名的 api.agnes-ai.cn（实测 RPM≈1 次/分钟）必须设 60**，否则只是把 429 挪进退避队列。
+- 429 / 网络错误重试：`_call_openai` 指数退避 20/40/80/120s 封顶 + 抖动、默认 6 次（llm_client.py:19-52,106-160）；**超时与连接中断同样重试**（2026-10-28 前是直接返 {}，一批 5 条整批丢分）。单次请求超时 `LLM_TIMEOUT_SECONDS`（默认 **60**，30s 对 5 条/批偏紧，实测有 37s 长尾）；补全上限 `LLM_MAX_TOKENS`（默认 **4096**，2048 会让 5 条/批的 JSON 被截断 ⇒ `finish_reason=length`）。Gemini 走模型 fallback 链（llm_client.py:14-19,163-190）。
+- **富化作业的运行期约束**（2026-10-28 事故后定）：作业超时从 `PREDICT_TIMEOUT_SECONDS`(1800) 拆出独立 `AI_ENRICH_TIMEOUT_SECONDS`（默认 **5400**，web/config.py:86）；`ops/league-daily-predict.sh` 的 `LEAGUE_JOB_TIMEOUT` 同步 3600→**5400**（脚本等待必须 ≥ 服务端超时）。
+- **单轮预算**：`LP_AI_MAX_ITEMS`（默认 **300**）。`collect_items` 汇总每联赛 top 40（最多 20 联赛 = 800 条）后**全局按开球时间排序**再截断 ⇒ 预算不够时先富化马上开踢的比赛，不按联赛顺序饿死。
 - **断点续跑**：每批结束立刻 `save_ai_scores` 并写 `predictions/.ai_enrich_checkpoint.json`（`{"date": "...", "done": ["league|home_en|away_en", ...]}`，原子替换）。下次触发只处理未完成条目；跨天自动失效；当日已全部完成时直接返回 0（不再白烧一轮）。旧实现只在全部跑完后落盘 ⇒ 10-28 那次 1800s 超时被杀后 0 条写回。
-- 环境变量：`LLM_API_KEY`（或 `GEMINI_API_KEY`）、`LLM_API_BASE`（代码默认 `https://apihub.agnes-ai.com/v1`，llm_client.py:78）、`LLM_MODEL`（默认 `agnes-2.5-flash`）。⚠️ `.env` 当前指 `https://api.agnes-ai.cn/v1`（旧地址，代码注释已标废弃）——两个域名的 key 不通用：CN 站 key 打到 apihub 会 401，反之亦然。
+- 环境变量：`LLM_API_KEY`（或 `GEMINI_API_KEY`）、`LLM_API_BASE`（代码默认 `https://apihub.agnes-ai.com/v1`，llm_client.py:78）、`LLM_MODEL`（默认 `agnes-2.5-flash`）。**2026-10-28 起 `.env` 也指向 apihub（实名账号）**；两个域名的 key 不通用（CN key 打 apihub 直接 401，反之亦然），换域名必须同时换 key。
 
 ## 6. 数据源与配额
 

@@ -1,3 +1,8 @@
+# ⚠️ 本文件是**目标设计**，不是线上现状（2026-10-28 用户拍板）：
+#   线上 /etc/systemd/system/league-web.service 跑的是**单 worker、无 --proxy-headers**
+#   的最小单元；本模板是 --workers 2 --proxy-headers + StartLimit/OOMScoreAdjust/
+#   LimitNOFILE/SyslogIdentifier 的加固版。两者并发面与 request.client 语义不同，
+#   照本文件覆盖线上单元前必须先按 README §运行与部署 冒烟，别当成「同步漏了」。
 [Unit]
 Description=league-web FastAPI 服务（dashboard + API）
 Documentation=https://github.com/nxz1026/sports-lottery

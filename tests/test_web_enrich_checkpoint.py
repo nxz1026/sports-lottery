@@ -103,3 +103,36 @@ def test_main_skips_when_all_done(enrich, monkeypatch):
 
     monkeypatch.setattr(bp, "analyse_batch", boom)
     assert enrich.main() == 0
+
+
+# ──────────────────────── 单轮预算（2026-10-28）────────────────────────
+
+def test_collect_items_caps_to_earliest_kickoff(enrich, monkeypatch):
+    """超出 LP_AI_MAX_ITEMS 时只保留**全局**开球最早的 N 场，而不是按联赛顺序饿死。"""
+    docs = {
+        "epl": {"data": {"predictions": [
+            {"match": "late", "home_en": "L1", "away_en": "L2", "kickoff_utc": "2026-10-29T20:00:00Z"},
+            {"match": "early", "home_en": "E1", "away_en": "E2", "kickoff_utc": "2026-10-29T11:00:00Z"},
+        ]}},
+        "laliga": {"data": {"predictions": [
+            {"match": "mid", "home_en": "M1", "away_en": "M2", "kickoff_utc": "2026-10-29T15:00:00Z"},
+        ]}},
+    }
+    monkeypatch.setattr(enrich.store, "latest_by_league", lambda: docs)
+    monkeypatch.setattr(enrich, "MAX_ITEMS", 2)
+
+    names = [it["name"] for it in enrich.collect_items()]
+    assert names == ["early", "mid"]
+
+
+def test_collect_items_keeps_all_when_under_budget(enrich, monkeypatch):
+    docs = {
+        "epl": {"data": {"predictions": [
+            {"match": "b", "home_en": "B1", "away_en": "B2", "kickoff_utc": "2026-10-29T20:00:00Z"},
+            {"match": "a", "home_en": "A1", "away_en": "A2", "kickoff_utc": "2026-10-29T11:00:00Z"},
+        ]}},
+    }
+    monkeypatch.setattr(enrich.store, "latest_by_league", lambda: docs)
+    monkeypatch.setattr(enrich, "MAX_ITEMS", 300)
+
+    assert [it["name"] for it in enrich.collect_items()] == ["a", "b"]

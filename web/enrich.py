@@ -23,6 +23,10 @@ LP_AI_PRIORITIES = os.environ.get("LP_AI_PRIORITIES", "")
 # 当日富化进度（断点续跑）：RPM 受限账号一轮要跑几十分钟，作业被超时杀掉后
 # 靠它跳过已完成条目，而不是从头再来。
 CHECKPOINT_FILE = REPO_ROOT / "predictions" / ".ai_enrich_checkpoint.json"
+# 单轮富化预算（全局，按开球时间取最早的 N 场）。上限存在的理由：上游是共享配额，
+# 每联赛 40 场 × 最多 20 个联赛 = 800 条 = 160 批，低速率账号下要跑 160 分钟 ⇒
+# 必然撞作业超时（2026-10-28 实测 8 个联赛 138 条 = 28 批 ≈ 32 分钟）。
+MAX_ITEMS = int(os.environ.get("LP_AI_MAX_ITEMS", "300"))
 logger = logging.getLogger(__name__)
 
 
@@ -39,26 +43,41 @@ def _limited_predictions(preds: list[dict], league_key: str) -> list[dict]:
 
 
 def collect_items() -> list[dict]:
-    """从 store 取每联赛最新预测，按开球时间最多取 40 场构造富化项。"""
+    """从 store 取每联赛最新预测（每联赛 ≤40 场），全局按开球时间取最早 MAX_ITEMS 场。
+
+    排序口径是「开球时间」而非联赛顺序：预算不够时先富化马上要开踢的比赛，
+    而不是按 dict 迭代顺序随机饿死几个联赛。缺失开球时间的排最后。
+    """
     by_league = store.latest_by_league()
-    items: list[dict] = []
+    candidates: list[tuple[str, str, dict]] = []
     for league_key, doc in by_league.items():
         preds = _limited_predictions(doc.get("data", {}).get("predictions", []), league_key)
         for pred in preds:
-            match = pred.get("match", "")
-            items.append({
-                "name": match,
-                # 英文原名：AI 分数的稳定主键（见 ai/feedback_loop.py::score_key）。
-                # 中文名是 to_cn() 的派生显示值，LLM 会把它"纠正"成别的队
-                # （实测 '埃尔切'→'阿根廷'、'勒芒'→'洛森'），不能作匹配键。
-                "home_en": pred.get("home_en", ""),
-                "away_en": pred.get("away_en", ""),
-                "league": league_key,
-                "date_found": "",
-                "direction": pred.get("direction", "?"),
-                "stars": pred.get("stars", "?"),
-                "confidence": pred.get("confidence_score", ""),
-            })
+            candidates.append((_prediction_time(pred), league_key, pred))
+    candidates.sort(key=lambda c: (c[0] or "\uffff", c[1]))
+    if len(candidates) > MAX_ITEMS:
+        logger.warning(
+            "AI 富化超出单轮预算：%d 场 → 只富化开球最早的 %d 场（LP_AI_MAX_ITEMS）",
+            len(candidates), MAX_ITEMS,
+        )
+        candidates = candidates[:MAX_ITEMS]
+
+    items: list[dict] = []
+    for _kickoff, league_key, pred in candidates:
+        match = pred.get("match", "")
+        items.append({
+            "name": match,
+            # 英文原名：AI 分数的稳定主键（见 ai/feedback_loop.py::score_key）。
+            # 中文名是 to_cn() 的派生显示值，LLM 会把它"纠正"成别的队
+            # （实测 '埃尔切'→'阿根廷'、'勒芒'→'洛森'），不能作匹配键。
+            "home_en": pred.get("home_en", ""),
+            "away_en": pred.get("away_en", ""),
+            "league": league_key,
+            "date_found": "",
+            "direction": pred.get("direction", "?"),
+            "stars": pred.get("stars", "?"),
+            "confidence": pred.get("confidence_score", ""),
+        })
     return items
 
 
@@ -101,8 +120,10 @@ def main() -> int:
         logger.info("[AI Enrich] no items")
         return 0
 
-    # 未实名账号 RPM 约 1 次/分钟（2026-10-28 实测），所以：串行 + 长间隔定速
-    # + 每批 checkpoint。作业被 1800s/5400s 超时杀掉后，下一次触发只补没做完的。
+    # 串行 + 定速 + 每批 checkpoint。作业被超时杀掉后，下一次触发只补没做完的。
+    # 定速值取决于上游账号：apihub（实名）单次 0.4~9s，3s 足够；若切回未实名
+    # 的 api.agnes-ai.cn（RPM≈1/分钟），必须把 LP_AI_MIN_INTERVAL_SECONDS 设成 60，
+    # 否则只是把 429 换到退避里排队。
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     done = _load_checkpoint(today)
     pending = [it for it in items if _item_key(it) not in done]
@@ -124,7 +145,7 @@ def main() -> int:
             "model": os.environ.get("LLM_MODEL") or "agnes-2.5-flash",
             "batch_size": 5,
             # 定速：低于上游 RPM 上限只会换来越多 429 退避，不会更快。
-            "rate_limit_seconds": float(os.environ.get("LP_AI_MIN_INTERVAL_SECONDS", "60")),
+            "rate_limit_seconds": float(os.environ.get("LP_AI_MIN_INTERVAL_SECONDS", "3")),
             "min_score": 0,
         },
         "priorities": priorities,

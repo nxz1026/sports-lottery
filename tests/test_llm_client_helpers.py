@@ -20,7 +20,7 @@ D-105 锁 _call_openai + _call_gemini (6 测, stub requests.post):
 - D-105-1: _call_openai 200 + 合法 JSON -> 返 dict (1 POST 调用)
 - D-105-2: _call_openai 429 x3 -> 3 retries 后返 {}
 - D-105-3: _call_openai 非 200/429 (e.g. 500) -> 立即返 {}
-- D-105-4: _call_openai requests.RequestException -> 返 {}
+- D-105-4: _call_openai requests.RequestException -> 退避重试 MAX_ATTEMPTS 后返 {}
 - D-105-5: _call_gemini 200 -> 1 POST 调用即返
 - D-105-6: _call_gemini 429 fallback 链 -> 第 1 个 model 429, 第 2 个 200 即成功
 
@@ -190,17 +190,20 @@ def test_d105_3_call_openai_returns_empty_on_500(llm_mod):
     assert mock_post.call_count == 1  # 不 retry 非 200/429
 
 
-def test_d105_4_call_openai_returns_empty_on_request_exception(llm_mod):
-    """D-105-4: _call_openai requests.RequestException -> 返 {} (L97-99).
+def test_d105_4_call_openai_retries_request_exception_then_returns_empty(llm_mod, monkeypatch):
+    """D-105-4: 超时/连接中断属瞬时故障 ⇒ 退避重试到 MAX_ATTEMPTS 后返 {}.
 
-    即使尝试 3 次, 每次都抛 RequestException 也立即返 {}.
+    2026-10-28 改动：旧实现在 RequestException 上**直接**返 {}（不重试），
+    一批 5 条只要撞一次 30s 读超时就整批丢分（实测复跑最后 2 条即此因）。
     """
     import requests as real_requests  # noqa: PLC0415 - real exception class
 
-    with patch("requests.post", side_effect=real_requests.RequestException("network down")):
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    with patch("requests.post", side_effect=real_requests.RequestException("network down")) as mock_post:
         out = llm_mod._call_openai("p", "m", "https://api.example.com/v1", "k")
 
     assert out == {}
+    assert mock_post.call_count == llm_mod.MAX_ATTEMPTS
 
 
 def test_d105_5_call_gemini_returns_dict_on_200(llm_mod):

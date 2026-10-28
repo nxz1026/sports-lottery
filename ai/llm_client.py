@@ -22,6 +22,12 @@ _rate_lock = threading.Lock()
 MAX_ATTEMPTS = int(os.environ.get("LLM_MAX_ATTEMPTS", "6"))
 BACKOFF_BASE_SECONDS = float(os.environ.get("LLM_BACKOFF_BASE_SECONDS", "20"))
 BACKOFF_MAX_SECONDS = float(os.environ.get("LLM_BACKOFF_MAX_SECONDS", "120"))
+# 单次补全的 token 上限。富化每批 5 条、每条含 summary+notes，2048 会被截断
+# （finish_reason=length ⇒ JSON 不完整 ⇒ _parse_openai 返 {} ⇒ 整批白跑一次）。
+MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "4096"))
+# 单次请求超时。30s 对 5 条/批的富化太紧（实测单条 say-ok 都有 37s 长尾），
+# 而超时后旧实现直接返 {} 不重试 ⇒ 整批丢分（2026-10-28 复跑最后 2 条就是这么丢的）。
+TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "60"))
 
 
 def _retry_after(resp) -> float | None:
@@ -104,7 +110,9 @@ def _call_openai(prompt: str, model: str, api_base: str, api_key: str) -> dict:
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
-        "max_tokens": 2048,
+        # 2048 在 5 条/批的富化 prompt 下会被截断（finish_reason=length）⇒ 整批 JSON
+        # 解析失败 ⇒ 白跑一次重试，重试再截断就丢分。2026-10-28 实测 17 批里 9 批截断。
+        "max_tokens": MAX_TOKENS,
         "response_format": {"type": "json_object"},
     }
     for attempt in range(MAX_ATTEMPTS):
@@ -113,7 +121,7 @@ def _call_openai(prompt: str, model: str, api_base: str, api_key: str) -> dict:
                 url,
                 json=payload,
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                timeout=30,
+                timeout=TIMEOUT_SECONDS,
             )
             if resp.status_code == 429:
                 if attempt + 1 >= MAX_ATTEMPTS:
@@ -132,9 +140,22 @@ def _call_openai(prompt: str, model: str, api_base: str, api_key: str) -> dict:
             if not result:
                 logger.warning("[LLM] Failed to parse response: %s", resp.text[:200])
             return result
-        except requests.RequestException:
-            logger.error("[LLM] Request failed", exc_info=True)
-            return {}
+        except requests.RequestException as exc:
+            # 超时/连接中断是**瞬时**故障，和 429 一样值得重试：旧实现直接返 {}，
+            # 一批 5 条就整批丢分（2026-10-28 复跑最后 2 条即此因）。
+            if attempt + 1 >= MAX_ATTEMPTS:
+                logger.error(
+                    "[LLM] Request failed after %d attempts: %s: %s",
+                    MAX_ATTEMPTS, type(exc).__name__, exc,
+                )
+                return {}
+            wait = _backoff_seconds(attempt)
+            logger.warning(
+                "[LLM] request error %s, retry %d/%d after %.0fs",
+                type(exc).__name__, attempt + 1, MAX_ATTEMPTS - 1, wait,
+            )
+            time.sleep(wait)
+            continue
     logger.error("[LLM] Gave up after %d attempts on 429", MAX_ATTEMPTS)
     return {}
 

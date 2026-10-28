@@ -19,7 +19,7 @@
   scripts/market/   （下一单）去水与 CLV/Brier 校准指标
 DB：PostgreSQL 18 单实例多 schema  ref / stg / ops / raw / fact（+ model / analysis 待建），三角色最小权限
      详见 docs/db/infra_p0_*.sql 与 docs/infra/README-infra.md（若未入库则在队长工作区）
-测试基线：python -m pytest tests -q → **2933 passed / 75 skipped / 0 failed**（3008 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 手动模式+新鲜度守门+采集端原子性 +32** + **§6.13.6 保留策略+gaps 口径+坏文件不掀翻整批 +5** + **§6.13.7 看板假的无数据（部署后服务没重启）+6** + **§6.14 模型概率唯一真源（P0：同一页面 4 个赢面）+14** + **§6.15–§6.16 P1/P2/P2-I 收口 +109**（新增 6 个测试文件共 101 条 + 既有文件补测 8 条）+ **P2-J Markdown 标记泄漏 +6** + **P2-K 首屏兜底 +11** + **P2-L 阈值政策变更 12.9% +8** + **P2-M 首屏健壮性补漏 +8** + **P2-N 荐单门槛口径标注 +17**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
+测试基线：python -m pytest tests -q → **2935 passed / 75 skipped / 0 failed**（3010 collected。v2.1 660 → v2.2 精修 R3-R5 +546 → **R19-R30 +443** + **R31-R61 +697** + **R62-R66 +83** + **R48/R48b +11** + **建议 1 欧冠落地 +20** + **建议 3 分层命中率/CLV +27** + **建议 4 决策层 +22** + **建议 5 异动告警 +30** + **建议 6 体彩统计面板 +43** + **顺手修两项坏指标 +9** + **建议 6 复算脚本 +14** + **两条遗留收尾 +21** + **§6.12 事故修复 +77** + **§6.12.5 赔率口径修正 +13** + **§6.13 三项全做收尾 +55** + **§6.13.5 手动模式+新鲜度守门+采集端原子性 +32** + **§6.13.6 保留策略+gaps 口径+坏文件不掀翻整批 +5** + **§6.13.7 看板假的无数据（部署后服务没重启）+6** + **§6.14 模型概率唯一真源（P0：同一页面 4 个赢面）+14** + **§6.15–§6.16 P1/P2/P2-I 收口 +109**（新增 6 个测试文件共 101 条 + 既有文件补测 8 条）+ **P2-J Markdown 标记泄漏 +6** + **P2-K 首屏兜底 +11** + **P2-L 阈值政策变更 12.9% +8** + **P2-M 首屏健壮性补漏 +8** + **P2-N 荐单门槛口径标注 +17**）。0 直测 helper 清零细节见 `docs/refine/R19_R30_test_optimization_report.md` 与下方 v2.3 段。
 ```
 
 两条已推翻转 v1 文档的实测结论（都带取证）：
@@ -491,6 +491,12 @@ GET /api/jc/freshness?threshold_hours=24  topic 新鲜度（超阈值标 stale�
 | 进程 | `league-web.service`（systemd `127.0.0.1:8077`，`Restart=on-failure`） |
 | 公网入口 | 本机 Nginx（`/jc/` → 静态入口 + `/jc/api/` → `league-api /api/`；该路径 `auth_basic off`，鉴权由应用层 session 负责） |
 
+> ⚠️ **仓库模板 ≠ 线上现状（2026-10-28 用户拍板）**：`ops/league-web.service` 是**目标设计**
+> （`--workers 2 --proxy-headers` + `StartLimit`/`OOMScoreAdjust`/`LimitNOFILE`/`SyslogIdentifier`），
+> 线上实际跑的是**单 worker、无 `--proxy-headers`** 的最小单元。**这是有意为之，不是漏部署**。
+> 两者行为不同：多 worker 会改变 session/文件锁并发面，`--proxy-headers` 影响 `request.client`
+> 与登录限速取 IP。**别照模板直接覆盖线上单元**，要改先按 §部署链路 走一遍冒烟。
+
 **nginx location → 后端路径速查（P3-D1）**：
 
 | 公网路径 | nginx target | league-api 内部路径 |
@@ -538,6 +544,27 @@ sudo tail -F /var/log/nginx/error.log
    ⇒ **部署后必须重启**，并用 `python tools/check_service_freshness.py` 自检（比对 `/health` 的 `code_sha` 与仓库 HEAD，
    不一致 ⇒ 退出码 1 + 打印修复命令）。`.env` 改动同样必须手动 restart。
 3. 核验：`curl -kI https://140.83.62.161/jc/` 返回 200（该路径 `auth_basic off`，无需 Basic 凭据），`/jc/api/v1/me` 过应用层账号（`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`）登录后 200；**再跑 `python tools/check_service_freshness.py`**（必须退出码 0）。
+
+**可调环境变量**（`.env`，全部有代码默认值；改完必须 `sudo systemctl restart league-web`）：
+
+| 变量 | 默认 | 作用 / 什么时候要改 |
+|---|---|---|
+| `PREDICT_TIMEOUT_SECONDS` | 600（线上 .env 设 1800） | 预测类作业子进程超时 |
+| `AI_ENRICH_TIMEOUT_SECONDS` | 5400 | AI 富化作业超时（与 predict 解耦，富化要跑几十批） |
+| `LP_AI_MAX_ITEMS` | 300 | 单轮富化总条数上限（按开球时间取最早 N 场） |
+| `LP_AI_MIN_INTERVAL_SECONDS` | 3 | 富化调用间隔；**未实名 CN 站必须设 60** |
+| `LP_AI_PRIORITIES` | 空 | 富化评分偏好（逗号分隔，覆盖内置三条） |
+| `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` | apihub / — / agnes-2.5-flash | LLM 上游；**两个域名的 key 不通用** |
+| `LLM_MAX_ATTEMPTS` / `LLM_BACKOFF_BASE_SECONDS` / `LLM_BACKOFF_MAX_SECONDS` | 6 / 20 / 120 | 429 **与瞬时网络错误**的退避（指数 + 抖动，`Retry-After` 优先） |
+| `LLM_TIMEOUT_SECONDS` | 60 | 单次请求超时；30s 对 5 条/批偏紧（实测有 37s 长尾） |
+| `LLM_MAX_TOKENS` | 4096 | 单次补全上限；2048 会让 5 条/批的 JSON 被截断 |
+| `PREDICT_DAILY_LIMIT` | 80 | 每日触发配额（predict / bball / ai-enrich 共享） |
+| `JOBS_DIR` / `QUOTA_FILE` | `web/.data/jobs` / `web/.data/quota.json` | 作业状态与配额计数落盘位置 |
+| `SESSION_TTL_SECONDS` / `SESSION_CLEANUP_ON_ACCESS` | 43200 / 1 | 登录会话有效期（12h）/ 是否每次访问续期 |
+| `LOGIN_MAX_FAILURES` / `LOGIN_LOCKOUT_SECONDS` | 5 / 600 | 登录爆破锁定阈值（次）与时长（10 分钟） |
+| `PUBLIC_BASE_URL` / `CORS_ORIGINS` / `TRUSTED_PROXY_IPS` | `https://140.83.62.161/jc/` / 空 / `127.0.0.1,::1` | 分享链接基址 / 跨域 / 反代取真实 IP 的白名单 |
+| `API_FOOTBALL_*`（BASE_URL / TIMEOUT_SECONDS / DAILY_LIMIT / MINUTE_LIMIT / CACHE_DIR / CACHE_TTL_SECONDS） | `v3.football.api-sports.io` / 10 / 100 / 10 / `.data/api-football-cache` / 900 | api-football 源地址、超时与配额（免费档 100 次/天、10 次/分钟） |
+| `LP_OUTPUT_DIR` | `<repo>/scripts` | 引擎产物根目录（预测 JSON 落在其 `predictions/`） |
 
 **运行时预测/富化**（在 Web 界面触发，或 API）：
 - `POST /api/v1/jobs/predict`（选联赛/数据源/蒙特卡洛）跑 `scripts/predict.py`。**不传参数时只跑英超**（`--league` 默认值 `epl`）；要跑全部 5 个足球联赛须显式传 `{"all": true}`，或传 `{"league": "laliga"}` 等指定单个联赛。
@@ -812,8 +839,29 @@ Dashboard 的 AI 日报由当日预测与已有 `ai_scores.json` 确定性聚合
 **验证**：真实接口冒烟「429×2 → 21s/42s 退避后成功」；当日补跑 138 条全量完成
 （28 批，中途仍偶发 429，退避后恢复，checkpoint 逐批递增到 138/138）。
 
-**遗留**：富化上限仍是「每联赛 40 场 × 最多 20 联赛 = 800 条」，60s 定速下理论上限 160 分钟，
-超过 5400s —— 高峰期会跑到超时（有 checkpoint 不丢，但要再触发一轮）。
+**同日追加两项（用户拍板）**
+
+1. **切上游到 apihub（实名账号）**：`.env` 的 `LLM_API_BASE` 由废弃的
+   `https://api.agnes-ai.cn/v1` 改为 `https://apihub.agnes-ai.com/v1`，`LLM_API_KEY`
+   换成实名账号的 key（两站 key 不通用：CN key 打 apihub 直接 401）。实测单次
+   0.5~0.9s（偶发 37s 长尾）⇒ 定速 `LP_AI_MIN_INTERVAL_SECONDS` 默认从 60 降到 **3**。
+   冒烟：2 条/1 批 **5.1s** 完成（改前同样两条要 67s，全耗在 429 退避）。
+   若日后切回未实名 CN 站，**必须**把该值设回 60，否则只是把 429 挪进退避队列。
+2. **单轮预算**：`LP_AI_MAX_ITEMS`（默认 **300**）。`collect_items` 先汇总所有联赛候选
+   （每联赛 ≤40 场），**全局按开球时间排序**后截断 —— 预算不够时先富化马上开踢的比赛，
+   而不是按 dict 顺序饿死几个联赛。上限理由是 20 联赛 × 40 = 800 条 = 160 批，
+   低速率账号下要跑 160 分钟、必然撞超时。
+
+**切到 apihub 后立刻暴露的两个老问题（同批修掉）**
+
+- **`max_tokens=2048` 会截断**：5 条/批的 JSON 常在 2048 处被切（`finish_reason=length`）
+  ⇒ `_parse_openai` 拿不到完整 JSON ⇒ 整批白跑一次重试，重试再截断就丢分。
+  实测复跑 17 批里 **9 批截断**，28 批跑完只写回 103/138。改 `LLM_MAX_TOKENS` 默认 **4096**。
+- **读超时不重试**：`requests.post(timeout=30)` 撞长尾（实测单次调用有 37s）直接抛
+  `ReadTimeout`，旧代码**不重试、直接返回 {}** ⇒ 整批 5 条丢分（复跑最后 2 条即此因）。
+  改 `LLM_TIMEOUT_SECONDS` 默认 **60**，且超时/连接中断与 429 一样走退避重试。
+
+两项改完后补跑：剩余 35 条 → 2 批补到 135，再 1 批补到 **138/138**（`done`）。
 
 ### v2.1 (2026-10) 精修本轮（5 commit）
 
