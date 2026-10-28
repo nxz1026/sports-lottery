@@ -304,8 +304,7 @@ def pick_latest_for_league(league):
 | `ai/batch_pipeline.py` | `analyse_batch(items, ..., on_batch=None)`：按 batch_size=5 分批构造 prompt，调 LLM 打分，给每 item 附加 `ai_score`(0-100)/`ai_summary`/`ai_notes`；低于 `min_score` 过滤（默认 0 不过滤）；AI 未返回对应项时**原样保留 item**（不丢弃）。`on_batch(batch_no, batch_total, scored)` 每批结束回调，供调用方 checkpoint | batch_pipeline.py:24-60 |
 | `web/enrich.py` | 作业 `ai_enrich` 的入口（`python -m web.enrich`）：`collect_items` 取每联赛最新预测 top 40 → `analyse_batch` → 每批 `save_ai_scores` + 写 checkpoint，支持断点续跑 | web/enrich.py:95-195 |
 | `ai/feedback_loop.py` | 桥接层：`save_ai_scores`（写 ai_scores.json）、`load_ai_adjustments`（按联赛过滤读取）、`adjust_prediction`（改写预测）、`reconcile_results`（AI 维度命中统计） | feedback_loop.py:23-116,119-223 |
-| `ai/feedback_memory.py` | 用户反馈（positive/negative）→ prompt 偏好段落；**未被任何引擎代码 import**（孤立模块，grep 无调用方） | feedback_memory.py:1-44；grep 无结果 |
-| `scripts/ai_enrich_gha.py` | GHA 邮件富化：读 `/tmp/predict_output.txt`，LLM 分析后追加到 `/tmp/email_body.txt` | ai_enrich_gha.py:14-25,117-149 |
+| ~~`ai/feedback_memory.py`~~ | **已于 `7c452ab` 删除**（零引用死模块） | git log |
 
 ### 5.3 AI 文本落在预测 JSON 的哪些字段
 
@@ -319,7 +318,7 @@ def pick_latest_for_league(league):
 | `ai_score_used` | int | 使用的 AI 分（0-100） | 同上 |
 | `ai_adjustment_factor` | float | 调整因子（0.7–1.3） | 同上 |
 
-**AI 富化文本只出现在邮件推送产物**（ai_enrich_gha.py:75-82）：`=== AI 分析 ===` 段每场一行 `• {name} **{ai_score}/100** — {summary}`；富化的结构化数据（`ai_score`/`ai_summary`/`ai_notes`）仅持久化在 `ai_scores.json`，**不进入 prediction 文件**。
+**AI 富化文本不出现在 prediction 文件**：富化的结构化数据（`ai_score`/`ai_summary`/`ai_notes`）只落 `predictions/ai_scores.json`，页面由 `/api/v1/ai/*` 读该文件渲染。GHA 时代把它拼进邮件的 `=== AI 分析 ===` 段，那段链路已随 `7c452ab` 删除。
 
 证据：样本 `prediction_2026-07-21_13.json` 全文件无 `ai_` 前缀字段（M0a 已核对）；feedback_loop.py:98-101 字段注入点。
 
@@ -327,14 +326,14 @@ def pick_latest_for_league(league):
 
 - `AI_SCORES_FILE = 仓库根/predictions/ai_scores.json`（feedback_loop.py:19）——**注意：这是 REPO_ROOT 级路径，不是 scripts/ 下**（`Path(__file__).resolve().parent.parent`，feedback_loop.py:18）。与预测文件目录（`FOOTBALL_DIR/predictions`，constants.py:39）**不一致**：`LP_OUTPUT_DIR` 重定向只影响引擎产物，不影响 ai_scores.json。web 层若展示 AI 分需读仓库根 `predictions/ai_scores.json`（疑点 §9-11）。
 - schema：`{ "比赛英文名": {"ai_score": int, "ai_summary": str, "ai_notes": str, "league": str, "source": str} }`（feedback_loop.py:59-65）。
-- 写入时机：`ai_enrich_gha.py:135-137` 调 `save_ai_scores(enriched_items, league_key="")`——**league_key 传空串**，实际 league 取 item 的 `source` 字段（feedback_loop.py:63）；`load_ai_adjustments(league_key)` 过滤条件 `v.get("league") == league_key`（feedback_loop.py:38）依赖 source 恰好等于引擎 league key（`enrich_via_llm` 中 `league.get("league", "?")` 赋值，ai_enrich_gha.py:35-46）。**league 匹配链脆弱，存在对不上的风险**（疑点 §9-12）。
+- 写入时机：`web/enrich.py` 每批结束调 `save_ai_scores(scored, league_key="")`（`_checkpoint`）——**league_key 传空串**，实际 league 取 item 自带的 `league` 字段（feedback_loop.py:63）；`collect_items` 直接写 `item["league"] = league_key`（web/enrich.py:47），与引擎 key 同源，**旧 GHA 链的 source 失配问题已不存在**（疑点 §9-12 可结案）。
 - 周期：Day N 富化 → Day N+1 预测读（feedback_loop.py:4-8 docstring）。
 
 ### 5.5 未配置 LLM 时的降级路径（分三层）
 
 1. **主预测链（predict.py）**：`from ai.feedback_loop import ...` 包在 try/except 中（predict.py:44-48），导入失败 → `load_ai_adjustments=lambda: {}`、`adjust_prediction=lambda pred, adj: pred`（恒等）→ 预测照常生成，无 AI 标记字段。`ai_adjustments={}` 时 `_generate_predictions` 跳过 adjust（predict.py:160-161）。
 2. **队名翻译（链路 C）**：`translate_team_names` 任何异常返回 `{}`（i18n.py:79-81）；`generate()` 无 key 直接 `return {}`（llm_client.py:42-43）；`to_cn` 查不到返回原名（i18n.py:110）→ **预测 JSON 全程回退英文队名**（core/data/parse.py:258,280-281）。这是样本中 `match/home/away` 为英文的原因。
-3. **富化脚本（链路 B）**：无 `LLM_API_KEY`/`GEMINI_API_KEY` → 打印 skip 并 return（ai_enrich_gha.py:123-126），不写 ai_scores.json，不产生邮件富化段。
+3. **富化作业（链路 B）**：`LLM_API_KEY` 缺失 → `generate()` 直接返回 `{}`（llm_client.py:70-72）⇒ 整轮无条目带 `ai_score` ⇒ `web/enrich.py` 返回 1 并打印「全部条目未评分，AI 富化失败」，作业落 `failed`（不再伪装成功）。
 
 **web 层「AI 不阻塞主流程」的吞错位置**：引擎侧已把 LLM 失败全部降级为 no-op/空数据，主预测 JSON 永远可产出（status=ok 不依赖 LLM）。web 层扩展模块只需：① 读 ai_scores.json 失败按空 dict 处理（`load_ai_adjustments` 本身已如此，feedback_loop.py:28-34）；② 展示 AI 字段缺失时回退纯引擎字段；③ 切勿在 web 侧直接 import `ai/`（依赖 requests，见 requirements，且引擎已封装好）。
 
@@ -345,7 +344,7 @@ def pick_latest_for_league(league):
 - 429 重试：`_call_openai` 指数退避 20/40/80/120s 封顶 + 抖动、默认 6 次（llm_client.py:19-52,100-140）；Gemini 走模型 fallback 链（llm_client.py:14-19,142-170）。
 - **富化作业的运行期约束**（2026-10-28 事故后定）：146 条约 30 批，仅定速就 30 分钟 ⇒ 作业超时从 `PREDICT_TIMEOUT_SECONDS`(1800) 拆出独立 `AI_ENRICH_TIMEOUT_SECONDS`（默认 **5400**，web/config.py:86）；`ops/league-daily-predict.sh` 的 `LEAGUE_JOB_TIMEOUT` 同步 3600→**5400**（脚本等待必须 ≥ 服务端超时）。
 - **断点续跑**：每批结束立刻 `save_ai_scores` 并写 `predictions/.ai_enrich_checkpoint.json`（`{"date": "...", "done": ["league|home_en|away_en", ...]}`，原子替换）。下次触发只处理未完成条目；跨天自动失效；当日已全部完成时直接返回 0（不再白烧一轮）。旧实现只在全部跑完后落盘 ⇒ 10-28 那次 1800s 超时被杀后 0 条写回。
-- 环境变量：`LLM_API_KEY`（或 `GEMINI_API_KEY`）、`LLM_API_BASE`（默认 `https://api.agnes-ai.cn/v1`）、`LLM_MODEL`（默认 `agnes-2.5-flash`）（llm_client.py:38-40）。只写变量名，值不落文档。
+- 环境变量：`LLM_API_KEY`（或 `GEMINI_API_KEY`）、`LLM_API_BASE`（代码默认 `https://apihub.agnes-ai.com/v1`，llm_client.py:78）、`LLM_MODEL`（默认 `agnes-2.5-flash`）。⚠️ `.env` 当前指 `https://api.agnes-ai.cn/v1`（旧地址，代码注释已标废弃）——两个域名的 key 不通用：CN 站 key 打到 apihub 会 401，反之亦然。
 
 ## 6. 数据源与配额
 
@@ -382,12 +381,7 @@ def pick_latest_for_league(league):
 
 ### 6.4 缓存策略（core/cache.py）
 
-**现状：`core/cache.py` 是孤立实现，未被任何 fetch 路径调用**（grep 全仓 `cached_fetch|get_cached|set_cache|clear_cache|purge_expired|cache_key_from_url` 仅命中 cache.py 自身定义）。fetch.py 每次请求直接 `urllib.request.urlopen`（fetch.py:93,156,206），**无磁盘缓存**。缓存模块事实：
-
-- 目录：`FOOTBALL_DIR/.cache`（cache.py:17）；文件 `{key}.json`（cache.py:37）。
-- 键：`sha256(url[?params])[:16]`，params 按 key 排序后拼接（cache.py:29-32）。
-- TTL：默认 3600s（cache.py:18）；entry 结构 `{"_payload": ..., "_cached_at": ...}`（cache.py:57-58）。
-- 操作：`get_cached`（过期返回 None）、`set_cache`、`clear_cache`、`purge_expired`、`cached_fetch` 包装器（cache.py:35-123）。
+**现状：没有磁盘缓存层**。曾经存在一个孤立的 `scripts/core/cache.py`（TTL 1h / `FOOTBALL_DIR/.cache` / SHA256 URL 键），因 fetch 层从未接线、零 import，已于 `4b35208` 删除。fetch.py 每次请求直接 `urllib.request.urlopen`（fetch.py:93,156,206），**无磁盘缓存**。
 
 **web 层含义**：引擎每次运行都是真实联网调用（无缓存兜底）。web 层若频繁触发 predict 子进程，会直接消耗上游配额；「sources 状态」端点读的是 `get_rate_limit_status()` 内存态（fetch.py:58-64）——**该状态是进程内变量，predict 子进程退出即丢失**，无法跨进程读取（疑点 §9-13）。web 层如需节流应自行实现（或用引擎预留的 cache.py 模式）。
 
@@ -549,7 +543,7 @@ def pick_latest_for_league(league):
 1. **[M0a] `--all` 多联赛同名覆盖**：`_save_output` 文件名为 `prediction_{now:%Y-%m-%d_%H}.json`，不含 league；`--all` 时各联赛在同一小时内写同一文件，后写覆盖先写，磁盘只留最后一个联赛（predict.py:171-176,431-444）。web 层按联赛取数需改文件名带 league 后缀；由队长拍板是否改代码。
 2. **[M0a] 时区口径矛盾**：样本 `generated_at` 为 `+00:00`，而现版 main 传参 `now_bjt`（predict.py:422-446）应得 `+08:00`。可能①样本是旧版产物（`no_future_matches` 分支现版也不落盘，sample 10/11 文件存在即旧版证据）；②存在另一入口以 UTC 调用（如 GHA workflow import run_league）。`[需运行时验证]`：跑一次单联赛预测看 `generated_at` 时区即可定论（M0b 禁止运行，留给 M1）。
 3. **[M0a] 文件名/时间戳时区不一致**：预测文件名与 `generated_at` 是 BJT（predict.py:422），而 `results/result_{date}.json` 文件名是 UTC（output.py:36）。web 层展示与清理需各自换算。
-4. **[M0a] `--no-fetch` 语义误导**：help 写 "Use local cached data"，实际 `events=[]` 空列表（predict.py:82-84）。**M0b 补充**：`core/cache.py` 存在（TTL 1h、`FOOTBALL_DIR/.cache`、SHA256 URL 键，cache.py:17-18,21-32），但 **fetch 层从未调用**（grep 全仓仅命中 cache.py 自身）——`--no-fetch` 与缓存模块都是「半成品」。
+4. **[M0a] `--no-fetch` 语义误导**：help 写 "Use local cached data"，实际 `events=[]` 空列表（predict.py:82-84）。**已结案**：缓存模块 `scripts/core/cache.py` 从未接线，已随 `4b35208` 删除 ⇒ `--no-fetch` 就是「空列表」，不是「读缓存」。
 5. **[M0a] Web 层读取路径**：`PREDICTIONS_DIR`/`RESULTS_DIR` 指向 `scripts/predictions`、`scripts/results`（constants.py:37-40），仓库根同名目录为空壳。web 层读文件路径须以 `scripts/` 为根（或由环境变量 `LP_OUTPUT_DIR` 重定向）。
 6. **[M0a] 样本字段漂移**：样本 13 缺 predictor.py:342-343 的 `ml_model_used`/`ml_proba`；`prediction_10/11` 空文件属旧版行为。web 层 schema 校验需容忍缺失。
 7. **[M0a] 方向判定健壮性**：`direction` 为「中文队名 + 胜/(接近)」自由字符串，回填对账靠前缀匹配（backtest.py:56-65）；队名互为前缀时前缀解析可能歧义，predictor.py:299-303 已留 warning。web 层若自行回填需复用同一解析逻辑。

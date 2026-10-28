@@ -2,7 +2,7 @@
 AI Feedback Loop — bridge between AI enrichment and prediction engine.
 
 Flow:
-  Day N:  predict.py → ai_enrich_gha.py → save_ai_scores()
+  Day N:  predict.py → python -m web.enrich（作业 ai_enrich）→ save_ai_scores()
   Day N+1: predict.py → load_ai_scores() → adjust prediction confidence → predict
 
 Usage:
