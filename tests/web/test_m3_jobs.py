@@ -517,3 +517,23 @@ def test_bball_shares_quota_and_concurrency_with_football(client, monkeypatch):
     finally:
         gate.set()
         _drain_jobs()
+
+def test_ai_enrich_job_uses_its_own_long_timeout(tmp_path, monkeypatch):
+    """★ 2026-10-29：AI 富化的作业超时必须用 `AI_ENRICH_TIMEOUT_SECONDS`（默认 5400），
+    **不能**落到 `PREDICT_TIMEOUT_SECONDS`（`.env` 里是 1800）。
+
+    事故：2026-10-28 01:35 那次 timer 触发的 ai_enrich 作业记录里 `timeout=1800`
+    ⇒ 跑满 30 分钟被 kill，日志里全是 `429 rate limited`。
+    根因是**当时运行的 league-web 还是旧代码**（ai_enrich 与 predict 共用 1800）；
+    现在代码已分开，这条守卫保证它不会再被合回去。
+    """
+    from web import config
+    from web.services import jobs
+
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path)
+    job = jobs.create_job([], trigger="timer", script="ai_enrich")
+
+    assert job["timeout"] == config.AI_ENRICH_TIMEOUT_SECONDS, job
+    assert job["timeout"] > config.PREDICT_TIMEOUT_SECONDS, (
+        "AI 富化比预测慢一个量级，超时不能一样"
+    )
