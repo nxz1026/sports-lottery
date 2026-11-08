@@ -360,7 +360,7 @@ def main() -> int:
     # ---- 2. timer 触发时刻 ----
     timer = read(ROOT / "ops" / "league-daily-predict.timer")
     m = re.search(r"OnCalendar=\*-\*-\*\s+(\d{2}:\d{2}):\d{2}\s+(\S+)", timer)
-    check("timer OnCalendar 时刻", "07:01", m.group(1))
+    check("timer OnCalendar 时刻", "21:00", m.group(1))
     check("timer 时区", "Asia/Shanghai", m.group(2))
     # README 不得把 09:00 描述为**现行**触发时刻。
     # 放行三类行：

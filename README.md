@@ -580,7 +580,7 @@ sudo tail -F /var/log/nginx/error.log
 |---|---|---|---|
 | Dashboard 常驻服务 | `league-web.service`（systemd，`Restart=on-failure`） | 常驻 | 提供 `/jc/` 全部 API |
 | 竞彩数据采集 | 用户 crontab `*/10 * * * *` | 每 10 分钟 | 跑 `jc-ingest-run.sh` 落库 `fact.jc_*` |
-| **每日全量预测** | `league-daily-predict.timer`（systemd） | 每日 **07:01 Asia/Shanghai** | 足球全联赛 + NBA + AI 富化 |
+| **每日全量预测** | `league-daily-predict.timer`（systemd） | 每日 **21:00 Asia/Shanghai** | 足球全联赛 + NBA + AI 富化 |
 
 **为什么从进程内 apscheduler 换成 systemd timer**（旧实现实测 0 次成功触发）：
 
@@ -597,8 +597,11 @@ sudo tail -F /var/log/nginx/error.log
 
 **新实现**（`ops/` 三个文件，unit 需 `sudo install -m 644` 到 `/etc/systemd/system/`）：
 
-- `ops/league-daily-predict.timer` — `OnCalendar=*-*-* 07:01:00 Asia/Shanghai`（**时区必须显式写**；实际值以 `ops/league-daily-predict.timer` 为准，审计 R45 前本节误写 09:00）
+- `ops/league-daily-predict.timer` — `OnCalendar=*-*-* 21:00:00 Asia/Shanghai`（**时区必须显式写**；实际值以 `ops/league-daily-predict.timer` 为准，审计 R45 前本节误写 09:00）
   + `Persistent=true`（错过的触发在开机后补跑一次）。
+  + **为什么是 21:00**：体彩卖的是**次日**场次，前一天 **23:00 BJT** 封盘，预测必须赶在封盘前落盘。
+    实测次日 NBA 全盘在赛前 20–25 小时就已开赔率，所以提前一晚不会漏场次。
+    管线串行（足球 → NBA → AI），足球作业超时上限 600s ⇒ NBA 最迟 21:10 落盘，留近 1 小时下单。
 - `ops/league-daily-predict.service` — `Type=oneshot`，`After/Wants=league-web.service`。
 - `ops/league-daily-predict.sh` — **走 HTTP API 而不是直调 CLI**：配额守卫
   （`PREDICT_DAILY_LIMIT`，默认 80）与并发守卫（`active_job`）都在 `web/services/jobs.py` 里，
@@ -611,15 +614,15 @@ sudo tail -F /var/log/nginx/error.log
 可与手点的作业区分——定时任务跑没跑可以自证。此前该字段被硬编码成 `manual`。
 
 ```bash
-# 查下次触发时刻（应显示 23:01 UTC = 07:01 BJT）
+# 查下次触发时刻（应显示 13:00 UTC = 21:00 BJT）
 systemctl list-timers league-daily-predict.timer
 
-# 手动触发一次（等价于等到 07:01）
+# 手动触发一次（等价于等到 21:00）
 sudo systemctl start league-daily-predict.service
 journalctl -u league-daily-predict.service -n 50 --no-pager
 
 # 校验 OnCalendar 的时区解释
-systemd-analyze calendar "*-*-* 07:01:00 Asia/Shanghai"
+systemd-analyze calendar "*-*-* 21:00:00 Asia/Shanghai"
 ```
 
 > 旧的环境变量 `ENABLE_CRON` / `CRON_HOUR` 已随进程内调度一并移除（`web/services/cron.py` 删除、
