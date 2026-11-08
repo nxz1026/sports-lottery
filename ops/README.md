@@ -51,7 +51,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8077/health  # 200
 
 ## league-daily-predict.{service,timer,sh}
 
-每日 09:30 BJT 触发一次预测管线（oneshot 单元）。timer 用 systemd 内的
+每日 07:01 BJT 触发一次预测管线（oneshot 单元）。timer 用 systemd 内的
 `OnCalendar` 触发，不是 cron。
 
 - `league-daily-predict.service`：oneshot，跑完即退出

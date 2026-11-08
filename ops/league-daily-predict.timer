@@ -1,8 +1,8 @@
 [Unit]
-Description=每日 09:30 (Asia/Shanghai) 触发 league-web 全量预测
+Description=每日 07:01 (Asia/Shanghai) 触发 league-web 全量预测
 
 [Timer]
-OnCalendar=*-*-* 09:30:00 Asia/Shanghai
+OnCalendar=*-*-* 07:01:00 Asia/Shanghai
 Persistent=true
 Unit=league-daily-predict.service
 

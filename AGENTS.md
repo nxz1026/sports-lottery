@@ -75,7 +75,7 @@ python tools/check_docs_claims.py            # 文档声明校验（README/AGENT
 
 ## Ops / deployment
 
-- 每日定时：systemd `league-daily-predict.{timer,service}`，`OnCalendar=*-*-* 09:30:00 Asia/Shanghai`；脚本 `ops/league-daily-predict.sh`
+- 每日定时：systemd `league-daily-predict.{timer,service}`，`OnCalendar=*-*-* 07:01:00 Asia/Shanghai`；脚本 `ops/league-daily-predict.sh`
 - 该脚本按顺序触发 足球全联赛 → NBA → AI 富化，退出码 `0`=全成功 / `1`=有作业失败 / `2`=登录失败 / `3`=配额耗尽
 - ⚠️ 排障关键：告警判定**只看作业 HTTP status（`wait_job` → `job_field status`），不 grep 日志正文**。所以往日志里写中文不会影响告警，别再以"告警 grep 失败"为由做无谓的 ASCII 化
 
