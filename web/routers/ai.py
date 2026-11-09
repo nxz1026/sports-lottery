@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from pathlib import Path
+from pathlib import PurePath
 
 from fastapi import APIRouter, Depends, Query, Request
 
@@ -50,7 +50,11 @@ def _logical_path(value: str) -> str:
     norm = value.replace("\\", "/")
     if base and norm.startswith(base + "/"):
         return norm[len(base) + 1:]
-    return Path(value.replace("/", "\\")).name or value
+    #: ``PurePath`` 按**当前平台**语义解析：Linux 上认 ``/``，Windows 上认 ``\``。
+    #: 曾写成 ``Path(value.replace("/", "\\")).name`` —— 在 Linux 上把整个字符串
+    #: 当成**一个文件名**，``/opt/app/x.json`` 原样返回 ``\opt\app\x.json``，
+    #: 绝对路径照样吐给前端（脱敏静默失效，见 test_p2_ops_calibers C4）。
+    return PurePath(norm).name or value
 
 
 def _sanitize_paths(payload):
