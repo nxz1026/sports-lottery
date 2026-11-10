@@ -5,11 +5,11 @@ sleep 7s；配额到点或 429 即正常收工；收尾自审「发出 N/落块 
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import time
 from contextlib import closing, nullcontext
 
 from config import allow_paid_once, describe
+from core.bjt import now_bjt
 from core.leagues import LEAGUE_CONFIG
 from core.log import logger
 from psycopg import Connection, sql
@@ -94,7 +94,10 @@ def main(argv: list[str] | None = None, conn: Connection | None = None) -> int:
         for row in describe():  # 策略表（README §2-D9）：关闭的源在计划顶部就看得见，why 点名控制的 env 变量
             logger.info(f"[策略] {row['source']} {'可用' if row['spend'] else '关闭'} cap={row['daily_cap']} {row['why']}")
         for src, _, cap, _, _ in SOURCES.values():
-            logger.info(f"{src} 今日剩余 {quota.remaining(conn, dt.date.today(), src, cap)}/{cap}")
+            # 配额「当日」按 **BJT 自然日** 切（口径真源 core.bjt.now_bjt，见 api_get.fetch §P2-B3/A5）。
+            # 曾写成 dt.date.today() = 宿主本地日（生产宿主 TZ=Etc/UTC）⇒ UTC 16:00~24:00 这 8 小时里
+            # 展示读的是**昨天**的日键，而真正扣减走 fetch() 的 BJT 日 ⇒ dry-run 报的余额与实际扣的不是同一笔账。
+            logger.info(f"{src} 今日剩余 {quota.remaining(conn, now_bjt().date(), src, cap)}/{cap}")
         return run(conn, rows, dry=True, limit=0)
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -14,6 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
+from core.bjt import now_bjt  # noqa: E402
 from core.leagues import LEAGUE_CONFIG  # noqa: E402
 from ingest import api_get, quota, run_backfill  # noqa: E402
 from store import pg  # noqa: E402
@@ -75,7 +75,7 @@ def test_plan_mode_is_read_only_then_marks_cached(conn, tap, caplog):
     assert run_backfill.main(["--plan", "--seasons", SENTINEL], conn=conn) == 0
     assert tap.calls == [] and caplog.text.count("待取") == len(rows)
     for src, cap in (("api_football", 100), ("football_data", 30)):
-        assert f"{src} 今日剩余 {quota.remaining(conn, dt.date.today(), src, cap)}/{cap}" in caplog.text
+        assert f"{src} 今日剩余 {quota.remaining(conn, now_bjt().date(), src, cap)}/{cap}" in caplog.text
     with conn.transaction():  # 真取一条：真连接真事务落块，收尾随外层 ROLLBACK 一起消失
         api_get.fetch(conn, **{k: rows[0][k] for k in ("source", "table", "endpoint", "params", "cap")})
     caplog.clear()

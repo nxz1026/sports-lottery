@@ -18,6 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
+from core.bjt import now_bjt  # noqa: E402
 from ingest import api_get, quota  # noqa: E402
 from store import pg  # noqa: E402
 
@@ -67,7 +68,7 @@ def test_cache_hit_and_error_block_are_not_refetched(conn, monkeypatch, source, 
     """A+B：200 块二次调用零请求、配额只扣一次；4xx 不算「已取过」⇒ 重取留第二块（失败不再永久挡路）。"""
     calls = _install(monkeypatch, [(status, body)])
     args = _args(source, params)
-    if (before := quota.remaining(conn, dt.date.today(), source, CAPS[source][1])) < 1:
+    if (before := quota.remaining(conn, now_bjt().date(), source, CAPS[source][1])) < 1:
         pytest.skip(f"今日 {source} 余额 {before}")
     n = 1 if status == 200 else 2  # 只有成功块算「已取过」：失败块重跑会再请求、再落一块
     with conn.transaction():
@@ -75,7 +76,7 @@ def test_cache_hit_and_error_block_are_not_refetched(conn, monkeypatch, source, 
         again = api_get.fetch(conn, **{**args, "params": dict(reversed(list(params.items())))})
         row = conn.execute(f"SELECT http_status, quota_cost, body FROM raw.{args['table']} WHERE params_hash = %s",
                            (api_get.params_hash(source, args["endpoint"], params),)).fetchone()
-        after = quota.remaining(conn, dt.date.today(), source, CAPS[source][1])
+        after = quota.remaining(conn, now_bjt().date(), source, CAPS[source][1])
     assert (len(calls), first, again) == (n, (status, body), (status, body))
     assert (row, after) == ((status, 1, body), before - n)
 
@@ -91,7 +92,7 @@ def test_retry_policy(conn, monkeypatch, responses, calls_n, waits, stored):
     calls = _install(monkeypatch, responses)
     monkeypatch.setattr(api_get.time, "sleep", (slept := []).append)
     args = _args("football_data", {"season": "2023"})
-    if quota.remaining(conn, dt.date.today(), "football_data", 30) < 1:
+    if quota.remaining(conn, now_bjt().date(), "football_data", 30) < 1:
         pytest.skip("今日 football_data 余额不足")
     with conn.transaction():
         api_get.fetch(conn, **args)
